@@ -1,0 +1,57 @@
+<!DOCTYPE html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NASA-TLX</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  body{font-family:sans-serif;padding:16px}
+  label{font-weight:bold}
+  input[type=range]{width:100%}
+  button{margin-top:16px;padding:8px 20px}
+</style>
+</head><body>
+<h2>NASA-TLX</h2><div id="f"></div>
+<button id="sendButton">送信</button>
+
+<script>
+  // ★★★ あなたのNASA-TLX用LIFF IDを設定してください ★★★
+  const LIFF_ID = '2007728537-yleNDjVd';
+  
+  const Q = ['M', 'P', 'T', 'O', 'E', 'F'];
+  const L = ['Mental', 'Physical', 'Temporal', 'Performance', 'Effort', 'Frustration'];
+  const params = new URLSearchParams(window.location.search);
+  const row = params.get('row');
+
+  function buildForm() {
+    const formContainer = document.getElementById('f');
+    Q.forEach((_, i) => {
+      formContainer.insertAdjacentHTML('beforeend',
+        `<label>${L[i]} <span id="v${i}">10</span></label>
+         <input type="range" id="r${i}" min="1" max="20" value="10"
+            oninput="document.getElementById('v${i}').textContent=this.value"><br>`
+      );
+    });
+  }
+
+  async function sendMessage() {
+    const vals = Q.map((_, i) => document.getElementById(`r${i}`).value);
+    const txt = `NASA:row=${row};M=${vals[0]};P=${vals[1]};T=${vals[2]};O=${vals[3]};E=${vals[4]};F=${vals[5]}`;
+    try {
+      await liff.sendMessages([{ type: 'text', text: txt }]);
+      liff.closeWindow();
+    } catch (e) {
+      alert('送信エラー: ' + JSON.stringify(e));
+    }
+  }
+
+  async function main() {
+    try {
+      await liff.init({ liffId: LIFF_ID });
+      buildForm();
+      document.getElementById('sendButton').addEventListener('click', sendMessage);
+    } catch (e) {
+      alert('LIFF初期化エラー: ' + JSON.stringify(e));
+    }
+  }
+  
+  window.onload = main;
+</script></body></html>
