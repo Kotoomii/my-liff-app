@@ -1,0 +1,63 @@
+<!DOCTYPE html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>活動入力</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+body{font-family:sans-serif;padding:16px}
+label{font-weight:bold}
+input[type=range]{width:100%}
+button{margin-top:16px;padding:8px 20px}
+</style></head><body>
+
+<h2 id="title">Loading…</h2>
+
+<label>開始時刻</label><br>
+<input type="datetime-local" id="dt"><br><br>
+
+<label>継続時間 (分) <span id="out">30</span></label><br>
+<input type="range" id="dur" min="5" max="240" step="5" value="30"
+       oninput="out.textContent=this.value"><br><br>
+
+<button id="sendButton">送信</button>
+
+<script>
+  // ★★★ あなたの活動入力用LIFF IDを設定してください ★★★
+  const LIFF_ID = '2007728537-Nqzr9R6j';
+
+  // URLからBotが渡した情報を取得
+  const params = new URLSearchParams(window.location.search);
+  const mid = params.get('mid');
+  const sub = params.get('sub');
+
+  async function main() {
+    try {
+      await liff.init({ liffId: LIFF_ID });
+      if (!liff.isInClient()) {
+        document.getElementById('title').textContent = 'LINEアプリで開いてください';
+        return;
+      }
+      document.getElementById('title').textContent = `${mid} › ${sub} の入力`;
+      document.getElementById('sendButton').addEventListener('click', sendMessage);
+    } catch (error) {
+      document.getElementById('title').textContent = 'LIFF初期化エラー';
+      alert('LIFF初期化エラー: ' + JSON.stringify(error));
+    }
+  }
+
+  async function sendMessage() {
+    const dtValue = document.getElementById('dt').value;
+    const durValue = document.getElementById('dur').value;
+    if (!dtValue) { alert('開始時刻を選択してください'); return; }
+
+    const msg = `ACT:mid=${mid};sub=${sub};start=${dtValue};dur=${durValue}`;
+    try {
+      await liff.sendMessages([{ type: 'text', text: msg }]);
+      liff.closeWindow();
+    } catch (error) {
+      alert('送信エラー: ' + JSON.stringify(error));
+    }
+  }
+
+  // ページの読み込み完了後に実行
+  window.onload = main;
+</script></body></html>
