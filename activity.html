@@ -1,42 +1,91 @@
-<!DOCTYPE html><html><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>活動入力</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
-body{font-family:sans-serif;padding:16px}
-label{font-weight:bold}
-input[type=range]{width:100%}
-button{margin-top:16px;padding:8px 20px}
-</style></head><body>
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 1em; }
+  h2 { text-align: center; }
+  .time-grid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 5px; }
+  label { font-weight: bold; margin: 1.5em 0 0.5em 0; display: block; }
+  select { width: 100%; padding: 10px; font-size: 1.2em; border-radius: 8px; border: 1px solid #ccc; }
+  button { width: 100%; margin-top: 2em; padding: 12px; font-size: 1.2em; font-weight: bold; color: white; background-color: #00B900; border: none; border-radius: 8px; }
+  input[type=date] { width: 100%; padding: 10px; font-size: 1.2em; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; }
+</style>
+</head>
+<body>
 
 <h2 id="title">Loading…</h2>
 
-<label>開始時刻</label><br>
-<input type="datetime-local" id="dt"><br><br>
+<label for="date-input">日付</label>
+<input type="date" id="date-input">
 
-<label>継続時間 (分) <span id="out">30</span></label><br>
-<input type="range" id="dur" min="5" max="240" step="5" value="30"
-       oninput="out.textContent=this.value"><br><br>
+<label>開始時刻</label>
+<div class="time-grid">
+  <select id="start-hour"></select>
+  <span>:</span>
+  <select id="start-minute"></select>
+</div>
+
+<label>終了時刻</label>
+<div class="time-grid">
+  <select id="end-hour"></select>
+  <span>:</span>
+  <select id="end-minute"></select>
+</div>
 
 <button id="sendButton">送信</button>
+
+<!-- ★★★ GASから渡されたデータを埋め込むスクリプトを削除しました ★★★ -->
 
 <script>
   // ★★★ あなたの活動入力用LIFF IDを設定してください ★★★
   const LIFF_ID = '2007728537-Nqzr9R6j';
 
-  // URLからBotが渡した情報を取得
   const params = new URLSearchParams(window.location.search);
   const mid = params.get('mid');
   const sub = params.get('sub');
 
-  async function main() {
+  window.onload = function() {
+    setupTimePickers();
+    initializeLiff();
+  };
+
+  function setupTimePickers() {
+    const hours = [...Array(24).keys()].map(h => h.toString().padStart(2, '0'));
+    const minutes = ['00', '15', '30', '45'];
+    
+    const startHourSelect = document.getElementById('start-hour');
+    const startMinuteSelect = document.getElementById('start-minute');
+    const endHourSelect = document.getElementById('end-hour');
+    const endMinuteSelect = document.getElementById('end-minute');
+
+    hours.forEach(h => {
+      startHourSelect.add(new Option(h, h));
+      endHourSelect.add(new Option(h, h));
+    });
+    minutes.forEach(m => {
+      startMinuteSelect.add(new Option(m, m));
+      endMinuteSelect.add(new Option(m, m));
+    });
+
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    document.getElementById('date-input').value = `${yyyy}-${mm}-${dd}`;
+  }
+
+  async function initializeLiff() {
     try {
       await liff.init({ liffId: LIFF_ID });
       if (!liff.isInClient()) {
         document.getElementById('title').textContent = 'LINEアプリで開いてください';
         return;
       }
-      document.getElementById('title').textContent = `${mid} › ${sub} の入力`;
+      document.getElementById('title').textContent = `${mid} › ${sub}`;
       document.getElementById('sendButton').addEventListener('click', sendMessage);
     } catch (error) {
       document.getElementById('title').textContent = 'LIFF初期化エラー';
@@ -44,12 +93,32 @@ button{margin-top:16px;padding:8px 20px}
     }
   }
 
+  /**
+   * メッセージを送信する関数
+   */
   async function sendMessage() {
-    const dtValue = document.getElementById('dt').value;
-    const durValue = document.getElementById('dur').value;
-    if (!dtValue) { alert('開始時刻を選択してください'); return; }
+    const dateStr = document.getElementById('date-input').value;
+    const startHour = document.getElementById('start-hour').value;
+    const startMinute = document.getElementById('start-minute').value;
+    const endHour = document.getElementById('end-hour').value;
+    const endMinute = document.getElementById('end-minute').value;
 
-    const msg = `ACT:mid=${mid};sub=${sub};start=${dtValue};dur=${durValue}`;
+    if (!dateStr) { alert('日付を選択してください'); return; }
+
+    const newStartTime = new Date(`${dateStr}T${startHour}:${startMinute}:00`).getTime();
+    const newEndTime = new Date(`${dateStr}T${endHour}:${endMinute}:00`).getTime();
+
+    if (newEndTime <= newStartTime) {
+      alert('終了時刻は開始時刻より後に設定してください');
+      return;
+    }
+
+    // ★★★ 時間の重複チェック処理を一時的に削除しました ★★★
+
+    const durationInMinutes = (newEndTime - newStartTime) / 60000;
+    const startTimeISO = new Date(newStartTime).toISOString();
+    const msg = `ACT:mid=${mid};sub=${sub};start=${startTimeISO};dur=${durationInMinutes}`;
+    
     try {
       await liff.sendMessages([{ type: 'text', text: msg }]);
       liff.closeWindow();
@@ -57,7 +126,6 @@ button{margin-top:16px;padding:8px 20px}
       alert('送信エラー: ' + JSON.stringify(error));
     }
   }
-
-  // ページの読み込み完了後に実行
-  window.onload = main;
-</script></body></html>
+</script>
+</body>
+</html>
