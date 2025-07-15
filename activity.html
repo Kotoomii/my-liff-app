@@ -8,17 +8,6 @@
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 1em; }
   h2 { text-align: center; color: #333; }
-  /* ★★★ 1. 追加したスタイル ★★★ */
-  #last-activity-info {
-    background-color: #f0f8ff;
-    border: 1px solid #cce5ff;
-    border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 20px;
-    text-align: center;
-    color: #333;
-    font-size: 0.9em;
-  }
   .input-group { margin-bottom: 1.5em; }
   label { font-weight: bold; margin-bottom: 0.5em; display: block; color: #555; }
   select, input[type=date] {
@@ -49,21 +38,21 @@
 
 <h2 id="title">活動の入力</h2>
 
-<!-- ★★★ 2. 追加した表示エリア ★★★ -->
-<div id="last-activity-info" style="display:none;"></div>
-
 <div class="input-group">
   <label for="mid-category">中分類</label>
   <select id="mid-category"></select>
 </div>
+
 <div class="input-group">
   <label for="sub-category">小分類</label>
   <select id="sub-category"></select>
 </div>
+
 <div class="input-group">
-  <label for="date-input">日付</label>
+  <label for="date-input">開始日</label>
   <input type="date" id="date-input">
 </div>
+
 <div class="input-group">
   <label>開始時刻</label>
   <div class="time-grid">
@@ -72,6 +61,7 @@
     <select id="start-minute"></select>
   </div>
 </div>
+
 <div class="input-group">
   <label>終了時刻</label>
   <div class="time-grid">
@@ -80,76 +70,56 @@
     <select id="end-minute"></select>
   </div>
 </div>
+
 <button id="sendButton">この内容で記録する</button>
 
 <script>
+  // ★★★ あなたの活動入力用LIFF IDを設定してください ★★★
   const LIFF_ID = '2007728537-Nqzr9R6j';
+
+  // ★★★ 分類マップをここに直接記述します ★★★
   const SUB_MAP = {
-    '睡眠': ['睡眠'], 
-    '食事': ['食事'], 
-    '身のまわりの用事': ['身のまわりの用事'], 
+    '睡眠': ['睡眠'],
+    '食事': ['食事'],
+    '身のまわりの用事': ['身のまわりの用事'],
     '療養・静養': ['療養・静養'],
-    '仕事関連': ['仕事', '仕事のつきあい'], 
+    '仕事関連': ['仕事', '仕事のつきあい'],
     '学業': ['授業・学内の活動', '学校外の学習'],
-    '家事': ['炊事・掃除・洗濯', '買い物', '子どもの世話', '家庭雑事'], 
-    '通勤': ['通勤'], 
+    '家事': ['炊事・掃除・洗濯', '買い物', '子どもの世話', '家庭雑事'],
+    '通勤': ['通勤'],
     '通学': ['通学'],
-    '社会参加': ['社会参加'], 
+    '社会参加': ['社会参加'],
     '会話・交際': ['会話・交際'],
     'レジャー活動': ['スポーツ', '行楽・散策', '趣味・娯楽・教養(インターネット除く)','趣味・娯楽・教養のインターネット(動画除く)','インターネット動画'],
     'マスメディア接触': ['テレビ', '録画番組・DVD', 'ラジオ','新聞','雑誌・マンガ・本','音楽'],
-    '休息': ['休憩'], 'その他・不明': ['その他','不明']
+    '休息': ['休憩'],
+    'その他・不明': ['その他','不明']
   };
+
+  // --- ここから下のJavaScriptは変更不要です ---
 
   window.onload = function() {
     setupPickers();
-    displayLastActivity(); // ★★★ 4. 追加した関数呼び出し ★★★
     initializeLiff();
   };
-
-  /**
-   * ★★★ 3. 追加した新しい関数 ★★★
-   * 直前の活動情報を表示し、開始時刻を自動セットする
-   */
-  function displayLastActivity() {
-    const params = new URLSearchParams(window.location.search);
-    const lastName = params.get('lastActivityName');
-    const lastEndTimeMs = params.get('lastActivityEndTimeMs');
-
-    if (lastName && lastEndTimeMs) {
-        const lastEndTime = new Date(Number(lastEndTimeMs));
-        const infoElement = document.getElementById('last-activity-info');
-        const timeStr = lastEndTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-
-        infoElement.innerHTML = `📝 <strong>直前の活動:</strong> ${timeStr} まで「${lastName}」`;
-        infoElement.style.display = 'block';
-
-        // 開始時刻ピッカーを直前の終了時刻に自動で設定
-        const startHourSelect = document.getElementById('start-hour');
-        const startMinuteSelect = document.getElementById('start-minute');
-        
-        if (startHourSelect && startMinuteSelect) {
-          const hour = lastEndTime.getHours().toString().padStart(2, '0');
-          const minute = lastEndTime.getMinutes().toString().padStart(2, '0');
-          
-          startHourSelect.value = hour;
-          
-          // ★★★ 修正箇所：不要な切り上げ処理を削除し、値を直接設定します ★★★
-          startMinuteSelect.value = minute;
-        }
-    }
-  }
 
   function setupPickers() {
     const midCategorySelect = document.getElementById('mid-category');
     const subCategorySelect = document.getElementById('sub-category');
-    Object.keys(SUB_MAP).forEach(mid => { midCategorySelect.add(new Option(mid, mid)); });
+    
+    Object.keys(SUB_MAP).forEach(mid => {
+      midCategorySelect.add(new Option(mid, mid));
+    });
+
     midCategorySelect.onchange = function() {
       const selectedMid = this.value;
       subCategorySelect.innerHTML = '';
-      SUB_MAP[selectedMid].forEach(sub => { subCategorySelect.add(new Option(sub, sub)); });
+      SUB_MAP[selectedMid].forEach(sub => {
+        subCategorySelect.add(new Option(sub, sub));
+      });
     };
     midCategorySelect.dispatchEvent(new Event('change'));
+
     const hours = [...Array(24).keys()].map(h => h.toString().padStart(2, '0'));
     const minutes = ['00', '15', '30', '45'];
     ['start-hour', 'end-hour'].forEach(id => {
@@ -160,6 +130,7 @@
       const select = document.getElementById(id);
       minutes.forEach(m => select.add(new Option(m, m)));
     });
+
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -184,13 +155,23 @@
     const startMinute = document.getElementById('start-minute').value;
     const endHour = document.getElementById('end-hour').value;
     const endMinute = document.getElementById('end-minute').value;
+
     if (!dateStr || !mid || !sub) { alert('未入力の項目があります'); return; }
+
+    // ★★★ ここから修正 ★★★
     const startTime = new Date(`${dateStr}T${startHour}:${startMinute}:00`);
-    const endTime = new Date(`${dateStr}T${endHour}:${endMinute}:00`);
-    if (endTime <= startTime) { alert('終了時刻は開始時刻より後に設定してください'); return; }
+    let endTime = new Date(`${dateStr}T${endHour}:${endMinute}:00`);
+
+    // もし終了時刻が開始時刻より前か同じ場合、終了時刻の日付を1日進める
+    if (endTime <= startTime) {
+      endTime.setDate(endTime.getDate() + 1);
+    }
+    // ★★★ 修正ここまで ★★★
+
     const durationInMinutes = (endTime.getTime() - startTime.getTime()) / 60000;
     const startTimeISO = startTime.toISOString();
     const msg = `ACT:mid=${mid};sub=${sub};start=${startTimeISO};dur=${durationInMinutes}`;
+    
     try {
       if (!liff.isInClient()) { alert('LINEアプリで開いてください'); return; }
       await liff.sendMessages([{ type: 'text', text: msg }]);
