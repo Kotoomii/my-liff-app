@@ -125,7 +125,7 @@ class SheetsConnector:
         try:
             if not self.gc:
                 logger.warning("Google Sheetsクライアントが初期化されていません")
-                return self._get_dummy_activity_data()
+                return pd.DataFrame()
             
             # ユーザー設定から活動データシート名を取得
             user_config = self._get_user_sheet_config(user_id)
@@ -135,14 +135,14 @@ class SheetsConnector:
             worksheet = self._find_worksheet_by_exact_name(activity_sheet_name)
             
             if not worksheet:
-                logger.warning(f"活動データシート '{activity_sheet_name}' が見つかりません。ダミーデータを返します")
-                return self._get_dummy_activity_data()
+                logger.warning(f"活動データシート '{activity_sheet_name}' が見つかりません")
+                return pd.DataFrame()
             
             # データ取得
             data = worksheet.get_all_records()
             if not data:
-                logger.warning("活動データが空です。ダミーデータを返します")
-                return self._get_dummy_activity_data()
+                logger.warning("活動データが空です")
+                return pd.DataFrame()
             
             df = pd.DataFrame(data)
             
@@ -160,7 +160,7 @@ class SheetsConnector:
             
         except Exception as e:
             logger.error(f"活動データ取得エラー: {e}")
-            return self._get_dummy_activity_data()
+            return pd.DataFrame()
     
     def get_fitbit_data(self, user_id: str = "default") -> pd.DataFrame:
         """
@@ -169,7 +169,7 @@ class SheetsConnector:
         try:
             if not self.gc:
                 logger.warning("Google Sheetsクライアントが初期化されていません")
-                return self._get_dummy_fitbit_data()
+                return pd.DataFrame()
             
             # ユーザー設定からFitbitデータシート名を取得
             user_config = self._get_user_sheet_config(user_id)
@@ -179,14 +179,14 @@ class SheetsConnector:
             worksheet = self._find_worksheet_by_exact_name(fitbit_sheet_name)
             
             if not worksheet:
-                logger.warning(f"Fitbitデータシート '{fitbit_sheet_name}' が見つかりません。ダミーデータを返します")
-                return self._get_dummy_fitbit_data()
+                logger.warning(f"Fitbitデータシート '{fitbit_sheet_name}' が見つかりません")
+                return pd.DataFrame()
             
             # データ取得
             data = worksheet.get_all_records()
             if not data:
-                logger.warning("Fitbitデータが空です。ダミーデータを返します")
-                return self._get_dummy_fitbit_data()
+                logger.warning("Fitbitデータが空です")
+                return pd.DataFrame()
             
             df = pd.DataFrame(data)
             
@@ -201,7 +201,7 @@ class SheetsConnector:
             
         except Exception as e:
             logger.error(f"Fitbitデータ取得エラー: {e}")
-            return self._get_dummy_fitbit_data()
+            return pd.DataFrame()
     
     def get_fixed_plans(self, user_id: str = "default") -> pd.DataFrame:
         """
@@ -210,20 +210,20 @@ class SheetsConnector:
         try:
             if not self.gc:
                 logger.warning("Google Sheetsクライアントが初期化されていません")
-                return self._get_dummy_fixed_plans()
+                return pd.DataFrame()
             
             # FIXED_PLANSシートを検索
             worksheet = self._find_worksheet_by_pattern(self.config.FIXED_PLANS_SHEET)
             
             if not worksheet:
-                logger.warning("FIXED_PLANSシートが見つかりません。ダミーデータを返します")
-                return self._get_dummy_fixed_plans()
+                logger.warning("FIXED_PLANSシートが見つかりません")
+                return pd.DataFrame()
             
             # データ取得
             data = worksheet.get_all_records()
             if not data:
-                logger.warning("FIXED_PLANSデータが空です。ダミーデータを返します")
-                return self._get_dummy_fixed_plans()
+                logger.warning("FIXED_PLANSデータが空です")
+                return pd.DataFrame()
             
             df = pd.DataFrame(data)
             
@@ -244,7 +244,7 @@ class SheetsConnector:
             
         except Exception as e:
             logger.error(f"FIXED_PLANSデータ取得エラー: {e}")
-            return self._get_dummy_fixed_plans()
+            return pd.DataFrame()
     
     def _get_dummy_activity_data(self) -> pd.DataFrame:
         """ダミーの活動データを生成"""
