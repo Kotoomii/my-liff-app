@@ -419,8 +419,8 @@ def get_users():
                 'user_id': 'default', 
                 'name': 'デフォルトユーザー', 
                 'icon': '👤',
-                'activity_sheet': 'default',  # LINE活動報告シート名
-                'fitbit_sheet': 'kotoomi_Fitbit-data-default'  # Fitbitデータシート名
+                'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d337f',  # LINE活動報告シート名
+                'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'  # Fitbitデータシート名
             },
             {
                 'user_id': 'user1', 
@@ -600,8 +600,8 @@ def get_user_config(user_id: str) -> Dict:
             'user_id': 'default', 
             'name': 'デフォルトユーザー', 
             'icon': '👤',
-            'activity_sheet': 'default',
-            'fitbit_sheet': 'kotoomi_Fitbit-data-default'
+            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d337f',
+            'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
         },
         {
             'user_id': 'user1', 
