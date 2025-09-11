@@ -1,0 +1,35 @@
+runtime: python311
+
+env_variables:
+  GOOGLE_APPLICATION_CREDENTIALS: "service-account-key.json"
+  # OpenAI API key for LLM feedback (optional)
+  OPENAI_API_KEY: "your-openai-api-key-here"
+  # Spreadsheet ID
+  SPREADSHEET_ID: "your-spreadsheet-id-here"
+  FLASK_ENV: "production"
+
+automatic_scaling:
+  min_instances: 1
+  max_instances: 10
+  target_cpu_utilization: 0.6
+
+resources:
+  cpu: 1
+  memory_gb: 4
+  disk_size_gb: 10
+
+# Health check configuration
+liveness_check:
+  path: "/api/health"
+  check_interval_sec: 30
+  timeout_sec: 4
+  failure_threshold: 2
+  success_threshold: 2
+
+readiness_check:
+  path: "/api/health"
+  check_interval_sec: 5
+  timeout_sec: 4
+  failure_threshold: 2
+  success_threshold: 2
+  app_start_timeout_sec: 300

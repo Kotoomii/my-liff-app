@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>スマートミラー - ストレス分析ダッシュボード</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ timestamp }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="mirror-container">
+        <!-- ヘッダー部分 -->
+        <header class="mirror-header">
+            <div class="time-display">
+                <div id="current-time"></div>
+                <div id="current-date"></div>
+            </div>
+            <h1 class="app-title">ストレス分析ダッシュボード</h1>
+            <div class="header-right">
+                <div class="user-info">
+                    <div class="current-user">
+                        ユーザー: <span id="current-user-name">デフォルト</span>
+                    </div>
+                    <div class="analysis-date">
+                        分析日: <span id="analysis-date-display"></span>
+                    </div>
+                </div>
+                <!-- ユーザー選択アイコン -->
+                <div class="user-selector">
+                    <button id="user-selector-btn" class="user-icon-btn" title="ユーザーを選択">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="12" cy="8" r="4"/>
+                            <path d="M12 14c-4 0-8 2-8 6v2h16v-2c0-4-4-6-8-6z"/>
+                        </svg>
+                    </button>
+                    <div id="user-dropdown" class="user-dropdown">
+                        <div class="dropdown-item" data-user="default">
+                            <div class="user-avatar">👤</div>
+                            <span>デフォルトユーザー</span>
+                        </div>
+                        <div class="dropdown-item" data-user="user1">
+                            <div class="user-avatar">👩</div>
+                            <span>ユーザー1</span>
+                        </div>
+                        <div class="dropdown-item" data-user="user2">
+                            <div class="user-avatar">👨</div>
+                            <span>ユーザー2</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- メインダッシュボード -->
+        <main class="dashboard">
+            <!-- 左側コンテナ -->
+            <div class="left-container">
+                <!-- 今日の最適行動パターン -->
+                <section class="optimal-pattern-card">
+                    <h2>今日の最適行動パターン</h2>
+                    <div class="pattern-timeline">
+                        <div id="today-optimal-timeline" class="timeline-display">
+                            <div class="loading">データを読み込み中...</div>
+                        </div>
+                    </div>
+                    <div class="pattern-summary">
+                        <div id="today-pattern-summary" class="summary-text">
+                            分析中...
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 明日の最適行動提案 -->
+                <section class="tomorrow-optimal-card">
+                    <div class="suggestion-header">
+                        <h2>明日の最適行動提案</h2>
+                        <div class="suggestion-controls">
+                            <button id="voice-switch-btn" class="voice-switch-btn" title="音声で切り替え">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                                    <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                                    <path d="M12 18v4m-4 0h8"/>
+                                </svg>
+                            </button>
+                            <button id="manual-switch-btn" class="manual-switch-btn" title="手動切り替え">
+                                <span id="current-suggestion-indicator">A</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="single-suggestion-container">
+                        <div class="current-suggestion" id="current-suggestion">
+                            <h3 id="current-suggestion-title">提案パターン A</h3>
+                            <div id="current-suggestion-timeline" class="timeline-display">
+                                <div class="loading">生成中...</div>
+                            </div>
+                            <div class="suggestion-details">
+                                <div class="expected-reduction">
+                                    期待ストレス軽減: <span id="current-reduction">--</span>ポイント
+                                </div>
+                                <div class="key-changes">
+                                    <div class="change-title">主な変更点:</div>
+                                    <div id="current-changes" class="change-list">生成中...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 右側コンテナ -->
+            <div class="right-container">
+                <!-- 今日の総負荷 -->
+                <section class="workload-summary-card">
+                    <h2>今日の総負荷</h2>
+                    <div class="workload-display">
+                        <div class="workload-meter">
+                            <div class="workload-fill" id="workload-meter"></div>
+                            <div class="workload-value">
+                                <span id="workload-number">--</span>
+                            </div>
+                        </div>
+                        <div class="workload-details">
+                            <div class="workload-item">
+                                <span class="label">平均ストレス:</span>
+                                <span id="avg-stress">--</span>
+                            </div>
+                            <div class="workload-item">
+                                <span class="label">累積負荷:</span>
+                                <span id="total-workload">--</span>
+                            </div>
+                            <div class="workload-item">
+                                <span class="label">高負荷時間:</span>
+                                <span id="high-stress-hours">--</span>時間
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+
+                <!-- 詳細アドバイス -->
+                <section class="advice-card">
+                    <h2>今日のアドバイス</h2>
+                    <div id="daily-advice" class="advice-content">
+                        <div class="loading">生成中...</div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- フッター -->
+        <footer class="mirror-footer">
+            <div class="system-status">
+                <div class="status-indicator">
+                    <span id="connection-status" class="status-dot"></span>
+                    <span>システム状態: <span id="status-text">確認中</span></span>
+                </div>
+                <div class="last-update">
+                    最終更新: <span id="last-update-time">--</span>
+                </div>
+            </div>
+            <div class="auto-cycle-info">
+                <span>自動更新: 5分毎</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- データ保存インジケーター -->
+    <div id="save-indicator" class="save-indicator">
+        <div class="save-icon">💾</div>
+        <div class="save-text">データを保存中...</div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}?v={{ timestamp }}"></script>
+</body>
+</html>

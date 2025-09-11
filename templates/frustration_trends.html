@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>フラストレーション値推移 - 研究分析システム</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+            padding-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #fff, #e0e0e0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .control-group select, .control-group input {
+            padding: 10px 15px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 14px;
+            backdrop-filter: blur(5px);
+        }
+
+        .control-group select:focus, .control-group input:focus {
+            outline: 2px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .summary-card {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .summary-card h3 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+
+        .summary-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .summary-card .unit {
+            font-size: 14px;
+            opacity: 0.7;
+        }
+
+        .improvement-positive {
+            color: #4CAF50;
+        }
+
+        .improvement-negative {
+            color: #F44336;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .chart-title {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .chart {
+            width: 100%;
+            height: 300px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chart-bars {
+            display: flex;
+            align-items: end;
+            height: 100%;
+            gap: 2px;
+            padding: 20px;
+        }
+
+        .chart-bar {
+            flex: 1;
+            background: linear-gradient(to top, #4CAF50, #81C784);
+            border-radius: 4px 4px 0 0;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .chart-bar.medium {
+            background: linear-gradient(to top, #FF9800, #FFB74D);
+        }
+
+        .chart-bar.high {
+            background: linear-gradient(to top, #F44336, #EF5350);
+        }
+
+        .chart-bar:hover {
+            transform: scaleY(1.05);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .bar-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .chart-bar:hover .bar-tooltip {
+            opacity: 1;
+        }
+
+        .daily-details {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .details-title {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .day-entries {
+            display: grid;
+            gap: 15px;
+        }
+
+        .day-entry {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .day-entry.medium {
+            border-left-color: #FF9800;
+        }
+
+        .day-entry.high {
+            border-left-color: #F44336;
+        }
+
+        .day-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .day-date {
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .day-stats {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        .activities-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .activity-tag {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            opacity: 0.7;
+        }
+
+        .error {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #F44336;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            color: #FFCDD2;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .summary-cards {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 フラストレーション値推移分析</h1>
+            <p>実験期間中のフラストレーション値の変化を確認し、改善効果を測定</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="user-select">ユーザー選択</label>
+                <select id="user-select">
+                    <option value="default">デフォルトユーザー</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="period-select">期間選択</label>
+                <select id="period-select">
+                    <option value="7">過去7日間</option>
+                    <option value="14">過去14日間</option>
+                    <option value="30" selected>過去30日間</option>
+                    <option value="60">過去60日間</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button class="btn" onclick="loadTrends()">📈 データ更新</button>
+            </div>
+        </div>
+
+        <div class="summary-cards" id="summary-cards">
+            <!-- 動的に生成 -->
+        </div>
+
+        <div class="chart-container">
+            <h2 class="chart-title">📈 日別フラストレーション値推移</h2>
+            <div class="chart">
+                <div class="chart-bars" id="chart-bars">
+                    <!-- 動的に生成 -->
+                </div>
+            </div>
+        </div>
+
+        <div class="daily-details">
+            <h2 class="details-title">📋 日別詳細データ</h2>
+            <div id="daily-entries" class="day-entries">
+                <div class="loading">データを読み込んでいます...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTrends = null;
+
+        // ページ読み込み時の初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUsers();
+            loadTrends();
+        });
+
+        // ユーザー一覧読み込み
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const select = document.getElementById('user-select');
+                    select.innerHTML = '';
+                    
+                    data.users.forEach(user => {
+                        const option = document.createElement('option');
+                        option.value = user.user_id;
+                        option.textContent = user.name;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('ユーザー読み込みエラー:', error);
+            }
+        }
+
+        // 推移データ読み込み
+        async function loadTrends() {
+            try {
+                const userId = document.getElementById('user-select').value;
+                const days = parseInt(document.getElementById('period-select').value);
+                
+                document.getElementById('daily-entries').innerHTML = '<div class="loading">データを読み込んでいます...</div>';
+                
+                const response = await fetch('/api/frustration/trends', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, days: days })
+                });
+
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    currentTrends = data;
+                    updateSummaryCards(data.period_summary);
+                    updateChart(data.daily_trends);
+                    updateDailyDetails(data.daily_trends);
+                } else {
+                    throw new Error(data.message || '不明なエラー');
+                }
+            } catch (error) {
+                console.error('推移データ読み込みエラー:', error);
+                document.getElementById('daily-entries').innerHTML = `<div class="error">エラー: ${error.message}</div>`;
+            }
+        }
+
+        // サマリーカード更新
+        function updateSummaryCards(summary) {
+            const container = document.getElementById('summary-cards');
+            
+            const trend = summary.improvement_trend;
+            const trendClass = trend < 0 ? 'improvement-positive' : trend > 0 ? 'improvement-negative' : '';
+            const trendIcon = trend < 0 ? '📉' : trend > 0 ? '📈' : '➡️';
+            
+            container.innerHTML = `
+                <div class="summary-card">
+                    <h3>平均フラストレーション値</h3>
+                    <div class="value">${summary.avg_frustration ? summary.avg_frustration.toFixed(1) : 'N/A'}</div>
+                    <div class="unit">/ 20点満点</div>
+                </div>
+                <div class="summary-card">
+                    <h3>改善トレンド</h3>
+                    <div class="value ${trendClass}">${trendIcon} ${Math.abs(trend).toFixed(1)}</div>
+                    <div class="unit">${trend < 0 ? '改善' : trend > 0 ? '悪化' : '変化なし'}</div>
+                </div>
+                <div class="summary-card">
+                    <h3>総活動数</h3>
+                    <div class="value">${summary.total_activities}</div>
+                    <div class="unit">回</div>
+                </div>
+                <div class="summary-card">
+                    <h3>総活動時間</h3>
+                    <div class="value">${Math.round(summary.total_duration / 60)}</div>
+                    <div class="unit">時間</div>
+                </div>
+            `;
+        }
+
+        // チャート更新
+        function updateChart(dailyTrends) {
+            const container = document.getElementById('chart-bars');
+            container.innerHTML = '';
+            
+            const maxFrustration = Math.max(...dailyTrends.filter(d => d.avg_frustration).map(d => d.avg_frustration), 1);
+            
+            dailyTrends.forEach(day => {
+                const bar = document.createElement('div');
+                bar.className = 'chart-bar';
+                
+                if (day.avg_frustration) {
+                    const height = (day.avg_frustration / maxFrustration) * 100;
+                    bar.style.height = height + '%';
+                    
+                    if (day.avg_frustration <= 7) {
+                        bar.classList.add('low');
+                    } else if (day.avg_frustration <= 14) {
+                        bar.classList.add('medium');
+                    } else {
+                        bar.classList.add('high');
+                    }
+                } else {
+                    bar.style.height = '5%';
+                    bar.style.opacity = '0.3';
+                }
+                
+                const tooltip = document.createElement('div');
+                tooltip.className = 'bar-tooltip';
+                const date = new Date(day.date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' });
+                tooltip.textContent = `${date}: ${day.avg_frustration ? day.avg_frustration.toFixed(1) : 'N/A'}`;
+                
+                bar.appendChild(tooltip);
+                container.appendChild(bar);
+            });
+        }
+
+        // 日別詳細更新
+        function updateDailyDetails(dailyTrends) {
+            const container = document.getElementById('daily-entries');
+            container.innerHTML = '';
+            
+            // データがある日のみ表示
+            const daysWithData = dailyTrends.filter(day => day.avg_frustration !== null);
+            
+            if (daysWithData.length === 0) {
+                container.innerHTML = '<div class="error">データがありません</div>';
+                return;
+            }
+            
+            daysWithData.reverse().forEach(day => {
+                const entry = document.createElement('div');
+                entry.className = 'day-entry';
+                
+                if (day.avg_frustration <= 7) {
+                    entry.classList.add('low');
+                } else if (day.avg_frustration <= 14) {
+                    entry.classList.add('medium');
+                } else {
+                    entry.classList.add('high');
+                }
+                
+                const date = new Date(day.date).toLocaleDateString('ja-JP', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric',
+                    weekday: 'short'
+                });
+                
+                entry.innerHTML = `
+                    <div class="day-header">
+                        <div class="day-date">${date}</div>
+                        <div class="day-stats">
+                            F: ${day.avg_frustration.toFixed(1)} | 
+                            活動: ${day.activity_count}回 | 
+                            時間: ${Math.round(day.total_duration / 60)}h
+                        </div>
+                    </div>
+                    <div class="activities-list">
+                        ${day.activity_breakdown.map(activity => 
+                            `<div class="activity-tag">${activity.activity} (F:${activity.avg_frustration.toFixed(1)})</div>`
+                        ).join('')}
+                    </div>
+                `;
+                
+                container.appendChild(entry);
+            });
+        }
+
+        // キーボードショートカット
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'r' || e.key === 'R') {
+                loadTrends();
+            }
+        });
+    </script>
+</body>
+</html>

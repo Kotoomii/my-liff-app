@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>タブレット用フラストレーション分析システム</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* ヘッダー - ユーザー選択 */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+            z-index: 1000;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .user-selector {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .current-user-display {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 8px 15px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .current-user-display:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: scale(1.05);
+        }
+
+        .user-icon-small {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            background: rgba(76, 175, 80, 0.3);
+            border: 2px solid #4CAF50;
+        }
+
+        /* ユーザー選択ドロップダウン */
+        .user-dropdown {
+            position: absolute;
+            top: 70px;
+            right: 30px;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(15px);
+            border-radius: 15px;
+            padding: 15px;
+            min-width: 200px;
+            display: none;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .user-dropdown.active {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .user-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            margin: 5px 0;
+        }
+
+        .user-option:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .user-option.selected {
+            background: rgba(76, 175, 80, 0.3);
+        }
+
+        /* メインコンテンツ */
+        .main-container {
+            margin-top: 70px;
+            height: calc(100vh - 70px);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        /* 左側パネル */
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* 今日のフラストレーション値 */
+        .daily-analysis {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .daily-analysis::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%);
+            animation: pulse 8s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: rotate(0deg) scale(1); opacity: 0.3; }
+            50% { transform: rotate(180deg) scale(1.1); opacity: 0.6; }
+        }
+
+        .section-title {
+            font-size: 24px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .section-icon {
+            font-size: 28px;
+            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
+        }
+
+        /* 今日のフラストレーション値表示 */
+        .daily-frustration {
+            text-align: center;
+            margin: 30px 0;
+            position: relative;
+            z-index: 2;
+        }
+
+        .frustration-value {
+            font-size: 4.5em;
+            font-weight: bold;
+            margin: 20px 0;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            transition: all 1s ease;
+        }
+
+        .frustration-low { color: #4CAF50; }
+        .frustration-medium { color: #FF9800; }
+        .frustration-high { color: #F44336; }
+
+        .daily-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .stat-item {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        /* 24時間タイムライン */
+        .timeline-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            flex: 1;
+        }
+
+        .timeline-container {
+            position: relative;
+            margin-top: 20px;
+            padding: 20px 10px 10px 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            height: 120px;
+            overflow: hidden;
+        }
+
+        .dice-timeline-container {
+            position: relative;
+            margin-top: 15px;
+            padding: 20px 10px 10px 10px;
+            background: rgba(0, 100, 0, 0.1);
+            border: 2px solid rgba(76, 175, 80, 0.3);
+            border-radius: 10px;
+            height: 120px;
+            overflow: hidden;
+        }
+
+        .timeline-title {
+            position: absolute;
+            top: 2px;
+            left: 10px;
+            font-size: 12px;
+            font-weight: bold;
+            opacity: 0.8;
+        }
+
+        .timeline-activity {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 8px;
+            margin: 4px;
+            position: relative;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+            flex-shrink: 0;
+        }
+
+        .timeline-activity:hover {
+            transform: scale(1.02);
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.3) !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .timeline-activity.low-stress { 
+            background: rgba(76, 175, 80, 0.7); 
+            border-color: #4CAF50;
+        }
+        .timeline-activity.medium-stress { 
+            background: rgba(255, 152, 0, 0.7); 
+            border-color: #FF9800;
+        }
+        .timeline-activity.high-stress { 
+            background: rgba(244, 67, 54, 0.7); 
+            border-color: #F44336;
+        }
+
+        .activity-info {
+            text-align: center;
+            font-size: 10px;
+        }
+
+        .activity-name {
+            font-weight: bold;
+            font-size: 11px;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .activity-time {
+            font-size: 8px;
+            opacity: 0.9;
+            margin-bottom: 1px;
+        }
+
+        .activity-duration {
+            font-size: 8px;
+            opacity: 0.8;
+        }
+
+        .activity-frustration {
+            font-size: 9px;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+
+        /* 時間軸ベースタイムライン */
+        .timeline-axis {
+            position: absolute;
+            top: 0;
+            left: 10px;
+            right: 10px;
+            height: 20px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .hour-marker {
+            position: absolute;
+            height: 20px;
+            width: 1px;
+            background: rgba(255, 255, 255, 0.2);
+            top: 0;
+        }
+
+        .hour-marker.major { /* 0, 3, 6, 9, 12, 15, 18, 21時 */
+            background: rgba(255, 255, 255, 0.6);
+            width: 3px;
+        }
+
+        .hour-label {
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.7);
+            white-space: nowrap;
+        }
+
+        .hour-marker.major .hour-label {
+            color: rgba(255, 255, 255, 0.95);
+            font-weight: bold;
+            font-size: 11px;
+        }
+
+        .timeline-activity-bar {
+            position: absolute;
+            top: 25px;
+            height: 80px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            overflow: hidden;
+        }
+
+        .timeline-activity-bar:hover {
+            transform: translateY(-2px);
+            z-index: 10;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .timeline-activity-bar.low-stress {
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.85), rgba(139, 195, 74, 0.85));
+            border-color: #4CAF50;
+        }
+
+        .timeline-activity-bar.medium-stress {
+            background: linear-gradient(135deg, rgba(255, 152, 0, 0.85), rgba(255, 193, 7, 0.85));
+            border-color: #FF9800;
+        }
+
+        .timeline-activity-bar.high-stress {
+            background: linear-gradient(135deg, rgba(244, 67, 54, 0.85), rgba(233, 30, 99, 0.85));
+            border-color: #F44336;
+        }
+
+        .dice-suggestion-bar {
+            position: absolute;
+            top: 25px;
+            height: 80px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px dashed rgba(76, 175, 80, 0.6);
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.3), rgba(139, 195, 74, 0.3));
+            overflow: hidden;
+        }
+
+        .dice-suggestion-bar:hover {
+            transform: translateY(-2px);
+            z-index: 10;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            border-color: #4CAF50;
+        }
+
+        .activity-bar-info {
+            padding: 6px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            text-align: center;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+        }
+
+        .activity-bar-name {
+            font-weight: bold;
+            font-size: 11px;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .activity-bar-time {
+            font-size: 9px;
+            opacity: 0.9;
+            margin-bottom: 1px;
+        }
+
+        .activity-bar-duration {
+            font-size: 8px;
+            opacity: 0.8;
+        }
+
+        .activity-bar-frustration {
+            font-size: 9px;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+
+        .timeline-legend {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        /* 右側パネル */
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* DiCE改善提案 */
+        .dice-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            flex: 2;
+            position: relative;
+            overflow-y: auto;
+        }
+
+        .dice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .dice-status {
+            font-size: 12px;
+            padding: 5px 10px;
+            background: rgba(76, 175, 80, 0.3);
+            border-radius: 15px;
+            border: 1px solid #4CAF50;
+        }
+
+        .total-improvement {
+            text-align: center;
+            margin: 20px 0;
+            font-size: 18px;
+        }
+
+        .improvement-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #4CAF50;
+            margin: 0 10px;
+        }
+
+        /* DiCE提案リスト - 縦並び */
+        .suggestions-container {
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        .suggestions-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .suggestions-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .suggestions-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        .suggestion-item {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 15px;
+            margin: 8px 0;
+            border-radius: 10px;
+            border-left: 4px solid #4CAF50;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .suggestion-item:hover {
+            transform: translateX(5px);
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        .suggestion-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .suggestion-time {
+            font-weight: bold;
+            color: #4CAF50;
+            font-size: 16px;
+        }
+
+        .improvement-points {
+            background: rgba(76, 175, 80, 0.3);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .suggestion-content {
+            margin-bottom: 8px;
+        }
+
+        .suggestion-from {
+            font-size: 14px;
+            color: #FF9800;
+            margin-bottom: 2px;
+        }
+
+        .suggestion-to {
+            font-size: 14px;
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        /* フィードバックセクション */
+        .feedback-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            flex: 1;
+            position: relative;
+            overflow-y: auto;
+        }
+
+        .feedback-text {
+            font-size: 14px;
+            line-height: 1.6;
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .feedback-highlight {
+            color: #FFD700;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(255, 215, 0, 0.3);
+        }
+
+        /* システム情報 */
+        .system-info {
+            position: fixed;
+            bottom: 15px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 8px 12px;
+            border-radius: 15px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #4CAF50;
+            box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+
+        /* ローディング表示 */
+        .loading-indicator {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 30px;
+            height: 30px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top: 2px solid #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .loading-indicator.active {
+            opacity: 1;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* タッチ操作改善 */
+        @media (max-width: 1200px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .frustration-value {
+                font-size: 3em;
+            }
+            
+            .timeline-container {
+                height: 60px;
+            }
+        }
+
+        /* タブレット最適化 */
+        @media (pointer: coarse) {
+            .user-option, .timeline-hour, .suggestion-item {
+                min-height: 44px; /* タッチしやすいサイズ */
+            }
+            
+            .current-user-display {
+                min-height: 44px;
+                padding: 10px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- ヘッダー -->
+    <div class="header">
+        <div class="logo">🧠 フラストレーション分析</div>
+        <div class="user-selector">
+            <div class="current-user-display" onclick="toggleUserDropdown()">
+                <div class="user-icon-small" id="current-user-icon">👤</div>
+                <span id="current-user-name">デフォルト</span>
+                <span style="margin-left: 5px;">▼</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ユーザー選択ドロップダウン -->
+    <div class="user-dropdown" id="user-dropdown">
+        <div class="user-option selected" data-user-id="default" onclick="selectUser('default', '👤', 'デフォルト')">
+            <div class="user-icon-small">👤</div>
+            <span>デフォルト</span>
+        </div>
+        <div class="user-option" data-user-id="user1" onclick="selectUser('user1', '👨', 'ユーザー1')">
+            <div class="user-icon-small">👨</div>
+            <span>ユーザー1</span>
+        </div>
+        <div class="user-option" data-user-id="user2" onclick="selectUser('user2', '👩', 'ユーザー2')">
+            <div class="user-icon-small">👩</div>
+            <span>ユーザー2</span>
+        </div>
+        <div class="user-option" data-user-id="user3" onclick="selectUser('user3', '🧑', 'ユーザー3')">
+            <div class="user-icon-small">🧑</div>
+            <span>ユーザー3</span>
+        </div>
+    </div>
+
+    <!-- ローディングインジケータ -->
+    <div class="loading-indicator" id="loading-indicator"></div>
+
+    <!-- メインコンテンツ -->
+    <div class="main-container">
+        <!-- 左側パネル -->
+        <div class="left-panel">
+            <!-- 今日のフラストレーション値 -->
+            <div class="daily-analysis">
+                <h2 class="section-title">
+                    <span class="section-icon">📊</span>
+                    今日のフラストレーション値
+                </h2>
+                
+                <div class="daily-frustration">
+                    <div class="frustration-value frustration-medium" id="daily-frustration-value">--</div>
+                    <div style="font-size: 16px; opacity: 0.8;" id="daily-info">今日の平均値を計算中...</div>
+                </div>
+
+                <div class="daily-stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="daily-min">--</div>
+                        <div class="stat-label">最小値</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="daily-max">--</div>
+                        <div class="stat-label">最大値</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="daily-activities">--</div>
+                        <div class="stat-label">活動数</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 24時間タイムライン -->
+            <div class="timeline-section">
+                <h2 class="section-title">
+                    <span class="section-icon">⏰</span>
+                    今日の活動タイムライン
+                </h2>
+                <div class="timeline-container" id="timeline-container">
+                    <div class="timeline-title">実際の活動</div>
+                    <!-- 24時間分の要素が動的に生成される -->
+                </div>
+                <div class="timeline-legend">
+                    <span>0</span>
+                    <span>3</span>
+                    <span>6</span>
+                    <span>9</span>
+                    <span>12</span>
+                    <span>15</span>
+                    <span>18</span>
+                    <span>21</span>
+                    <span>24</span>
+                </div>
+                
+                <div class="dice-timeline-container" id="dice-timeline-container">
+                    <div class="timeline-title">DiCE改善提案</div>
+                    <!-- DiCE提案が動的に生成される -->
+                </div>
+                <div class="timeline-legend">
+                    <span>0</span>
+                    <span>3</span>
+                    <span>6</span>
+                    <span>9</span>
+                    <span>12</span>
+                    <span>15</span>
+                    <span>18</span>
+                    <span>21</span>
+                    <span>24</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側パネル -->
+        <div class="right-panel">
+            <!-- DiCE改善提案 -->
+            <div class="dice-section">
+                <div class="dice-header">
+                    <h2 class="section-title">
+                        <span class="section-icon">🎯</span>
+                        AI改善提案
+                    </h2>
+                    <div class="dice-status" id="dice-status">分析中...</div>
+                </div>
+                
+                <div class="total-improvement">
+                    <span>総改善ポテンシャル:</span>
+                    <span class="improvement-value" id="total-improvement">--</span>
+                    <span>点</span>
+                </div>
+
+                <div class="suggestions-container" id="suggestions-container">
+                    <div class="suggestion-item">
+                        <div class="suggestion-header">
+                            <div class="suggestion-time">分析中...</div>
+                            <div class="improvement-points">-- 点</div>
+                        </div>
+                        <div class="suggestion-content">
+                            <div class="suggestion-from">改善提案を生成中...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 自然言語フィードバック -->
+            <div class="feedback-section">
+                <h2 class="section-title">
+                    <span class="section-icon">💬</span>
+                    <span id="feedback-type">今日の</span>アドバイス
+                </h2>
+                <div class="feedback-text" id="feedback-text">
+                    フィードバックを生成中です...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- システム情報 -->
+    <div class="system-info">
+        <div class="status-dot"></div>
+        <span id="update-status">自動更新中</span>
+        <span>|</span>
+        <span id="last-update">最終更新: --:--</span>
+        <span>|</span>
+        <span>次回DiCE: <span id="next-dice">--:--</span></span>
+    </div>
+
+    <script>
+        // グローバル変数
+        let currentUser = 'default';
+        let dataUpdateInterval = 300000; // 5分ごとにデータ更新
+        let diceUpdateInterval = 3600000; // 1時間ごとにDiCE分析
+        let lastDiceUpdate = 0;
+        let lastActivityCount = 0;
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSystem();
+            startAutoUpdate();
+            startDiCEScheduler();
+            
+            // ドロップダウンを閉じるためのクリックイベント
+            document.addEventListener('click', function(event) {
+                if (!event.target.closest('.user-selector')) {
+                    closeUserDropdown();
+                }
+            });
+        });
+
+        // システム初期化
+        function initializeSystem() {
+            console.log('🎮 タブレット用システム初期化中...');
+            loadUserData(currentUser);
+        }
+
+        // ユーザードロップダウン表示切り替え
+        function toggleUserDropdown() {
+            const dropdown = document.getElementById('user-dropdown');
+            dropdown.classList.toggle('active');
+        }
+
+        // ユーザードロップダウンを閉じる
+        function closeUserDropdown() {
+            const dropdown = document.getElementById('user-dropdown');
+            dropdown.classList.remove('active');
+        }
+
+        // ユーザー選択
+        function selectUser(userId, icon, name) {
+            if (userId === currentUser) {
+                closeUserDropdown();
+                return;
+            }
+            
+            console.log(`👤 ユーザー変更: ${currentUser} → ${userId}`);
+            
+            // UI更新
+            document.getElementById('current-user-icon').textContent = icon;
+            document.getElementById('current-user-name').textContent = name;
+            
+            // 選択状態更新
+            document.querySelectorAll('.user-option').forEach(option => {
+                option.classList.remove('selected');
+            });
+            document.querySelector(`[data-user-id="${userId}"]`).classList.add('selected');
+            
+            currentUser = userId;
+            closeUserDropdown();
+            
+            // データ読み込み
+            loadUserData(userId);
+        }
+
+        // 自動データ更新開始
+        function startAutoUpdate() {
+            // 即座に一度実行
+            loadUserData(currentUser);
+            
+            // 定期更新
+            setInterval(() => {
+                loadUserData(currentUser);
+            }, dataUpdateInterval);
+        }
+
+        // DiCEスケジューラー開始
+        function startDiCEScheduler() {
+            // 1時間ごとのDiCE実行
+            setInterval(() => {
+                executeDiCEAnalysis(currentUser);
+            }, diceUpdateInterval);
+            
+            // 初回DiCE実行（10秒後）
+            setTimeout(() => {
+                executeDiCEAnalysis(currentUser);
+            }, 10000);
+        }
+
+        // ユーザーデータ読み込み
+        async function loadUserData(userId) {
+            console.log(`📊 データ更新開始: ${userId}`);
+            showLoading(true);
+            
+            try {
+                // 並行してデータを取得
+                await Promise.all([
+                    loadDailyFrustration(userId),
+                    loadTimeline(userId),
+                    loadFeedback(userId)
+                ]);
+                
+                // 活動数が増えた場合はDiCE分析を実行
+                await checkForNewActivities(userId);
+                
+                updateLastUpdateTime();
+                updateNextDiCETime();
+                
+            } catch (error) {
+                console.error('データ読み込みエラー:', error);
+                showErrorState();
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // 今日のフラストレーション値読み込み（平均値）
+        async function loadDailyFrustration(userId) {
+            try {
+                const response = await fetch('/api/frustration/timeline', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        user_id: userId,
+                        date: new Date().toISOString().split('T')[0]
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.timeline.length > 0) {
+                    updateDailyFrustrationDisplay(data.timeline);
+                }
+            } catch (error) {
+                console.error('日次フラストレーション値取得エラー:', error);
+            }
+        }
+
+        // タイムライン読み込み（活動名表示）
+        async function loadTimeline(userId) {
+            try {
+                const response = await fetch('/api/frustration/timeline', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        user_id: userId,
+                        date: new Date().toISOString().split('T')[0]
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    updateTimelineDisplay(data.timeline);
+                    
+                    // 活動数をチェック
+                    const currentActivityCount = data.timeline.length;
+                    if (currentActivityCount > lastActivityCount) {
+                        lastActivityCount = currentActivityCount;
+                        // 新しい活動が報告された場合、DiCE分析を実行
+                        setTimeout(() => {
+                            executeDiCEAnalysis(userId);
+                        }, 5000); // 5秒後に実行
+                    }
+                }
+            } catch (error) {
+                console.error('タイムライン読み込みエラー:', error);
+            }
+        }
+
+        // 新しい活動をチェック
+        async function checkForNewActivities(userId) {
+            // loadTimeline内で処理
+        }
+
+        // DiCE分析実行
+        async function executeDiCEAnalysis(userId) {
+            console.log(`🎲 DiCE分析実行: ${userId}`);
+            
+            try {
+                document.getElementById('dice-status').textContent = '分析中...';
+                document.getElementById('dice-status').style.background = 'rgba(255, 152, 0, 0.3)';
+                document.getElementById('dice-status').style.borderColor = '#FF9800';
+                
+                const response = await fetch('/api/frustration/dice-analysis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        user_id: userId,
+                        lookback_hours: 24
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    updateDiCEDisplay(data.dice_analysis);
+                    lastDiceUpdate = Date.now();
+                    
+                    document.getElementById('dice-status').textContent = '分析完了';
+                    document.getElementById('dice-status').style.background = 'rgba(76, 175, 80, 0.3)';
+                    document.getElementById('dice-status').style.borderColor = '#4CAF50';
+                }
+            } catch (error) {
+                console.error('DiCE分析エラー:', error);
+                document.getElementById('dice-status').textContent = '分析エラー';
+                document.getElementById('dice-status').style.background = 'rgba(244, 67, 54, 0.3)';
+                document.getElementById('dice-status').style.borderColor = '#F44336';
+            }
+        }
+
+        // フィードバック読み込み
+        async function loadFeedback(userId) {
+            try {
+                const hour = new Date().getHours();
+                const feedbackType = (hour >= 5 && hour < 12) ? 'morning' : 'evening';
+                
+                const response = await fetch('/api/feedback/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        user_id: userId,
+                        type: feedbackType
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    updateFeedbackDisplay(data.feedback, feedbackType);
+                }
+            } catch (error) {
+                console.error('フィードバック生成エラー:', error);
+            }
+        }
+
+        // 今日のフラストレーション表示更新
+        function updateDailyFrustrationDisplay(timeline) {
+            if (!timeline || timeline.length === 0) return;
+            
+            // 今日の統計を計算
+            const frustrationValues = timeline.map(item => item.frustration_value).filter(val => val != null);
+            
+            if (frustrationValues.length === 0) return;
+            
+            const average = frustrationValues.reduce((sum, val) => sum + val, 0) / frustrationValues.length;
+            const min = Math.min(...frustrationValues);
+            const max = Math.max(...frustrationValues);
+            
+            // 表示更新（1-20スケール対応）
+            const valueElement = document.getElementById('daily-frustration-value');
+            valueElement.textContent = Math.round(average);
+            valueElement.className = 'frustration-value ' + 
+                (average <= 6 ? 'frustration-low' : 
+                 average <= 13 ? 'frustration-medium' : 'frustration-high');
+            
+            document.getElementById('daily-info').textContent = 
+                `今日の平均値 (${frustrationValues.length}回の測定)`;
+            
+            document.getElementById('daily-min').textContent = min;
+            document.getElementById('daily-max').textContent = max;
+            document.getElementById('daily-activities').textContent = timeline.length;
+        }
+
+        // タイムライン表示更新（時間軸ベース）
+        function updateTimelineDisplay(timeline) {
+            const container = document.getElementById('timeline-container');
+            container.innerHTML = '';
+
+            if (timeline.length === 0) return;
+
+            // 活動データを処理して時間軸に配置
+            const processedActivities = processActivitiesForTimeline(timeline);
+            
+            // 時間軸を作成（0:00-23:59の24時間）
+            createTimelineAxis(container, processedActivities);
+        }
+
+        // 活動データを時間軸用に処理
+        function processActivitiesForTimeline(timeline) {
+            const processed = [];
+            
+            timeline.forEach(item => {
+                const startTime = new Date(item.timestamp);
+                const durationMinutes = item.duration || 0;
+                const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+                
+                processed.push({
+                    activity: item.activity,
+                    startTime: startTime,
+                    endTime: endTime,
+                    durationMinutes: durationMinutes,
+                    frustration: item.frustration_value || 10,
+                    startHour: startTime.getHours(),
+                    startMinute: startTime.getMinutes(),
+                    endHour: endTime.getHours(),
+                    endMinute: endTime.getMinutes()
+                });
+            });
+
+            // 連続した同じ活動をマージ
+            return mergeConsecutiveTimelineActivities(processed);
+        }
+
+        // 時間軸ベースでの連続活動マージ
+        function mergeConsecutiveTimelineActivities(activities) {
+            if (activities.length === 0) return [];
+            
+            // 開始時間でソート
+            const sorted = activities.sort((a, b) => a.startTime - b.startTime);
+            const merged = [];
+            let currentGroup = null;
+
+            sorted.forEach(activity => {
+                if (!currentGroup || 
+                    currentGroup.activity !== activity.activity ||
+                    Math.abs(currentGroup.endTime - activity.startTime) > 60000) { // 1分以上の差があれば別グループ
+                    
+                    if (currentGroup) {
+                        merged.push(currentGroup);
+                    }
+                    
+                    currentGroup = {
+                        activity: activity.activity,
+                        startTime: activity.startTime,
+                        endTime: activity.endTime,
+                        durationMinutes: activity.durationMinutes,
+                        frustrationValues: [activity.frustration],
+                        avgFrustration: activity.frustration
+                    };
+                } else {
+                    // 同じ活動で連続している場合はマージ
+                    currentGroup.endTime = activity.endTime;
+                    currentGroup.durationMinutes += activity.durationMinutes;
+                    currentGroup.frustrationValues.push(activity.frustration);
+                    currentGroup.avgFrustration = currentGroup.frustrationValues.reduce((sum, val) => sum + val, 0) / currentGroup.frustrationValues.length;
+                }
+            });
+
+            if (currentGroup) {
+                merged.push(currentGroup);
+            }
+
+            return merged;
+        }
+
+        // 時間軸を作成
+        function createTimelineAxis(container, activities) {
+            // 時間軸のベースラインを作成
+            const timelineAxis = document.createElement('div');
+            timelineAxis.className = 'timeline-axis';
+            
+            // 時間目盛りを作成
+            for (let hour = 0; hour < 24; hour++) {
+                const hourMarker = document.createElement('div');
+                hourMarker.className = 'hour-marker';
+                
+                // 3時間ごと（0, 3, 6, 9, 12, 15, 18, 21時）に太い線
+                if (hour % 3 === 0) {
+                    hourMarker.classList.add('major');
+                    hourMarker.innerHTML = `<span class="hour-label">${hour}</span>`;
+                }
+                
+                hourMarker.style.left = (hour / 24 * 100) + '%';
+                timelineAxis.appendChild(hourMarker);
+            }
+            
+            container.appendChild(timelineAxis);
+
+            // 活動バーを配置
+            activities.forEach(activity => {
+                const activityBar = createActivityBar(activity);
+                container.appendChild(activityBar);
+            });
+        }
+
+        // DiCE提案タイムライン作成
+        function createDiCETimelineAxis(container, suggestions) {
+            // 時間軸のベースラインを作成
+            const timelineAxis = document.createElement('div');
+            timelineAxis.className = 'timeline-axis';
+            
+            // 時間目盛りを作成
+            for (let hour = 0; hour < 24; hour++) {
+                const hourMarker = document.createElement('div');
+                hourMarker.className = 'hour-marker';
+                
+                // 3時間ごと（0, 3, 6, 9, 12, 15, 18, 21時）に太い線
+                if (hour % 3 === 0) {
+                    hourMarker.classList.add('major');
+                    hourMarker.innerHTML = `<span class="hour-label">${hour}</span>`;
+                }
+                
+                hourMarker.style.left = (hour / 24 * 100) + '%';
+                timelineAxis.appendChild(hourMarker);
+            }
+            
+            container.appendChild(timelineAxis);
+
+            // DiCE提案バーを配置
+            suggestions.forEach(suggestion => {
+                const suggestionBar = createDiCESuggestionBar(suggestion);
+                container.appendChild(suggestionBar);
+            });
+        }
+
+        // 活動バーを作成
+        function createActivityBar(activity) {
+            const startHour = activity.startTime.getHours();
+            const startMinute = activity.startTime.getMinutes();
+            const endHour = activity.endTime.getHours();
+            const endMinute = activity.endTime.getMinutes();
+
+            // 位置を計算（0%〜100%）
+            const startPosition = (startHour * 60 + startMinute) / (24 * 60) * 100;
+            const endPosition = (endHour * 60 + endMinute) / (24 * 60) * 100;
+            const width = endPosition - startPosition;
+
+            const activityBar = document.createElement('div');
+            activityBar.className = 'timeline-activity-bar';
+            
+            // フラストレーション値で色分け（1-20スケール）
+            const avgFrustration = activity.avgFrustration;
+            if (avgFrustration <= 6) {
+                activityBar.classList.add('low-stress');    // 1-6: 低ストレス
+            } else if (avgFrustration <= 13) {
+                activityBar.classList.add('medium-stress'); // 7-13: 中ストレス
+            } else {
+                activityBar.classList.add('high-stress');   // 14-20: 高ストレス
+            }
+
+            // 位置とサイズを設定
+            activityBar.style.left = startPosition + '%';
+            activityBar.style.width = Math.max(width, 2) + '%'; // 最小2%の幅
+            
+            // 活動情報を表示
+            const activityInfo = document.createElement('div');
+            activityInfo.className = 'activity-bar-info';
+            
+            const startTimeStr = activity.startTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+            const endTimeStr = activity.endTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+            
+            activityInfo.innerHTML = `
+                <div class="activity-bar-name">${activity.activity}</div>
+                <div class="activity-bar-time">${startTimeStr}-${endTimeStr}</div>
+                <div class="activity-bar-duration">${Math.round(activity.durationMinutes)}分</div>
+                <div class="activity-bar-frustration">F:${activity.avgFrustration.toFixed(1)}</div>
+            `;
+            
+            activityBar.appendChild(activityInfo);
+            
+            // ツールチップ
+            activityBar.title = `${activity.activity}\n${startTimeStr} - ${endTimeStr}\n継続時間: ${Math.round(activity.durationMinutes)}分\nフラストレーション: ${activity.avgFrustration.toFixed(1)}`;
+            
+            return activityBar;
+        }
+
+        // DiCE提案バーを作成
+        function createDiCESuggestionBar(suggestion) {
+            // 時刻から時間の位置を計算
+            const time = suggestion.timestamp || suggestion.original_timestamp;
+            const timeObj = new Date(time);
+            const hour = timeObj.getHours();
+            const minute = timeObj.getMinutes();
+
+            // 位置を計算（時刻ベース、1時間幅で表示）
+            const startPosition = (hour * 60 + minute) / (24 * 60) * 100;
+            const width = 60 / (24 * 60) * 100; // 1時間幅
+
+            const suggestionBar = document.createElement('div');
+            suggestionBar.className = 'dice-suggestion-bar';
+
+            // 位置とサイズを設定
+            suggestionBar.style.left = startPosition + '%';
+            suggestionBar.style.width = Math.max(width, 3) + '%'; // 最小3%の幅
+            
+            // 提案情報を表示
+            const suggestionInfo = document.createElement('div');
+            suggestionInfo.className = 'activity-bar-info';
+            
+            const timeStr = timeObj.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+            
+            suggestionInfo.innerHTML = `
+                <div class="activity-bar-name">${suggestion.suggested_activity || '改善提案'}</div>
+                <div class="activity-bar-time">${timeStr}</div>
+                <div class="activity-bar-duration">-${(suggestion.frustration_reduction || 0).toFixed(1)}点</div>
+                <div class="activity-bar-frustration">改善効果</div>
+            `;
+            
+            suggestionBar.appendChild(suggestionInfo);
+            
+            // ツールチップ
+            suggestionBar.title = `${timeStr}の改善提案\n${suggestion.original_activity} → ${suggestion.suggested_activity}\n期待効果: ${(suggestion.frustration_reduction || 0).toFixed(1)}点改善`;
+            
+            return suggestionBar;
+        }
+
+        // DiCE提案タイムライン表示更新
+        function updateDiCETimeline(analysis) {
+            const container = document.getElementById('dice-timeline-container');
+            container.innerHTML = '<div class="timeline-title">DiCE改善提案</div>';
+
+            if (!analysis || !analysis.timeline || analysis.timeline.length === 0) {
+                const noSuggestions = document.createElement('div');
+                noSuggestions.style.position = 'absolute';
+                noSuggestions.style.top = '50%';
+                noSuggestions.style.left = '50%';
+                noSuggestions.style.transform = 'translate(-50%, -50%)';
+                noSuggestions.style.opacity = '0.6';
+                noSuggestions.textContent = '改善提案なし';
+                container.appendChild(noSuggestions);
+                return;
+            }
+
+            // DiCE提案タイムライン作成
+            createDiCETimelineAxis(container, analysis.timeline);
+        }
+
+
+        // DiCE表示更新（縦並び）
+        function updateDiCEDisplay(analysis) {
+            document.getElementById('total-improvement').textContent = 
+                (analysis.total_improvement || 0).toFixed(1);
+
+            const container = document.getElementById('suggestions-container');
+            container.innerHTML = '';
+
+            if (analysis.timeline && analysis.timeline.length > 0) {
+                analysis.timeline.forEach(item => {
+                    const suggestionElement = document.createElement('div');
+                    suggestionElement.className = 'suggestion-item';
+                    
+                    const time = new Date(item.timestamp).toLocaleTimeString('ja-JP', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                    
+                    suggestionElement.innerHTML = `
+                        <div class="suggestion-header">
+                            <div class="suggestion-time">${time}</div>
+                            <div class="improvement-points">${item.frustration_reduction.toFixed(1)}点改善</div>
+                        </div>
+                        <div class="suggestion-content">
+                            <div class="suggestion-from">現在: ${item.original_activity}</div>
+                            <div class="suggestion-to">提案: ${item.suggested_activity}</div>
+                        </div>
+                    `;
+                    
+                    container.appendChild(suggestionElement);
+                });
+            } else {
+                const noSuggestionsElement = document.createElement('div');
+                noSuggestionsElement.className = 'suggestion-item';
+                noSuggestionsElement.innerHTML = `
+                    <div class="suggestion-header">
+                        <div class="suggestion-time">分析完了</div>
+                        <div class="improvement-points">0点</div>
+                    </div>
+                    <div class="suggestion-content">
+                        <div class="suggestion-to">現在のパターンは良好です</div>
+                    </div>
+                `;
+                container.appendChild(noSuggestionsElement);
+            }
+
+            // DiCEタイムライン表示も更新
+            updateDiCETimeline(analysis);
+        }
+
+        // フィードバック表示更新
+        function updateFeedbackDisplay(feedback, feedbackType) {
+            document.getElementById('feedback-type').textContent = 
+                feedbackType === 'morning' ? '今日の' : '今日の振り返り';
+            
+            let feedbackText = feedback.main_feedback || 'フィードバックを準備中です...';
+            
+            // キーワードをハイライト
+            feedbackText = feedbackText.replace(
+                /(改善|向上|効果的|おすすめ|重要|注意)/g, 
+                '<span class="feedback-highlight">$1</span>'
+            );
+
+            document.getElementById('feedback-text').innerHTML = feedbackText;
+        }
+
+        // 次回DiCE時刻更新
+        function updateNextDiCETime() {
+            const nextTime = new Date(lastDiceUpdate + diceUpdateInterval);
+            const timeString = nextTime.toLocaleTimeString('ja-JP', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            document.getElementById('next-dice').textContent = timeString;
+        }
+
+        // ローディング表示制御
+        function showLoading(show) {
+            const indicator = document.getElementById('loading-indicator');
+            if (show) {
+                indicator.classList.add('active');
+            } else {
+                indicator.classList.remove('active');
+            }
+        }
+
+        // 最終更新時刻更新
+        function updateLastUpdateTime() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('ja-JP', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            document.getElementById('last-update').textContent = `最終更新: ${timeString}`;
+        }
+
+        // エラー状態表示
+        function showErrorState() {
+            document.getElementById('daily-frustration-value').textContent = 'ERR';
+            document.getElementById('daily-info').textContent = 'データ接続エラー';
+            document.getElementById('feedback-text').textContent = 'システムに一時的な問題が発生しています。';
+        }
+
+        console.log('📱 タブレット用システム準備完了');
+        console.log('機能: 手動ユーザー選択, 今日の平均値表示, 1時間ごと+活動報告時DiCE実行');
+    </script>
+</body>
+</html>
