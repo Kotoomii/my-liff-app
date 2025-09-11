@@ -91,8 +91,8 @@ class SheetsConnector:
         users_config = [
             {
                 'user_id': 'default', 
-                'activity_sheet': 'default',
-                'fitbit_sheet': 'kotoomi_Fitbit-data-default'
+                'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33xyz',
+                'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
             },
             {
                 'user_id': 'user1', 

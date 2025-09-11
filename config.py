@@ -9,7 +9,7 @@ load_dotenv()
 
 class Config:
     # Googleスプレッドシート設定
-    SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID', '1mRiegNBsUBP-aFnPKib6lQ-FoyDJ6V1sBp0D5Xnywj8')
+    SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID', '15Mv9-N1RFKLmDd2vqYBLwKR-aPWA3Mgw9dAHHOWilLs')
     
     # データシート名設定
     ACTIVITY_SHEET_PATTERN = "Ua06e990fd6d5f4646615595d4e8d33"  # 活動データのシート名パターン
