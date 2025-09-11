@@ -256,21 +256,21 @@ class SheetsConnector:
         base_time = datetime.now() - timedelta(days=7)
         
         activities = {
-            '睡眠': {'stress': 10},
-            '食事': {'stress': 20}, 
-            '仕事': {'stress': 75},
-            '休憩': {'stress': 15},
-            '運動': {'stress': 30}
+            '睡眠': {'frustration': 3},
+            '食事': {'frustration': 5}, 
+            '仕事': {'frustration': 15},
+            '休憩': {'frustration': 2},
+            '運動': {'frustration': 7}
         }
         
         for day in range(7):
             for hour in range(0, 24, 3):  # 3時間おき
                 timestamp = base_time + timedelta(days=day, hours=hour)
                 activity = np.random.choice(list(activities.keys()))
-                base_stress = activities[activity]['stress']
+                base_frustration = activities[activity]['frustration']
                 
-                # NASA-TLXスコアを生成
-                nasa_scores = np.random.normal(base_stress, 10, 6).clip(1, 100).astype(int)
+                # NASA-TLXスコアを生成（1-20スケール）
+                nasa_scores = np.random.normal(base_frustration, 3, 6).clip(1, 20).astype(int)
                 
                 data.append({
                     'Timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
