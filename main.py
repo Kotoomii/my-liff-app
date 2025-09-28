@@ -179,19 +179,39 @@ def get_frustration_timeline():
     過去24時間のフラストレーション値タイムライン取得API
     """
     try:
-        data = request.get_json()
+        # リクエストデータの確認と修正
+        if request.is_json:
+            data = request.get_json()
+            if data is None:
+                data = {}
+        else:
+            data = {}
+        
         user_id = data.get('user_id', 'default')
         date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
+        
+        logger.info(f"Timeline API呼び出し - user_id: {user_id}, date: {date}")
         
         # データ取得
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
         
+        # Google Sheets接続エラーの場合は適切なメッセージを返す
         if activity_data.empty:
-            return jsonify({
-                'status': 'error',
-                'message': '活動データが見つかりません'
-            }), 400
+            if sheets_connector.gc is None:
+                return jsonify({
+                    'status': 'success',
+                    'date': date,
+                    'timeline': [],
+                    'message': 'Google Sheetsに接続できません。認証設定を確認してください。'
+                })
+            else:
+                return jsonify({
+                    'status': 'success', 
+                    'date': date,
+                    'timeline': [],
+                    'message': 'データがありません'
+                })
         
         # 指定日のデータをフィルタリング
         target_date = datetime.strptime(date, '%Y-%m-%d').date()
