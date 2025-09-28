@@ -8,6 +8,8 @@ from typing import Optional, Dict, List
 import gspread
 from google.oauth2.service_account import Credentials
 import os
+import json
+import tempfile
 
 from config import Config
 
@@ -29,17 +31,29 @@ class SheetsConnector:
                 'https://www.googleapis.com/auth/drive'
             ]
             
-            credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-            if credentials_path and os.path.exists(credentials_path):
-                creds = Credentials.from_service_account_file(credentials_path, scopes=scope)
+            # 1. 環境変数からJSONを取得 (Secret Manager経由)
+            credentials_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+            
+            if credentials_json:
+                # Secret ManagerからのJSON文字列を使用
+                credentials_info = json.loads(credentials_json)
+                creds = Credentials.from_service_account_info(credentials_info, scopes=scope)
+                logger.info("Secret ManagerからGoogle認証情報を取得")
             else:
-                # GCPで実行時は自動認証を使用
-                try:
-                    from google.auth import default
-                    creds, project = default(scopes=scope)
-                except Exception as e:
-                    logger.warning(f"認証情報の取得に失敗: {e}")
-                    return
+                # 2. ファイルパスから読み込み (ローカル開発用)
+                credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+                if credentials_path and os.path.exists(credentials_path):
+                    creds = Credentials.from_service_account_file(credentials_path, scopes=scope)
+                    logger.info("ファイルからGoogle認証情報を取得")
+                else:
+                    # 3. デフォルト認証 (GCP環境)
+                    try:
+                        from google.auth import default
+                        creds, project = default(scopes=scope)
+                        logger.info("デフォルト認証を使用")
+                    except Exception as e:
+                        logger.warning(f"認証情報の取得に失敗: {e}")
+                        return
             
             self.gc = gspread.authorize(creds)
             self.spreadsheet = self.gc.open_by_key(self.config.SPREADSHEET_ID)
