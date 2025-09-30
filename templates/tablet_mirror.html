@@ -119,33 +119,38 @@
             background: rgba(76, 175, 80, 0.3);
         }
 
-        /* メインコンテンツ */
+        /* メインコンテンツ - タブレット最適化横並び構成 */
         .main-container {
             margin-top: 70px;
             height: calc(100vh - 70px);
-            display: grid;
-            grid-template-columns: 1fr 1fr;
+            display: flex;
             gap: 20px;
             padding: 20px;
+            overflow: hidden;
+            max-width: 100vw;
         }
 
-        /* 左側パネル */
-        .left-panel {
+        /* 可視化パネル（左側） - タブレット用に拡大 */
+        .visualization-panel {
+            flex: 1.2;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 15px;
+            min-width: 0;
+            max-width: 60%;
         }
 
-        /* 今日のフラストレーション値 */
+        /* 今日のフラストレーション値 - タブレット最適化 */
         .daily-analysis {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
             border-radius: 20px;
-            padding: 30px;
+            padding: 25px;
             border: 1px solid rgba(255, 255, 255, 0.2);
-            flex: 1;
+            flex: 0 0 auto;
             position: relative;
             overflow: hidden;
+            min-height: 280px;
         }
 
         .daily-analysis::before {
@@ -165,17 +170,18 @@
         }
 
         .section-title {
-            font-size: 24px;
-            margin-bottom: 20px;
+            font-size: 22px;
+            margin-bottom: 15px;
             display: flex;
             align-items: center;
             gap: 10px;
             position: relative;
             z-index: 2;
+            font-weight: 600;
         }
 
         .section-icon {
-            font-size: 28px;
+            font-size: 24px;
             filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
         }
 
@@ -188,11 +194,13 @@
         }
 
         .frustration-value {
-            font-size: 4.5em;
+            font-size: 4em;
             font-weight: bold;
-            margin: 20px 0;
-            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            margin: 15px 0;
+            text-shadow: 0 0 25px rgba(255, 255, 255, 0.6);
             transition: all 1s ease;
+            display: block;
+            line-height: 1.1;
         }
 
         .frustration-low { color: #4CAF50; }
@@ -202,8 +210,8 @@
         .daily-stats {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-top: 20px;
+            gap: 10px;
+            margin-top: 12px;
             position: relative;
             z-index: 2;
         }
@@ -211,14 +219,14 @@
         .stat-item {
             text-align: center;
             background: rgba(255, 255, 255, 0.1);
-            padding: 15px;
-            border-radius: 10px;
+            padding: 10px;
+            border-radius: 8px;
         }
 
         .stat-value {
-            font-size: 20px;
+            font-size: 16px;
             font-weight: bold;
-            margin-bottom: 5px;
+            margin-bottom: 3px;
         }
 
         .stat-label {
@@ -226,24 +234,28 @@
             opacity: 0.8;
         }
 
-        /* 24時間タイムライン */
+        /* 24時間タイムライン - タブレット最適化 */
         .timeline-section {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
             border-radius: 20px;
-            padding: 30px;
+            padding: 20px;
             border: 1px solid rgba(255, 255, 255, 0.2);
             flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         .timeline-container {
             position: relative;
-            margin-top: 20px;
+            margin-top: 15px;
             padding: 20px 10px 10px 10px;
             background: rgba(0, 0, 0, 0.2);
-            border-radius: 10px;
-            height: 120px;
+            border-radius: 12px;
+            height: 100px;
             overflow: hidden;
+            flex-shrink: 0;
         }
 
         .dice-timeline-container {
@@ -252,9 +264,10 @@
             padding: 20px 10px 10px 10px;
             background: rgba(0, 100, 0, 0.1);
             border: 2px solid rgba(76, 175, 80, 0.3);
-            border-radius: 10px;
-            height: 120px;
+            border-radius: 12px;
+            height: 100px;
             overflow: hidden;
+            flex-shrink: 0;
         }
 
         .timeline-title {
@@ -371,7 +384,7 @@
         .timeline-activity-bar {
             position: absolute;
             top: 25px;
-            height: 80px;
+            height: 65px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -403,7 +416,7 @@
         .dice-suggestion-bar {
             position: absolute;
             top: 25px;
-            height: 80px;
+            height: 65px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -464,30 +477,36 @@
             opacity: 0.7;
         }
 
-        /* 右側パネル */
-        .right-panel {
+        /* フィードバックパネル（右側） - タブレット用に調整 */
+        .feedback-panel {
+            flex: 0.8;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 15px;
+            min-width: 0;
+            max-width: 40%;
         }
 
-        /* DiCE改善提案 */
+        /* DiCE改善提案 - タブレット最適化 */
         .dice-section {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
             border-radius: 20px;
-            padding: 30px;
+            padding: 20px;
             border: 1px solid rgba(255, 255, 255, 0.2);
-            flex: 2;
+            flex: 1;
             position: relative;
             overflow-y: auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         .dice-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
 
         .dice-status {
@@ -500,22 +519,23 @@
 
         .total-improvement {
             text-align: center;
-            margin: 20px 0;
-            font-size: 18px;
+            margin: 15px 0;
+            font-size: 16px;
         }
 
         .improvement-value {
-            font-size: 2.5em;
+            font-size: 2.2em;
             font-weight: bold;
             color: #4CAF50;
-            margin: 0 10px;
+            margin: 0 8px;
         }
 
-        /* DiCE提案リスト - 縦並び */
+        /* DiCE提案リスト - タブレット最適化 */
         .suggestions-container {
-            max-height: 400px;
+            flex: 1;
             overflow-y: auto;
             padding-right: 10px;
+            min-height: 0;
         }
 
         .suggestions-container::-webkit-scrollbar {
@@ -534,7 +554,7 @@
 
         .suggestion-item {
             background: rgba(255, 255, 255, 0.15);
-            padding: 15px;
+            padding: 12px;
             margin: 8px 0;
             border-radius: 10px;
             border-left: 4px solid #4CAF50;
@@ -551,13 +571,13 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
+            margin-bottom: 5px;
         }
 
         .suggestion-time {
             font-weight: bold;
             color: #4CAF50;
-            font-size: 16px;
+            font-size: 15px;
         }
 
         .improvement-points {
@@ -573,38 +593,43 @@
         }
 
         .suggestion-from {
-            font-size: 14px;
+            font-size: 13px;
             color: #FF9800;
             margin-bottom: 2px;
         }
 
         .suggestion-to {
-            font-size: 14px;
+            font-size: 13px;
             color: #4CAF50;
             font-weight: bold;
         }
 
-        /* フィードバックセクション */
+        /* フィードバックセクション - タブレット最適化 */
         .feedback-section {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
             border-radius: 20px;
-            padding: 30px;
+            padding: 20px;
             border: 1px solid rgba(255, 255, 255, 0.2);
             flex: 1;
             position: relative;
             overflow-y: auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         .feedback-text {
             font-size: 14px;
             line-height: 1.6;
-            margin-top: 15px;
+            margin-top: 10px;
             padding: 15px;
             background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
+            border-radius: 12px;
             position: relative;
             z-index: 2;
+            flex: 1;
+            overflow-y: auto;
         }
 
         .feedback-highlight {
@@ -665,31 +690,97 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* タッチ操作改善 */
-        @media (max-width: 1200px) {
+        /* タブレット特化レスポンシブ対応 */
+        @media (max-width: 1200px) and (min-width: 769px) {
+            /* タブレット用調整 */
             .main-container {
-                grid-template-columns: 1fr;
                 gap: 15px;
+                padding: 15px;
+            }
+            
+            .section-title {
+                font-size: 20px;
+            }
+            
+            .timeline-container,
+            .dice-timeline-container {
+                height: 90px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            /* スマートフォン用 */
+            .main-container {
+                flex-direction: column;
+                gap: 10px;
+                padding: 10px;
+            }
+            
+            .visualization-panel,
+            .feedback-panel {
+                flex: none;
+                max-width: none;
+                height: auto;
+            }
+            
+            .daily-stats {
+                grid-template-columns: 1fr;
+                gap: 5px;
+            }
+            
+            .section-title {
+                font-size: 16px;
             }
             
             .frustration-value {
-                font-size: 3em;
+                font-size: 2.5em;
             }
             
-            .timeline-container {
-                height: 60px;
+            .timeline-container,
+            .dice-timeline-container {
+                height: 70px;
+            }
+        }
+        
+        /* 大型タブレット/デスクトップ用 */
+        @media (min-width: 1201px) {
+            .main-container {
+                max-width: 1400px;
+                margin: 70px auto 0;
+                padding: 25px;
+                gap: 25px;
+            }
+            
+            .daily-analysis {
+                min-height: 320px;
+            }
+            
+            .frustration-value {
+                font-size: 4.5em;
             }
         }
 
-        /* タブレット最適化 */
+        /* タッチデバイス最適化 */
         @media (pointer: coarse) {
-            .user-option, .timeline-hour, .suggestion-item {
-                min-height: 44px; /* タッチしやすいサイズ */
+            .user-option, .suggestion-item {
+                min-height: 48px; /* タッチしやすいサイズ */
+                cursor: pointer;
             }
             
             .current-user-display {
-                min-height: 44px;
-                padding: 10px 20px;
+                min-height: 48px;
+                padding: 12px 20px;
+            }
+            
+            .timeline-activity-bar,
+            .dice-suggestion-bar {
+                min-width: 30px; /* タッチしやすい最小幅 */
+            }
+            
+            /* タッチ時のフィードバック強化 */
+            .suggestion-item:active {
+                transform: scale(0.98);
+                background: rgba(255, 255, 255, 0.25);
             }
         }
     </style>
@@ -732,8 +823,8 @@
 
     <!-- メインコンテンツ -->
     <div class="main-container">
-        <!-- 左側パネル -->
-        <div class="left-panel">
+        <!-- 可視化パネル（左側） -->
+        <div class="visualization-panel">
             <!-- 今日のフラストレーション値 -->
             <div class="daily-analysis">
                 <h2 class="section-title">
@@ -802,8 +893,8 @@
             </div>
         </div>
 
-        <!-- 右側パネル -->
-        <div class="right-panel">
+        <!-- フィードバックパネル（右側） -->
+        <div class="feedback-panel">
             <!-- DiCE改善提案 -->
             <div class="dice-section">
                 <div class="dice-header">
