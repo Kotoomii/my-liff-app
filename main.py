@@ -150,7 +150,37 @@ def predict_activity_frustration():
         user_id = data.get('user_id', 'default')
         activity_category = data.get('CatSub')  # 活動カテゴリ
         activity_subcategory = data.get('CatMid', activity_category)  # 活動サブカテゴリ
-        duration = data.get('Duration', 60)  # 活動時間（分）
+        
+        # 時間の計算 - start_timeとend_timeがある場合はそれを使用
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+        duration = data.get('Duration')
+        
+        if start_time and end_time and not duration:
+            # start_timeとend_timeから時間を計算
+            try:
+                from datetime import datetime, timedelta
+                
+                # 時刻形式を解析 (HH:MM形式を想定)
+                start_hour, start_min = map(int, start_time.split(':'))
+                end_hour, end_min = map(int, end_time.split(':'))
+                
+                start_total_min = start_hour * 60 + start_min
+                end_total_min = end_hour * 60 + end_min
+                
+                # 日付をまたぐ場合を考慮
+                if end_total_min < start_total_min:
+                    end_total_min += 24 * 60  # 翌日とみなす
+                
+                duration = end_total_min - start_total_min
+                logger.info(f"時間計算: {start_time} → {end_time} = {duration}分")
+                
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"時刻解析エラー: {e}, デフォルト60分を使用")
+                duration = 60
+        elif not duration:
+            duration = 60  # デフォルト値
+            
         timestamp = data.get('timestamp', datetime.now().isoformat())
         
         if isinstance(timestamp, str):
@@ -205,13 +235,15 @@ def predict_activity_frustration():
             'duration': duration,
             'predicted_frustration': predicted_frustration,
             'confidence': confidence,
+            'source': 'manual_api',  # 手動API予測であることを明記
             'notes': f'Subcategory: {activity_subcategory}'
         }
         
-        # スプレッドシートに予測結果を保存（非同期で実行）
+        # 手動予測の場合のみスプレッドシートに保存（自動監視との重複を避けるため）
+        # データ監視ループによる自動予測結果は data_monitor_loop で保存される
         try:
             sheets_connector.save_prediction_data(prediction_data)
-            logger.info(f"予測結果をスプレッドシートに記録: {user_id}, {activity_category}, 予測値: {predicted_frustration:.2f}")
+            logger.info(f"手動予測結果をスプレッドシートに記録: {user_id}, {activity_category}, 予測値: {predicted_frustration:.2f}")
         except Exception as save_error:
             logger.error(f"予測結果保存エラー: {save_error}")
             # 保存エラーがあってもAPIレスポンスには影響しない
@@ -1018,6 +1050,96 @@ def debug_trigger_data_check():
             'message': str(e)
         }), 500
 
+@app.route('/api/tablet/data/<user_id>', methods=['GET'])
+def get_tablet_data(user_id):
+    """タブレット用統合データAPI - すべてのデータを一度に取得"""
+    try:
+        logger.info(f"タブレットデータAPI呼び出し - user_id: {user_id}")
+        
+        # 今日の日付を取得
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # 1. タイムラインデータを取得
+        timeline_data = []
+        try:
+            with app.test_request_context(json={'user_id': user_id, 'date': today}):
+                timeline_response = get_frustration_timeline()
+                if hasattr(timeline_response, 'get_json'):
+                    timeline_result = timeline_response.get_json()
+                    if timeline_result and timeline_result.get('status') == 'success':
+                        timeline_data = timeline_result.get('timeline', [])
+        except Exception as timeline_error:
+            logger.warning(f"タイムラインデータ取得警告: {timeline_error}")
+        
+        # 2. DiCE分析データを取得
+        dice_data = {}
+        try:
+            with app.test_request_context(json={'user_id': user_id}):
+                dice_response = get_dice_analysis()
+                if hasattr(dice_response, 'get_json'):
+                    dice_result = dice_response.get_json()
+                    if dice_result and dice_result.get('status') == 'success':
+                        dice_data = dice_result.get('dice_analysis', {})
+        except Exception as dice_error:
+            logger.warning(f"DiCE分析データ取得警告: {dice_error}")
+        
+        # 3. フィードバックデータを取得
+        feedback_data = {}
+        try:
+            # フィードバック生成リクエストをシミュレート
+            with app.test_request_context(json={'user_id': user_id, 'feedback_type': 'daily'}):
+                feedback_response = generate_feedback()
+                if hasattr(feedback_response, 'get_json'):
+                    feedback_result = feedback_response.get_json()
+                    if feedback_result and feedback_result.get('status') == 'success':
+                        feedback_data = feedback_result.get('feedback', {})
+        except Exception as feedback_error:
+            logger.warning(f"フィードバックデータ取得警告: {feedback_error}")
+        
+        # 4. 今日の統計を計算
+        daily_stats = {
+            'date': today,
+            'total_activities': len(timeline_data),
+            'avg_frustration': 0,
+            'min_frustration': 0,
+            'max_frustration': 0
+        }
+        
+        if timeline_data:
+            frustration_values = [item.get('frustration_value', 0) for item in timeline_data if item.get('frustration_value') is not None]
+            if frustration_values:
+                daily_stats['avg_frustration'] = round(sum(frustration_values) / len(frustration_values), 1)
+                daily_stats['min_frustration'] = min(frustration_values)
+                daily_stats['max_frustration'] = max(frustration_values)
+        
+        # 5. 統合レスポンスを作成
+        response_data = {
+            'status': 'success',
+            'user_id': user_id,
+            'timestamp': datetime.now().isoformat(),
+            'daily_stats': daily_stats,
+            'timeline': timeline_data,
+            'dice_analysis': dice_data,
+            'feedback': feedback_data,
+            'system_info': {
+                'data_source': 'spreadsheet',
+                'last_update': datetime.now().isoformat(),
+                'prediction_logging': True,
+                'data_monitoring': True
+            }
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"タブレットデータAPI エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'user_id': user_id,
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
 # ===== HELPER FUNCTIONS =====
 
 def get_user_config(user_id: str) -> Dict:
@@ -1035,22 +1157,22 @@ def get_user_config(user_id: str) -> Dict:
             'user_id': 'user1', 
             'name': 'ユーザー1', 
             'icon': '👨',
-            'activity_sheet': 'U1234567890abcdef',
-            'fitbit_sheet': 'kotoomi_Fitbit-data-01'
+            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33',
+            'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
         },
         {
             'user_id': 'user2', 
             'name': 'ユーザー2', 
             'icon': '👩',
-            'activity_sheet': 'U2345678901bcdefg',
-            'fitbit_sheet': 'kotoomi_Fitbit-data-02'
+            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33',
+            'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
         },
         {
             'user_id': 'user3', 
             'name': 'ユーザー3', 
             'icon': '🧑',
-            'activity_sheet': 'U3456789012cdefgh',
-            'fitbit_sheet': 'kotoomi_Fitbit-data-03'
+            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33',
+            'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
         },
     ]
     
@@ -1140,12 +1262,9 @@ def data_monitor_loop():
 
     check_interval = 600  # 600秒（10分）ごとにチェック
     
-    # 全ユーザーのリストを取得
+    # 全ユーザーのリストを取得（デフォルトユーザーのみ利用可能）
     users_config = [
         {'user_id': 'default', 'name': 'デフォルトユーザー'},
-        {'user_id': 'user1', 'name': 'ユーザー1'},
-        {'user_id': 'user2', 'name': 'ユーザー2'},
-        {'user_id': 'user3', 'name': 'ユーザー3'}
     ]
 
     while data_monitor_running:
@@ -1192,7 +1311,8 @@ def data_monitor_loop():
 
                         logger.info(f"自動予測完了 ({user_name}): {prediction_result}")
 
-                        # 予測結果をスプレッドシートに保存
+                        # 予測結果をスプレッドシートに保存（重複チェック付き）
+                        activity_timestamp = latest_activity.get('Timestamp')
                         prediction_data = {
                             'timestamp': datetime.now().isoformat(),
                             'user_id': user_id,
@@ -1200,12 +1320,18 @@ def data_monitor_loop():
                             'duration': latest_activity.get('Duration', 0),
                             'predicted_frustration': prediction_result.get('predicted_frustration', 0),
                             'confidence': prediction_result.get('confidence', 0),
-                            'actual_frustration': latest_activity.get('NASA_F', None)
+                            'actual_frustration': latest_activity.get('NASA_F', None),
+                            'source': 'auto_monitoring',  # 自動監視による予測であることを明記
+                            'activity_timestamp': activity_timestamp  # 重複チェック用の活動タイムスタンプ
                         }
                         
                         try:
-                            sheets_connector.save_prediction_data(prediction_data)
-                            logger.info(f"予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {prediction_result.get('predicted_frustration', 0):.2f}")
+                            # 重複チェック：同じactivity_timestampの予測データが既に存在するかチェック
+                            if not sheets_connector.is_prediction_duplicate(user_id, activity_timestamp):
+                                sheets_connector.save_prediction_data(prediction_data)
+                                logger.info(f"自動予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {prediction_result.get('predicted_frustration', 0):.2f}")
+                            else:
+                                logger.info(f"重複する予測データをスキップ: {user_name}, {latest_activity.get('CatSub', 'unknown')}")
                         except Exception as save_error:
                             logger.error(f"予測結果保存エラー ({user_name}): {save_error}")
 

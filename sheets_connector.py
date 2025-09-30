@@ -591,6 +591,72 @@ class SheetsConnector:
         logger.info("ダミー固定予定データを生成しました")
         return df
     
+    def is_prediction_duplicate(self, user_id: str, activity_timestamp: str) -> bool:
+        """
+        指定されたユーザーIDと活動タイムスタンプの組み合わせで
+        既に予測データが存在するかチェックする
+        
+        Args:
+            user_id: ユーザーID
+            activity_timestamp: 活動データのタイムスタンプ
+            
+        Returns:
+            bool: 重複している場合True、そうでなければFalse
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            # PREDICTION_DATAシートを取得
+            sheet_name = "PREDICTION_DATA"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+            
+            if not worksheet:
+                # シートが存在しない場合は重複なし
+                return False
+            
+            # 全データを取得
+            records = worksheet.get_all_records()
+            
+            if not records:
+                # データが存在しない場合は重複なし
+                return False
+            
+            # 同じユーザーIDで、活動タイムスタンプに基づく予測データが既に存在するかチェック
+            for record in records:
+                if record.get('UserID') == user_id:
+                    # 活動タイムスタンプが一致するかチェック
+                    # activity_timestampとの比較（Notes欄にTimestamp情報がある場合もある）
+                    notes = record.get('Notes', '')
+                    if activity_timestamp in notes:
+                        logger.info(f"重複する予測データを発見: UserID={user_id}, ActivityTimestamp={activity_timestamp}")
+                        return True
+                        
+                    # 予測タイムスタンプが活動タイムスタンプと近い場合も重複とみなす
+                    prediction_timestamp = record.get('Timestamp', '')
+                    if prediction_timestamp and activity_timestamp:
+                        try:
+                            from datetime import datetime, timedelta
+                            pred_time = datetime.fromisoformat(prediction_timestamp.replace('Z', '+00:00') if 'Z' in prediction_timestamp else prediction_timestamp)
+                            activity_time = datetime.fromisoformat(activity_timestamp.replace('Z', '+00:00') if 'Z' in activity_timestamp else activity_timestamp)
+                            
+                            # 5分以内の差の場合は重複とみなす
+                            if abs((pred_time - activity_time).total_seconds()) < 300:  # 5分 = 300秒
+                                logger.info(f"時間が近い予測データを発見: UserID={user_id}, 差={abs((pred_time - activity_time).total_seconds())}秒")
+                                return True
+                        except (ValueError, TypeError) as e:
+                            # タイムスタンプのパースエラーは無視
+                            logger.debug(f"タイムスタンプパースエラー: {e}")
+                            continue
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"予測データ重複チェックエラー: {e}")
+            # エラーの場合は安全のため重複なしとして処理を続行
+            return False
+
     def save_prediction_data(self, prediction_data: Dict) -> bool:
         """
         予測結果をスプレッドシートに保存
@@ -629,6 +695,17 @@ class SheetsConnector:
             if actual_frustration is not None:
                 prediction_error = abs(predicted_frustration - actual_frustration)
 
+            # Notes欄を拡張して重複チェックに必要な情報を含める
+            original_notes = prediction_data.get('notes', '')
+            source = prediction_data.get('source', 'unknown')
+            activity_timestamp = prediction_data.get('activity_timestamp', '')
+            
+            enhanced_notes = f"Source: {source}"
+            if activity_timestamp:
+                enhanced_notes += f", ActivityTimestamp: {activity_timestamp}"
+            if original_notes:
+                enhanced_notes += f", {original_notes}"
+
             row_data = [
                 prediction_data.get('timestamp', datetime.now().isoformat()),
                 prediction_data.get('user_id', 'default'),
@@ -639,7 +716,7 @@ class SheetsConnector:
                 actual_frustration if actual_frustration is not None else '',
                 round(prediction_error, 2) if prediction_error is not None else '',
                 'v1.0',  # モデルバージョン
-                prediction_data.get('notes', '')
+                enhanced_notes
             ]
 
             # 新規行を追加
