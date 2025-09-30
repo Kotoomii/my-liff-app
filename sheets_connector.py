@@ -100,37 +100,8 @@ class SheetsConnector:
             return None
     
     def _get_user_sheet_config(self, user_id: str) -> Dict:
-        """ユーザー設定を取得"""
-        # main.pyと同じユーザー設定
-        users_config = [
-            {
-                'user_id': 'default', 
-                'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d337f',
-                'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
-            },
-            {
-                'user_id': 'user1', 
-                'activity_sheet': 'U1234567890abcdef',
-                'fitbit_sheet': 'kotoomi_Fitbit-data-01'
-            },
-            {
-                'user_id': 'user2', 
-                'activity_sheet': 'U2345678901bcdefg',
-                'fitbit_sheet': 'kotoomi_Fitbit-data-02'
-            },
-            {
-                'user_id': 'user3', 
-                'activity_sheet': 'U3456789012cdefgh',
-                'fitbit_sheet': 'kotoomi_Fitbit-data-03'
-            },
-        ]
-        
-        for user in users_config:
-            if user['user_id'] == user_id:
-                return user
-        
-        # デフォルトを返す
-        return users_config[0]
+        """ユーザー設定を取得（Config.pyから）"""
+        return self.config.get_user_config(user_id)
     
     def get_activity_data(self, user_id: str = "default") -> pd.DataFrame:
         """

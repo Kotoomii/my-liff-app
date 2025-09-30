@@ -50,6 +50,18 @@ def frustration_trends():
     """ユーザー別フラストレーション値推移確認シート"""
     return render_template('frustration_trends.html')
 
+@app.route('/activity')
+def activity_page():
+    """活動データ入力ページ (my-liff-app互換) - リダイレクト"""
+    from flask import redirect
+    return redirect('https://kotoomii.github.io/my-liff-app/activity.html')
+
+@app.route('/nasa')
+def nasa_page():
+    """NASA-TLX評価ページ (my-liff-app互換) - リダイレクト"""
+    from flask import redirect
+    return redirect('https://kotoomii.github.io/my-liff-app/nasa.html')
+
 @app.route('/api/frustration/predict', methods=['POST'])
 def predict_frustration():
     """

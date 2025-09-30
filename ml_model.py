@@ -201,11 +201,11 @@ class FrustrationPredictor:
                     features[f'hist_{col}'] = 8000.0
             
             # 時間帯別特徴量（過去24時間）
-            for hour_range, label in [(0, 6, 'night'), (6, 12, 'morning'), 
-                                    (12, 18, 'afternoon'), (18, 24, 'evening')]:
+            for start_hour, end_hour, label in [(0, 6, 'night'), (6, 12, 'morning'), 
+                                              (12, 18, 'afternoon'), (18, 24, 'evening')]:
                 hour_data = historical_data[
-                    (historical_data['hour'] >= hour_range[0]) & 
-                    (historical_data['hour'] < hour_range[1])
+                    (historical_data['hour'] >= start_hour) & 
+                    (historical_data['hour'] < end_hour)
                 ]
                 features[f'hist_{label}_avg_frustration'] = hour_data['NASA_F'].mean() if not hour_data.empty else 10.0
                 features[f'hist_{label}_duration'] = hour_data['Duration'].sum()
