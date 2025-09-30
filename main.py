@@ -562,14 +562,15 @@ def get_frustration_timeline():
             
             # 各活動に対してモデル予測を実行
             try:
-                # 活動データのバッチ予測のために単一行のDataFrameを作成
-                single_row_df = df_enhanced.iloc[[idx]]
-                prediction_result = predictor.predict_frustration_batch(single_row_df)
+                # 単一活動の予測を実行
+                prediction_result = predictor.predict_single_activity(
+                    activity_category=row.get('Sub', '不明'),
+                    duration=row.get('Duration', 60),
+                    current_time=pd.to_datetime(row.get('Timestamp'))
+                )
                 
-                if prediction_result and len(prediction_result) > 0:
-                    predicted_value = prediction_result[0].get('predicted_frustration')
-                    if predicted_value is not None:
-                        predicted_frustration = predicted_value
+                if prediction_result and 'predicted_frustration' in prediction_result:
+                    predicted_frustration = prediction_result['predicted_frustration']
                         
             except Exception as e:
                 logger.warning(f"予測エラー: {e}")

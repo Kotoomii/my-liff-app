@@ -558,6 +558,36 @@ class FrustrationPredictor:
                 'error': str(e)
             }
     
+    def predict_frustration_batch(self, activities: List[dict]) -> List[dict]:
+        """
+        複数の活動に対してフラストレーション値をバッチ予測
+        
+        Args:
+            activities: 活動のリスト。各活動は{'sub_category': str, 'duration': int, 'timestamp': datetime}形式
+            
+        Returns:
+            予測結果のリスト
+        """
+        try:
+            if not activities:
+                return []
+                
+            results = []
+            for activity in activities:
+                # 各活動に対して予測実行
+                prediction_result = self.predict_single_activity(
+                    activity_category=activity.get('sub_category', '不明'),
+                    duration=activity.get('duration', 60),
+                    current_time=activity.get('timestamp')
+                )
+                results.append(prediction_result)
+                
+            return results
+            
+        except Exception as e:
+            logger.error(f"バッチ予測エラー: {e}")
+            return []
+    
     def get_prediction_confidence(self, prediction: float, features: dict) -> float:
         """
         予測の信頼度を計算
