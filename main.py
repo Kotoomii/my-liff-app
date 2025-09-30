@@ -15,6 +15,7 @@ from sheets_connector import SheetsConnector
 from counterfactual_explainer import ActivityCounterfactualExplainer
 from llm_feedback_generator import LLMFeedbackGenerator
 from scheduler import FeedbackScheduler
+from config import Config
 
 app = Flask(__name__)
 
@@ -445,45 +446,9 @@ def health_check():
 def get_users():
     """利用可能ユーザー一覧取得"""
     try:
-        # 複数ユーザー対応：LINEユーザーIDとFitbitシートの組み合わせ設定
-        users = [
-            {
-                'user_id': 'default', 
-                'name': 'デフォルトユーザー', 
-                'icon': '👤',
-                'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d337f',  # LINE活動報告シート名
-                'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'  # Fitbitデータシート名
-            },
-            {
-                'user_id': 'user1', 
-                'name': 'ユーザー1', 
-                'icon': '👨',
-                'activity_sheet': 'U1234567890abcdef',  # LINEユーザーID例
-                'fitbit_sheet': 'kotoomi_Fitbit-data-01'
-            },
-            {
-                'user_id': 'user2', 
-                'name': 'ユーザー2', 
-                'icon': '👩',
-                'activity_sheet': 'U2345678901bcdefg',  # LINEユーザーID例
-                'fitbit_sheet': 'kotoomi_Fitbit-data-02'
-            },
-            {
-                'user_id': 'user3', 
-                'name': 'ユーザー3', 
-                'icon': '🧑',
-                'activity_sheet': 'U3456789012cdefgh',  # LINEユーザーID例
-                'fitbit_sheet': 'kotoomi_Fitbit-data-03'
-            },
-            # 追加ユーザー登録例
-            # {
-            #     'user_id': 'kotoomi', 
-            #     'name': 'こときみ', 
-            #     'icon': '👩‍🔬',
-            #     'activity_sheet': 'Uabc123def456ghi',  # 実際のLINEユーザーID
-            #     'fitbit_sheet': 'kotoomi_Fitbit-data-main'
-            # },
-        ]
+        # Config.pyから設定済みユーザー一覧を取得
+        config = Config()
+        users = config.get_all_users()
         
         return jsonify({
             'status': 'success',

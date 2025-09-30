@@ -23,7 +23,7 @@ class Config:
             'user_id': 'default',
             'name': 'デフォルトユーザー',
             'icon': '👤',
-            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d337f',  # LINEユーザーID
+            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33',  # LINEユーザーID (Excel対応)
             'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi',  # username_Fitbit-data-identifier
             'description': 'メインユーザー（こときみ）'
         },

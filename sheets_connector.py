@@ -10,6 +10,10 @@ from google.oauth2.service_account import Credentials
 import os
 import json
 import tempfile
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
 
 from config import Config
 
@@ -20,7 +24,20 @@ class SheetsConnector:
         self.config = Config()
         self.gc = None
         self.spreadsheet = None
+        self.debug_mode = self._detect_debug_mode()
         self._initialize_client()
+    
+    def _detect_debug_mode(self) -> bool:
+        """デバッグモードを検出（ローカルExcelファイルの存在確認）"""
+        excel_file_path = os.path.join(os.path.dirname(__file__), 'data', '確認用.xlsx')
+        debug_mode = os.path.exists(excel_file_path) and openpyxl is not None
+        
+        if debug_mode:
+            logger.info(f"デバッグモード: ローカルExcelファイルを使用 ({excel_file_path})")
+        else:
+            logger.info("プロダクションモード: Google Sheetsを使用")
+            
+        return debug_mode
     
     def _initialize_client(self):
         """Google Sheets APIクライアントを初期化"""
@@ -105,8 +122,58 @@ class SheetsConnector:
     
     def get_activity_data(self, user_id: str = "default") -> pd.DataFrame:
         """
-        活動データを取得（ユーザー固有のLINEシートから）
+        活動データを取得（デバッグモード: Excelファイル、プロダクション: Google Sheets）
         """
+        try:
+            # デバッグモード: ローカルExcelファイルから読み込み
+            if self.debug_mode:
+                return self._get_activity_data_from_excel(user_id)
+            
+            # プロダクションモード: Google Sheetsから読み込み
+            return self._get_activity_data_from_sheets(user_id)
+            
+        except Exception as e:
+            logger.error(f"活動データ取得エラー: {e}")
+            return pd.DataFrame()
+    
+    def _get_activity_data_from_excel(self, user_id: str = "default") -> pd.DataFrame:
+        """ExcelファイルからJA動データを取得"""
+        try:
+            excel_file_path = os.path.join(os.path.dirname(__file__), 'data', '確認用.xlsx')
+            
+            if not os.path.exists(excel_file_path):
+                logger.warning(f"Excelファイルが見つかりません: {excel_file_path}")
+                return pd.DataFrame()
+            
+            # ユーザー設定から活動データシート名を取得
+            user_config = self._get_user_sheet_config(user_id)
+            activity_sheet_name = user_config.get('activity_sheet', user_id)
+            
+            # Excelファイルから指定シートを読み込み
+            df = pd.read_excel(excel_file_path, sheet_name=activity_sheet_name)
+            
+            if df.empty:
+                logger.warning(f"活動データが空です (Excel: {activity_sheet_name})")
+                return pd.DataFrame()
+            
+            # データ型変換
+            if 'Timestamp' in df.columns:
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+            
+            # NASA-TLX列の数値変換（1-20スケール用）
+            nasa_cols = [col for col in self.config.NASA_DIMENSIONS if col in df.columns]
+            for col in nasa_cols:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(10)  # 1-20スケール用のデフォルト値
+            
+            logger.info(f"活動データ取得完了 (Excel: {activity_sheet_name}): {len(df)} 行")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Excel活動データ取得エラー: {e}")
+            return pd.DataFrame()
+    
+    def _get_activity_data_from_sheets(self, user_id: str = "default") -> pd.DataFrame:
+        """Google Sheetsから活動データを取得"""
         try:
             if not self.gc:
                 logger.warning("Google Sheetsクライアントが初期化されていません")
@@ -138,19 +205,70 @@ class SheetsConnector:
             # NASA-TLX列の数値変換
             nasa_cols = [col for col in self.config.NASA_DIMENSIONS if col in df.columns]
             for col in nasa_cols:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(50)
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(10)  # 1-20スケール用のデフォルト値
             
             logger.info(f"活動データ取得完了 (シート: {activity_sheet_name}): {len(df)} 行")
             return df
             
         except Exception as e:
-            logger.error(f"活動データ取得エラー: {e}")
+            logger.error(f"Google Sheets活動データ取得エラー: {e}")
             return pd.DataFrame()
     
     def get_fitbit_data(self, user_id: str = "default") -> pd.DataFrame:
         """
-        生体データ（Fitbitデータ）を取得（ユーザー固有のFitbitシートから）
+        生体データ（Fitbitデータ）を取得（デバッグモード: Excelファイル、プロダクション: Google Sheets）
         """
+        try:
+            # デバッグモード: ローカルExcelファイルから読み込み
+            if self.debug_mode:
+                return self._get_fitbit_data_from_excel(user_id)
+            
+            # プロダクションモード: Google Sheetsから読み込み
+            return self._get_fitbit_data_from_sheets(user_id)
+            
+        except Exception as e:
+            logger.error(f"Fitbitデータ取得エラー: {e}")
+            return pd.DataFrame()
+    
+    def _get_fitbit_data_from_excel(self, user_id: str = "default") -> pd.DataFrame:
+        """ExcelファイルからFitbitデータを取得"""
+        try:
+            excel_file_path = os.path.join(os.path.dirname(__file__), 'data', '確認用.xlsx')
+            
+            if not os.path.exists(excel_file_path):
+                logger.warning(f"Excelファイルが見つかりません: {excel_file_path}")
+                return pd.DataFrame()
+            
+            # ユーザー設定からFitbitデータシート名を取得
+            user_config = self._get_user_sheet_config(user_id)
+            fitbit_sheet_name = user_config.get('fitbit_sheet', f'kotoomi_Fitbit-data-{user_id}')
+            
+            # Excelファイルから指定シートを読み込み
+            df = pd.read_excel(excel_file_path, sheet_name=fitbit_sheet_name)
+            
+            if df.empty:
+                logger.warning(f"Fitbitデータが空です (Excel: {fitbit_sheet_name})")
+                return pd.DataFrame()
+            
+            # データ型変換
+            if 'Timestamp' in df.columns:
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+            if 'Lorenz_Area' in df.columns:
+                df['Lorenz_Area'] = pd.to_numeric(df['Lorenz_Area'], errors='coerce').fillna(8000)
+            if 'SDNN' in df.columns:
+                df['SDNN'] = pd.to_numeric(df['SDNN'], errors='coerce').fillna(50)
+            if 'data_points' in df.columns:
+                df['data_points'] = pd.to_numeric(df['data_points'], errors='coerce').fillna(100)
+            
+            logger.info(f"Fitbitデータ取得完了 (Excel: {fitbit_sheet_name}): {len(df)} 行")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Excel Fitbitデータ取得エラー: {e}")
+            return pd.DataFrame()
+    
+    def _get_fitbit_data_from_sheets(self, user_id: str = "default") -> pd.DataFrame:
+        """Google SheetsからFitbitデータを取得"""
         try:
             if not self.gc:
                 logger.warning("Google Sheetsクライアントが初期化されていません")
@@ -180,17 +298,21 @@ class SheetsConnector:
                 df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
             if 'Lorenz_Area' in df.columns:
                 df['Lorenz_Area'] = pd.to_numeric(df['Lorenz_Area'], errors='coerce').fillna(8000)
+            if 'SDNN' in df.columns:
+                df['SDNN'] = pd.to_numeric(df['SDNN'], errors='coerce').fillna(50)
+            if 'data_points' in df.columns:
+                df['data_points'] = pd.to_numeric(df['data_points'], errors='coerce').fillna(100)
             
             logger.info(f"Fitbitデータ取得完了 (シート: {fitbit_sheet_name}): {len(df)} 行")
             return df
             
         except Exception as e:
-            logger.error(f"Fitbitデータ取得エラー: {e}")
+            logger.error(f"Google Sheets Fitbitデータ取得エラー: {e}")
             return pd.DataFrame()
     
     def get_fixed_plans(self, user_id: str = "default") -> pd.DataFrame:
         """
-        固定予定データ（FIXED_PLANS）を取得
+        固定予定データ（FIXED_PLANS）を取得（Google Sheetsのみ対応）
         """
         try:
             if not self.gc:
