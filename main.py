@@ -37,6 +37,11 @@ dice_scheduler_thread = None
 dice_scheduler_running = False
 last_dice_result = {}
 
+# データ更新監視スレッド
+data_monitor_thread = None
+data_monitor_running = False
+last_prediction_result = {}
+
 @app.route('/')
 def index():
     """メインダッシュボード - 過去24時間のDiCE結果可視化"""
@@ -937,13 +942,57 @@ def debug_get_dice_results():
                 'message': 'DiCE結果がまだありません',
                 'data': None
             })
-        
+
         return jsonify({
             'status': 'success',
             'data': last_dice_result
         })
     except Exception as e:
         logger.error(f"DiCE結果取得エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/debug/data-monitor/status', methods=['GET'])
+def debug_data_monitor_status():
+    """データ監視スレッドの状態確認API"""
+    try:
+        status = {
+            'monitor_running': data_monitor_running,
+            'monitor_thread_alive': data_monitor_thread.is_alive() if data_monitor_thread else False,
+            'last_prediction': last_prediction_result if last_prediction_result else None,
+            'current_time': datetime.now().isoformat()
+        }
+
+        return jsonify({
+            'status': 'success',
+            'data': status
+        })
+    except Exception as e:
+        logger.error(f"データ監視状態確認エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/debug/data-monitor/check', methods=['POST'])
+def debug_trigger_data_check():
+    """手動でデータ更新チェックを実行するデバッグAPI"""
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id', 'default')
+
+        has_new = sheets_connector.has_new_data(user_id)
+
+        return jsonify({
+            'status': 'success',
+            'user_id': user_id,
+            'has_new_data': has_new,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"データ更新チェックエラー: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -1040,60 +1089,137 @@ def run_daily_dice_for_user(user_id: str):
         # モデルが訓練されていることを確認
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
-        
+
         if activity_data.empty:
             logger.warning(f"ユーザー {user_id} の活動データが見つかりません")
             return None
-        
+
         # データ前処理とモデル訓練
         enhanced_data = predictor.preprocess_activity_data(activity_data)
         if not enhanced_data.empty:
             enhanced_data = predictor.aggregate_fitbit_by_activity(enhanced_data, fitbit_data)
-            
+
             # 最新のモデルで訓練
             predictor.walk_forward_validation_train(enhanced_data)
-        
+
         # 昨日のデータでDiCE実行
         yesterday = datetime.now() - timedelta(days=1)
         dice_result = explainer.generate_hourly_alternatives(enhanced_data, predictor, yesterday)
-        
+
         return dice_result
-        
+
     except Exception as e:
         logger.error(f"ユーザー {user_id} のDiCE実行エラー: {e}")
         return None
 
+def data_monitor_loop():
+    """
+    データ更新を監視し、新しいデータが追加されたら自動的にフラストレーション予測を実行
+    """
+    global data_monitor_running, last_prediction_result
+
+    check_interval = 600  # 600秒（10分）ごとにチェック
+
+    while data_monitor_running:
+        try:
+            # デフォルトユーザーの新データをチェック
+            user_id = 'default'
+
+            if sheets_connector.has_new_data(user_id):
+                logger.info(f"新しいデータを検知しました。フラストレーション予測を実行します: {user_id}")
+
+                # 新しいデータを取得（キャッシュをクリアして最新データを取得）
+                activity_data = sheets_connector.get_activity_data(user_id, use_cache=False)
+                fitbit_data = sheets_connector.get_fitbit_data(user_id, use_cache=False)
+
+                if not activity_data.empty:
+                    # データ前処理
+                    activity_processed = predictor.preprocess_activity_data(activity_data)
+                    df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+
+                    # モデル再訓練
+                    if len(df_enhanced) > 10:
+                        training_results = predictor.walk_forward_validation_train(df_enhanced)
+                        logger.info(f"モデル再訓練完了: {training_results}")
+
+                    # 最新の活動に対するフラストレーション予測
+                    latest_activity = activity_processed.iloc[-1]
+                    prediction_result = predictor.predict_single_activity(
+                        latest_activity.get('CatSub', 'unknown'),
+                        latest_activity.get('Duration', 60),
+                        latest_activity.get('Timestamp', datetime.now())
+                    )
+
+                    # 予測結果を保存
+                    last_prediction_result = {
+                        'timestamp': datetime.now().isoformat(),
+                        'user_id': user_id,
+                        'latest_activity': latest_activity.get('CatSub', 'unknown'),
+                        'prediction': prediction_result,
+                        'data_count': len(df_enhanced)
+                    }
+
+                    logger.info(f"自動予測完了: {prediction_result}")
+
+                    # 予測結果をスプレッドシートに保存
+                    prediction_data = {
+                        'timestamp': datetime.now().isoformat(),
+                        'user_id': user_id,
+                        'activity': latest_activity.get('CatSub', 'unknown'),
+                        'duration': latest_activity.get('Duration', 0),
+                        'predicted_frustration': prediction_result.get('predicted_frustration', 0),
+                        'confidence': prediction_result.get('confidence', 0),
+                        'actual_frustration': latest_activity.get('NASA_F', None)
+                    }
+                    sheets_connector.save_prediction_data(prediction_data)
+
+            # 次のチェックまで待機
+            time.sleep(check_interval)
+
+        except Exception as e:
+            logger.error(f"データ監視ループエラー: {e}")
+            time.sleep(check_interval)
+
 def initialize_application():
     """アプリケーション初期化"""
-    global dice_scheduler_thread, dice_scheduler_running
-    
+    global dice_scheduler_thread, dice_scheduler_running, data_monitor_thread, data_monitor_running
+
     try:
         logger.info("アプリケーションを初期化しています...")
-        
+
         # スケジューラー開始
         scheduler.start_scheduler()
         logger.info("定期フィードバックスケジューラーを開始しました")
-        
+
         # DiCE daily scheduler開始
         dice_scheduler_running = True
         dice_scheduler_thread = threading.Thread(target=daily_dice_scheduler, daemon=True)
         dice_scheduler_thread.start()
         logger.info("DiCE日次スケジューラーを開始しました (毎日21:00実行)")
-        
+
+        # データ更新監視スレッド開始
+        data_monitor_running = True
+        data_monitor_thread = threading.Thread(target=data_monitor_loop, daemon=True)
+        data_monitor_thread.start()
+        logger.info("データ更新監視スレッドを開始しました (10分ごとにチェック)")
+
         logger.info("アプリケーション初期化完了")
     except Exception as e:
         logger.error(f"アプリケーション初期化エラー: {e}")
 
 def cleanup_application():
     """アプリケーション終了処理"""
-    global dice_scheduler_running
-    
+    global dice_scheduler_running, data_monitor_running
+
     try:
         logger.info("アプリケーションを終了しています...")
-        
+
         # DiCE スケジューラー停止
         dice_scheduler_running = False
-        
+
+        # データ監視スレッド停止
+        data_monitor_running = False
+
         scheduler.stop_scheduler()
         logger.info("アプリケーション終了完了")
     except Exception as e:

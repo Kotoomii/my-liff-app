@@ -10,6 +10,7 @@ from google.oauth2.service_account import Credentials
 import os
 import json
 import tempfile
+from datetime import datetime, timedelta
 try:
     import openpyxl
 except ImportError:
@@ -26,17 +27,95 @@ class SheetsConnector:
         self.spreadsheet = None
         self.debug_mode = self._detect_debug_mode()
         self._initialize_client()
+
+        # キャッシュ機能の初期化
+        self._cache = {}
+        self._cache_expiry = {}
+        self._cache_duration_minutes = 5  # デフォルト5分間キャッシュ
+        self._last_data_timestamp = {}  # 各シートの最終データタイムスタンプ
     
+    def _get_cache_key(self, data_type: str, user_id: str) -> str:
+        """キャッシュキーを生成"""
+        return f"{data_type}_{user_id}"
+
+    def _is_cache_valid(self, cache_key: str) -> bool:
+        """キャッシュが有効かチェック"""
+        if cache_key not in self._cache_expiry:
+            return False
+        return datetime.now() < self._cache_expiry[cache_key]
+
+    def _get_from_cache(self, cache_key: str) -> Optional[pd.DataFrame]:
+        """キャッシュからデータを取得"""
+        if self._is_cache_valid(cache_key):
+            logger.info(f"キャッシュからデータを取得: {cache_key}")
+            return self._cache[cache_key].copy()
+        return None
+
+    def _save_to_cache(self, cache_key: str, data: pd.DataFrame):
+        """データをキャッシュに保存"""
+        self._cache[cache_key] = data.copy()
+        self._cache_expiry[cache_key] = datetime.now() + timedelta(minutes=self._cache_duration_minutes)
+        logger.info(f"データをキャッシュに保存: {cache_key} (有効期限: {self._cache_duration_minutes}分)")
+
+    def _clear_cache(self, cache_key: str = None):
+        """キャッシュをクリア"""
+        if cache_key:
+            if cache_key in self._cache:
+                del self._cache[cache_key]
+                del self._cache_expiry[cache_key]
+                logger.info(f"キャッシュをクリア: {cache_key}")
+        else:
+            self._cache.clear()
+            self._cache_expiry.clear()
+            logger.info("すべてのキャッシュをクリア")
+
+    def has_new_data(self, user_id: str = "default") -> bool:
+        """
+        新しいデータが追加されたかチェック
+        最終データのタイムスタンプを比較して判定
+        """
+        try:
+            # 現在のデータを取得（キャッシュを使わない）
+            activity_data = self._get_activity_data_from_sheets(user_id) if not self.debug_mode else self._get_activity_data_from_excel(user_id)
+
+            if activity_data.empty:
+                return False
+
+            # 最新のタイムスタンプを取得
+            if 'Timestamp' not in activity_data.columns:
+                return False
+
+            latest_timestamp = activity_data['Timestamp'].max()
+            cache_key = self._get_cache_key('activity', user_id)
+
+            # 前回の最終タイムスタンプと比較
+            if cache_key in self._last_data_timestamp:
+                if latest_timestamp > self._last_data_timestamp[cache_key]:
+                    logger.info(f"新しいデータを検知: {user_id} (最新: {latest_timestamp})")
+                    self._last_data_timestamp[cache_key] = latest_timestamp
+                    # 新しいデータがあればキャッシュをクリア
+                    self._clear_cache(cache_key)
+                    return True
+                return False
+            else:
+                # 初回は新データとして扱わない
+                self._last_data_timestamp[cache_key] = latest_timestamp
+                return False
+
+        except Exception as e:
+            logger.error(f"新データ検知エラー: {e}")
+            return False
+
     def _detect_debug_mode(self) -> bool:
         """デバッグモードを検出（ローカルExcelファイルの存在確認）"""
         excel_file_path = os.path.join(os.path.dirname(__file__), 'data', '確認用.xlsx')
         debug_mode = os.path.exists(excel_file_path) and openpyxl is not None
-        
+
         if debug_mode:
             logger.info(f"デバッグモード: ローカルExcelファイルを使用 ({excel_file_path})")
         else:
             logger.info("プロダクションモード: Google Sheetsを使用")
-            
+
         return debug_mode
     
     def _initialize_client(self):
@@ -120,18 +199,33 @@ class SheetsConnector:
         """ユーザー設定を取得（Config.pyから）"""
         return self.config.get_user_config(user_id)
     
-    def get_activity_data(self, user_id: str = "default") -> pd.DataFrame:
+    def get_activity_data(self, user_id: str = "default", use_cache: bool = True) -> pd.DataFrame:
         """
         活動データを取得（デバッグモード: Excelファイル、プロダクション: Google Sheets）
+        キャッシュ機能付き
         """
         try:
+            cache_key = self._get_cache_key('activity', user_id)
+
+            # キャッシュチェック
+            if use_cache:
+                cached_data = self._get_from_cache(cache_key)
+                if cached_data is not None:
+                    return cached_data
+
             # デバッグモード: ローカルExcelファイルから読み込み
             if self.debug_mode:
-                return self._get_activity_data_from_excel(user_id)
-            
-            # プロダクションモード: Google Sheetsから読み込み
-            return self._get_activity_data_from_sheets(user_id)
-            
+                data = self._get_activity_data_from_excel(user_id)
+            else:
+                # プロダクションモード: Google Sheetsから読み込み
+                data = self._get_activity_data_from_sheets(user_id)
+
+            # キャッシュに保存
+            if not data.empty and use_cache:
+                self._save_to_cache(cache_key, data)
+
+            return data
+
         except Exception as e:
             logger.error(f"活動データ取得エラー: {e}")
             return pd.DataFrame()
@@ -214,18 +308,33 @@ class SheetsConnector:
             logger.error(f"Google Sheets活動データ取得エラー: {e}")
             return pd.DataFrame()
     
-    def get_fitbit_data(self, user_id: str = "default") -> pd.DataFrame:
+    def get_fitbit_data(self, user_id: str = "default", use_cache: bool = True) -> pd.DataFrame:
         """
         生体データ（Fitbitデータ）を取得（デバッグモード: Excelファイル、プロダクション: Google Sheets）
+        キャッシュ機能付き
         """
         try:
+            cache_key = self._get_cache_key('fitbit', user_id)
+
+            # キャッシュチェック
+            if use_cache:
+                cached_data = self._get_from_cache(cache_key)
+                if cached_data is not None:
+                    return cached_data
+
             # デバッグモード: ローカルExcelファイルから読み込み
             if self.debug_mode:
-                return self._get_fitbit_data_from_excel(user_id)
-            
-            # プロダクションモード: Google Sheetsから読み込み
-            return self._get_fitbit_data_from_sheets(user_id)
-            
+                data = self._get_fitbit_data_from_excel(user_id)
+            else:
+                # プロダクションモード: Google Sheetsから読み込み
+                data = self._get_fitbit_data_from_sheets(user_id)
+
+            # キャッシュに保存
+            if not data.empty and use_cache:
+                self._save_to_cache(cache_key, data)
+
+            return data
+
         except Exception as e:
             logger.error(f"Fitbitデータ取得エラー: {e}")
             return pd.DataFrame()
@@ -482,6 +591,67 @@ class SheetsConnector:
         logger.info("ダミー固定予定データを生成しました")
         return df
     
+    def save_prediction_data(self, prediction_data: Dict) -> bool:
+        """
+        予測結果をスプレッドシートに保存
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            # PREDICTION_DATAシートを取得または作成
+            sheet_name = "PREDICTION_DATA"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if not worksheet:
+                # シートが存在しない場合は作成
+                worksheet = self.spreadsheet.add_worksheet(
+                    title=sheet_name,
+                    rows="10000",
+                    cols="10"
+                )
+                # ヘッダー行を追加
+                headers = [
+                    'Timestamp', 'UserID', 'Activity', 'Duration',
+                    'PredictedFrustration', 'Confidence', 'ActualFrustration',
+                    'PredictionError', 'ModelVersion', 'Notes'
+                ]
+                worksheet.append_row(headers)
+                logger.info("PREDICTION_DATAシートを作成しました")
+
+            # データ行を準備
+            predicted_frustration = prediction_data.get('predicted_frustration', 0)
+            actual_frustration = prediction_data.get('actual_frustration')
+
+            # 予測誤差を計算（実測値がある場合のみ）
+            prediction_error = None
+            if actual_frustration is not None:
+                prediction_error = abs(predicted_frustration - actual_frustration)
+
+            row_data = [
+                prediction_data.get('timestamp', datetime.now().isoformat()),
+                prediction_data.get('user_id', 'default'),
+                prediction_data.get('activity', 'unknown'),
+                prediction_data.get('duration', 0),
+                round(predicted_frustration, 2),
+                round(prediction_data.get('confidence', 0), 3),
+                actual_frustration if actual_frustration is not None else '',
+                round(prediction_error, 2) if prediction_error is not None else '',
+                'v1.0',  # モデルバージョン
+                prediction_data.get('notes', '')
+            ]
+
+            # 新規行を追加
+            worksheet.append_row(row_data)
+            logger.info(f"予測データを保存しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f})")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"予測データ保存エラー: {e}")
+            return False
+
     def save_workload_data(self, user_id: str, date: str, workload_data: Dict) -> bool:
         """
         負荷データをスプレッドシートに保存
