@@ -458,3 +458,127 @@ class FrustrationPredictor:
         except Exception as e:
             logger.error(f"モデル読み込みエラー: {e}")
             return False
+    
+    def create_features_for_new_activity(self, activity_category: str, duration: int = 60, 
+                                       current_time: datetime = None) -> dict:
+        """
+        新しい活動に対して特徴量を作成（リアルタイム予測用）
+        """
+        if current_time is None:
+            current_time = datetime.now()
+            
+        # 基本的な時間特徴量
+        features = {
+            'Duration': duration,
+            'hour': current_time.hour,
+            'day_of_week': current_time.weekday(),
+            'is_weekend': 1 if current_time.weekday() >= 5 else 0
+        }
+        
+        # 時間帯の特徴量
+        time_periods = [
+            (0, 6, 'night'), (6, 12, 'morning'), 
+            (12, 18, 'afternoon'), (18, 24, 'evening')
+        ]
+        
+        for start_hour, end_hour, period in time_periods:
+            features[f'is_{period}'] = 1 if start_hour <= current_time.hour < end_hour else 0
+        
+        # 活動カテゴリーのエンコーディング
+        if hasattr(self, 'encoders') and 'CatSub' in self.encoders:
+            try:
+                encoded_cat = self.encoders['CatSub'].transform([activity_category])[0]
+                features['CatSub_encoded'] = encoded_cat
+            except:
+                features['CatSub_encoded'] = 0  # デフォルト値
+        else:
+            features['CatSub_encoded'] = 0
+            
+        # デフォルトのFitbit値（平均的な値）
+        fitbit_defaults = {
+            'avg_HR': 75.0,
+            'avg_Steps': 100.0,
+            'avg_Distance': 0.1,
+            'avg_Calories': 50.0,
+            'avg_Sleep_Efficiency': 85.0,
+            'avg_Sleep_Minutes_Asleep': 480.0,
+            'avg_Sleep_Minutes_REM': 120.0,
+            'avg_Sleep_Minutes_Deep': 60.0,
+            'avg_Sleep_Minutes_Light': 300.0
+        }
+        
+        features.update(fitbit_defaults)
+        
+        return features
+    
+    def predict_single_activity(self, activity_category: str, duration: int = 60, 
+                               current_time: datetime = None) -> dict:
+        """
+        単一の活動に対してフラストレーション値を予測
+        """
+        try:
+            if self.model is None:
+                return {
+                    'predicted_frustration': 10.0,
+                    'confidence': 0.0,
+                    'error': 'モデルが訓練されていません'
+                }
+                
+            # 特徴量作成
+            features = self.create_features_for_new_activity(activity_category, duration, current_time)
+            
+            # DataFrameに変換
+            feature_df = pd.DataFrame([features])
+            
+            # モデルで使用する特徴量に合わせる
+            for col in self.feature_columns:
+                if col not in feature_df.columns:
+                    feature_df[col] = 0.0
+                    
+            feature_df = feature_df[self.feature_columns]
+            
+            # 予測実行
+            prediction = self.model.predict(feature_df)[0]
+            confidence = self.get_prediction_confidence(prediction, features)
+            
+            return {
+                'predicted_frustration': float(prediction),
+                'confidence': float(confidence),
+                'activity_category': activity_category,
+                'duration': duration,
+                'timestamp': current_time or datetime.now(),
+                'features_used': len(self.feature_columns)
+            }
+            
+        except Exception as e:
+            logger.error(f"単一活動予測エラー: {e}")
+            return {
+                'predicted_frustration': 10.0,
+                'confidence': 0.0,
+                'error': str(e)
+            }
+    
+    def get_prediction_confidence(self, prediction: float, features: dict) -> float:
+        """
+        予測の信頼度を計算
+        """
+        try:
+            # 基本信頼度（予測値が妥当な範囲内かどうか）
+            base_confidence = 0.7 if 1 <= prediction <= 20 else 0.3
+            
+            # 特徴量の完全性による調整
+            feature_completeness = len([v for v in features.values() if v != 0]) / len(features)
+            completeness_bonus = feature_completeness * 0.2
+            
+            # 時間帯による調整（通常の活動時間帯は信頼度が高い）
+            hour = features.get('hour', 12)
+            time_bonus = 0.1 if 6 <= hour <= 22 else 0.0
+            
+            # 最終信頼度計算
+            confidence = min(0.95, base_confidence + completeness_bonus + time_bonus)
+            
+            return confidence
+            
+        except Exception as e:
+            logger.error(f"信頼度計算エラー: {e}")
+            return 0.5

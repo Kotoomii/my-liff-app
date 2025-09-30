@@ -480,3 +480,203 @@ class ActivityCounterfactualExplainer:
             ],
             'confidence': 0.3
         }
+    
+    def generate_hourly_alternatives(self, activities_data: pd.DataFrame, 
+                                   predictor, target_date: datetime = None) -> dict:
+        """
+        1日の終わりに時間単位の粒度でDiCE改善提案を生成
+        """
+        try:
+            if target_date is None:
+                target_date = datetime.now().date()
+            
+            # 指定日のデータを抽出
+            day_data = activities_data[
+                activities_data['Timestamp'].dt.date == target_date
+            ].copy()
+            
+            if day_data.empty:
+                return self._get_fallback_hourly_schedule()
+            
+            # 時間別の改善提案を生成
+            hourly_schedule = []
+            total_improvement = 0
+            
+            # 24時間分のスケジュールを生成
+            for hour in range(24):
+                hour_start = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=hour)
+                hour_end = hour_start + timedelta(hours=1)
+                
+                # この時間帯の活動データを取得
+                hour_activities = day_data[
+                    (day_data['Timestamp'] >= hour_start) & 
+                    (day_data['Timestamp'] < hour_end)
+                ]
+                
+                if not hour_activities.empty:
+                    # 実際の活動があった時間帯
+                    original_activity = hour_activities.iloc[0]
+                    
+                    # 代替活動の提案を生成
+                    alternative_suggestion = self._generate_hourly_alternative(
+                        original_activity, predictor, hour
+                    )
+                    
+                    if alternative_suggestion:
+                        hourly_schedule.append(alternative_suggestion)
+                        total_improvement += alternative_suggestion.get('improvement', 0)
+                else:
+                    # 活動データがない時間帯は推奨活動を提案
+                    recommended_activity = self._recommend_activity_for_hour(hour)
+                    hourly_schedule.append({
+                        'hour': hour,
+                        'time_range': f"{hour:02d}:00-{hour+1:02d}:00",
+                        'original_activity': '未記録',
+                        'suggested_activity': recommended_activity,
+                        'improvement': 0,
+                        'reason': '健康的な生活リズムのため',
+                        'confidence': 0.6
+                    })
+            
+            # 改善効果の高い時間帯をハイライト
+            significant_improvements = [
+                item for item in hourly_schedule 
+                if item.get('improvement', 0) > 3
+            ]
+            
+            return {
+                'type': 'hourly_dice_schedule',
+                'date': target_date.strftime('%Y-%m-%d'),
+                'hourly_schedule': hourly_schedule,
+                'total_improvement': total_improvement,
+                'average_improvement': total_improvement / 24 if hourly_schedule else 0,
+                'significant_improvements': significant_improvements,
+                'message': f"今日このような活動をしていたらストレスレベルが{total_improvement:.1f}点下がっていました",
+                'confidence': min(0.9, 0.5 + len(significant_improvements) * 0.1),
+                'summary': f"24時間中{len(significant_improvements)}時間で大きな改善の可能性がありました"
+            }
+            
+        except Exception as e:
+            logger.error(f"時間別DiCE提案生成エラー: {e}")
+            return self._get_fallback_hourly_schedule()
+    
+    def _generate_hourly_alternative(self, original_activity: pd.Series, 
+                                   predictor, hour: int) -> dict:
+        """
+        特定の時間の活動に対する代替提案を生成
+        """
+        try:
+            # 現在の活動でのフラストレーション予測
+            current_frustration = predictor.predict_single_activity(
+                original_activity.get('CatSub', 'その他'),
+                original_activity.get('Duration', 60),
+                original_activity['Timestamp']
+            )['predicted_frustration']
+            
+            # 時間帯に適した代替活動候補
+            alternative_activities = self._get_time_appropriate_activities(hour)
+            
+            best_alternative = None
+            best_improvement = 0
+            
+            # 各代替活動での予測を実行
+            for alt_activity in alternative_activities:
+                alt_prediction = predictor.predict_single_activity(
+                    alt_activity,
+                    original_activity.get('Duration', 60),
+                    original_activity['Timestamp']
+                )
+                
+                improvement = current_frustration - alt_prediction['predicted_frustration']
+                
+                if improvement > best_improvement:
+                    best_improvement = improvement
+                    best_alternative = alt_activity
+            
+            if best_alternative and best_improvement > 1:
+                return {
+                    'hour': hour,
+                    'time_range': f"{hour:02d}:00-{hour+1:02d}:00",
+                    'original_activity': original_activity.get('CatSub', '不明'),
+                    'original_frustration': current_frustration,
+                    'suggested_activity': best_alternative,
+                    'suggested_frustration': current_frustration - best_improvement,
+                    'improvement': best_improvement,
+                    'reason': self._get_improvement_reason(original_activity.get('CatSub'), best_alternative),
+                    'confidence': min(0.9, 0.7 + best_improvement * 0.1)
+                }
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"時間別代替活動生成エラー: {e}")
+            return None
+    
+    def _get_time_appropriate_activities(self, hour: int) -> List[str]:
+        """
+        時間帯に適した活動候補を取得
+        """
+        if 6 <= hour < 9:
+            return ['朝食', '軽い運動', '散歩', 'ストレッチ', '読書']
+        elif 9 <= hour < 12:
+            return ['作業', '家事', '買い物', '散歩', 'リラックス']
+        elif 12 <= hour < 14:
+            return ['昼食', '昼休み', '散歩', 'リラックス']
+        elif 14 <= hour < 18:
+            return ['作業', '運動', '散歩', '家事', '趣味']
+        elif 18 <= hour < 21:
+            return ['夕食', '入浴', 'リラックス', '軽い運動', '趣味']
+        elif 21 <= hour < 24:
+            return ['入浴', 'リラックス', '読書', 'ストレッチ', '睡眠準備']
+        else:
+            return ['睡眠', 'リラックス']
+    
+    def _recommend_activity_for_hour(self, hour: int) -> str:
+        """
+        時間帯に最も適した推奨活動を取得
+        """
+        recommendations = {
+            6: '朝の散歩', 7: '朝食', 8: 'ストレッチ',
+            9: '作業開始', 10: '集中作業', 11: '軽い休憩',
+            12: '昼食', 13: '昼休み', 14: '午後の作業',
+            15: '軽い運動', 16: '作業継続', 17: '夕方の散歩',
+            18: '夕食準備', 19: '夕食', 20: 'リラックス',
+            21: '入浴', 22: '読書', 23: '睡眠準備'
+        }
+        
+        if hour in recommendations:
+            return recommendations[hour]
+        elif 0 <= hour < 6:
+            return '睡眠'
+        else:
+            return 'リラックス'
+    
+    def _get_improvement_reason(self, original: str, alternative: str) -> str:
+        """
+        改善理由の説明を生成
+        """
+        improvement_reasons = {
+            ('仕事', 'リラックス'): 'ストレス軽減のため',
+            ('作業', '散歩'): '気分転換と運動のため',
+            ('勉強', '軽い運動'): '集中力回復のため',
+            ('通学', '読書'): 'より快適な時間の過ごし方',
+            ('洗濯', 'リラックス'): '家事ストレス軽減のため',
+            ('睡眠', 'ストレッチ'): '睡眠の質向上のため'
+        }
+        
+        key = (original, alternative)
+        return improvement_reasons.get(key, f'{alternative}によるストレス軽減効果')
+    
+    def _get_fallback_hourly_schedule(self) -> dict:
+        """
+        フォールバック用の時間別スケジュール
+        """
+        return {
+            'type': 'fallback_hourly_schedule',
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'hourly_schedule': [],
+            'total_improvement': 0,
+            'message': '今日このような活動をしていたらストレスレベルが下がっていました',
+            'confidence': 0.3,
+            'summary': 'データが不足しているため、詳細な提案を生成できませんでした'
+        }

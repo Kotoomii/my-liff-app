@@ -9,6 +9,9 @@ import logging
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict
+import threading
+import time
+import json
 
 from ml_model import FrustrationPredictor
 from sheets_connector import SheetsConnector
@@ -28,6 +31,11 @@ sheets_connector = SheetsConnector()
 explainer = ActivityCounterfactualExplainer()
 feedback_generator = LLMFeedbackGenerator()
 scheduler = FeedbackScheduler()
+
+# DiCE daily scheduler
+dice_scheduler_thread = None
+dice_scheduler_running = False
+last_dice_result = {}
 
 @app.route('/')
 def index():
@@ -122,6 +130,250 @@ def predict_frustration():
         
     except Exception as e:
         logger.error(f"フラストレーション値予測エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/frustration/predict-activity', methods=['POST'])
+def predict_activity_frustration():
+    """
+    新しい活動入力時のリアルタイムフラストレーション予測API
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id', 'default')
+        activity_category = data.get('CatSub')  # 活動カテゴリ
+        activity_subcategory = data.get('CatMid', activity_category)  # 活動サブカテゴリ
+        duration = data.get('Duration', 60)  # 活動時間（分）
+        timestamp = data.get('timestamp', datetime.now().isoformat())
+        
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp)
+        
+        # 過去データ取得・前処理
+        activity_data = sheets_connector.get_activity_data(user_id)
+        fitbit_data = sheets_connector.get_fitbit_data(user_id)
+        
+        if activity_data.empty:
+            # 初回利用時のデフォルト予測値を返す
+            default_frustration = 10.0  # 1-20スケールの中間値
+            return jsonify({
+                'status': 'success',
+                'user_id': user_id,
+                'predicted_frustration': default_frustration,
+                'activity': activity_category,
+                'duration': duration,
+                'confidence': 0.5,
+                'message': '初回利用のためデフォルト値を返しました',
+                'timestamp': timestamp.isoformat()
+            })
+        
+        # データ前処理とモデル学習
+        activity_processed = predictor.preprocess_activity_data(activity_data)
+        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+        
+        if len(df_enhanced) > 5:  # 最低5件のデータで学習
+            predictor.walk_forward_validation_train(df_enhanced)
+        
+        # 新しい活動のフラストレーション値予測
+        prediction_result = predictor.predict_single_activity(
+            activity_category, 
+            duration, 
+            timestamp
+        )
+        
+        if 'error' in prediction_result:
+            return jsonify({
+                'status': 'error',
+                'message': prediction_result['error']
+            }), 400
+        
+        predicted_frustration = prediction_result['predicted_frustration']
+        confidence = prediction_result['confidence']
+        
+        return jsonify({
+            'status': 'success',
+            'user_id': user_id,
+            'predicted_frustration': round(predicted_frustration, 2),
+            'activity': activity_category,
+            'subcategory': activity_subcategory,
+            'duration': duration,
+            'confidence': round(confidence, 3),
+            'timestamp': timestamp.isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"活動フラストレーション予測エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/frustration/daily-dice-schedule', methods=['POST'])
+def generate_daily_dice_schedule():
+    """
+    1日の終わりに時間ごとのDiCE改善提案スケジュールを生成
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id', 'default')
+        target_date = data.get('date', datetime.now().date().isoformat())
+        
+        if isinstance(target_date, str):
+            target_date = datetime.fromisoformat(target_date).date()
+        
+        # その日の活動データを取得
+        activity_data = sheets_connector.get_activity_data(user_id)
+        fitbit_data = sheets_connector.get_fitbit_data(user_id)
+        
+        if activity_data.empty:
+            return jsonify({
+                'status': 'error',
+                'message': '活動データが見つかりません'
+            }), 400
+        
+        # 指定日のデータをフィルタリング
+        activity_data['Date'] = pd.to_datetime(activity_data['Timestamp']).dt.date
+        daily_activities = activity_data[activity_data['Date'] == target_date].copy()
+        
+        if daily_activities.empty:
+            return jsonify({
+                'status': 'success',
+                'user_id': user_id,
+                'date': target_date.isoformat(),
+                'message': 'その日の活動データがありません',
+                'schedule': [],
+                'recommendations': []
+            })
+        
+        # データ前処理とモデル学習
+        activity_processed = predictor.preprocess_activity_data(activity_data)
+        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+        
+        if len(df_enhanced) > 5:
+            predictor.walk_forward_validation_train(df_enhanced)
+        
+        # 1時間ごとのスケジュール提案を生成（DiCE方式）
+        dice_result = explainer.generate_hourly_alternatives(
+            activity_data, 
+            predictor,
+            target_date
+        )
+        
+        if dice_result and dice_result.get('hourly_schedule'):
+            hourly_schedule = dice_result['hourly_schedule']
+            message = dice_result.get('message', '時間別改善提案を生成しました')
+            total_improvement = dice_result.get('total_improvement', 0)
+        else:
+            # フォールバック：基本的な時間別スケジュール
+            hourly_schedule = []
+            daily_activities = daily_activities.sort_values('Timestamp')
+            
+            for hour in range(24):  # 0-23時
+                hour_start = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=hour)
+                hour_end = hour_start + timedelta(hours=1)
+                
+                # その時間帯の活動を取得
+                hour_activities = daily_activities[
+                    (daily_activities['Timestamp'] >= hour_start) & 
+                    (daily_activities['Timestamp'] < hour_end)
+                ]
+                
+                if not hour_activities.empty:
+                    # 実際の活動とフラストレーション値
+                    actual_activity = hour_activities.iloc[0]
+                    actual_frustration = actual_activity.get('NASA_F', 10.0)
+                    
+                    # シンプルな提案（デフォルト）
+                    suggested_activity = 'リラックス' if actual_activity['CatSub'] == '仕事' else '軽い運動'
+                
+                # その時間のスケジュール情報
+                hour_info = {
+                    'hour': hour,
+                    'time_range': f"{hour:02d}:00-{(hour+1):02d}:00",
+                    'actual_activity': actual_activity['CatSub'],
+                    'actual_frustration': round(float(actual_frustration), 2),
+                    'actual_duration': int(actual_activity.get('Duration', 60)),
+                    'suggested_activity': None,
+                    'suggested_frustration': None,
+                    'improvement': 0.0,
+                    'has_suggestion': False
+                }
+                
+                # DiCE提案がある場合
+                if dice_suggestions and dice_suggestions.get('alternatives'):
+                    best_alternative = dice_suggestions['alternatives'][0]
+                    suggested_frustration = best_alternative.get('predicted_frustration', actual_frustration)
+                    improvement = actual_frustration - suggested_frustration
+                    
+                    if improvement > 0.5:  # 0.5以上の改善が見込める場合のみ提案
+                        hour_info.update({
+                            'suggested_activity': best_alternative.get('activity', actual_activity['CatSub']),
+                            'suggested_frustration': round(suggested_frustration, 2),
+                            'improvement': round(improvement, 2),
+                            'has_suggestion': True
+                        })
+                        
+                        # 日次推奨事項に追加
+                        daily_recommendations.append({
+                            'time': f"{hour:02d}:00",
+                            'original': f"{actual_activity['CatSub']} (フラストレーション: {actual_frustration:.1f})",
+                            'suggested': f"{best_alternative.get('activity')} (予測フラストレーション: {suggested_frustration:.1f})",
+                            'improvement': round(improvement, 2),
+                            'reason': f"この時間に{best_alternative.get('activity')}を行うことで、フラストレーションを{improvement:.1f}ポイント削減できます"
+                        })
+                
+                hourly_schedule.append(hour_info)
+            
+            else:
+                # その時間に活動がない場合
+                hourly_schedule.append({
+                    'hour': hour,
+                    'time_range': f"{hour:02d}:00-{(hour+1):02d}:00",
+                    'actual_activity': None,
+                    'actual_frustration': None,
+                    'actual_duration': 0,
+                    'suggested_activity': None,
+                    'suggested_frustration': None,
+                    'improvement': 0.0,
+                    'has_suggestion': False
+                })
+        
+        # 全体統計
+        total_actual_frustration = sum([h['actual_frustration'] for h in hourly_schedule if h['actual_frustration'] is not None])
+        total_suggested_frustration = sum([h['suggested_frustration'] for h in hourly_schedule if h['suggested_frustration'] is not None])
+        total_improvement = sum([h['improvement'] for h in hourly_schedule])
+        
+        # DiCEによる時間別改善提案レスポンス形式に統一
+        if dice_result and dice_result.get('hourly_schedule'):
+            return jsonify({
+                'status': 'success',
+                'user_id': user_id,
+                'date': target_date.isoformat(),
+                'schedule': dice_result['hourly_schedule'],
+                'message': dice_result.get('message', '今日このような活動をしていたらストレスレベルが下がっていました'),
+                'total_improvement': dice_result.get('total_improvement', 0),
+                'summary': dice_result.get('summary', ''),
+                'confidence': dice_result.get('confidence', 0.7),
+                'generated_at': datetime.now().isoformat()
+            })
+        else:
+            # フォールバック応答
+            return jsonify({
+                'status': 'success',
+                'user_id': user_id,
+                'date': target_date.isoformat(),
+                'schedule': [],
+                'message': '今日このような活動をしていたらストレスレベルが下がっていました',
+                'total_improvement': 0,
+                'summary': 'データが不足しているため、詳細な提案を生成できませんでした',
+                'confidence': 0.3,
+                'generated_at': datetime.now().isoformat()
+            })
+        
+    except Exception as e:
+        logger.error(f"日次DiCEスケジュール生成エラー: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -589,6 +841,116 @@ def calculate_trend(activity_data):
     except Exception:
         return 0
 
+# ===== DEBUG API ENDPOINTS =====
+
+@app.route('/api/debug/dice-scheduler/status', methods=['GET'])
+def debug_dice_scheduler_status():
+    """DiCEスケジューラーの状態とスケジュール確認API"""
+    try:
+        now = datetime.now()
+        next_run = now.replace(hour=21, minute=0, second=0, microsecond=0)
+        if now > next_run:
+            next_run += timedelta(days=1)
+        
+        status = {
+            'scheduler_running': dice_scheduler_running,
+            'current_time': now.isoformat(),
+            'next_scheduled_run': next_run.isoformat(),
+            'seconds_until_next_run': (next_run - now).total_seconds(),
+            'last_dice_result': last_dice_result,
+            'scheduler_thread_alive': dice_scheduler_thread.is_alive() if dice_scheduler_thread else False
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'data': status
+        })
+    except Exception as e:
+        logger.error(f"DiCEスケジューラー状態確認エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/debug/dice-scheduler/trigger', methods=['POST'])
+def debug_trigger_dice():
+    """手動でDiCE改善提案を実行するデバッグAPI"""
+    global last_dice_result
+    
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id', 'default')
+        target_date = data.get('date')
+        
+        if target_date:
+            if isinstance(target_date, str):
+                target_date = datetime.fromisoformat(target_date.replace('Z', '+00:00')).date()
+        else:
+            target_date = datetime.now().date()
+        
+        logger.info(f"手動DiCE実行開始: ユーザー={user_id}, 日付={target_date}")
+        
+        dice_result = run_daily_dice_for_user(user_id)
+        
+        if dice_result:
+            last_dice_result = {
+                'timestamp': datetime.now().isoformat(),
+                'user_id': user_id,
+                'result': dice_result,
+                'execution_type': 'manual_debug'
+            }
+            
+            return jsonify({
+                'status': 'success',
+                'message': '手動DiCE実行完了',
+                'data': {
+                    'user_id': user_id,
+                    'execution_time': last_dice_result['timestamp'],
+                    'total_improvement': dice_result.get('total_improvement', 0),
+                    'schedule_items': len(dice_result.get('hourly_schedule', [])),
+                    'dice_message': dice_result.get('message', ''),
+                    'confidence': dice_result.get('confidence', 0),
+                    'summary': dice_result.get('summary', ''),
+                    'full_result': dice_result
+                }
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'DiCE実行に失敗しました。データが不足している可能性があります。'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"手動DiCE実行エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'エラーが発生しました: {str(e)}'
+        }), 500
+
+@app.route('/api/debug/dice-scheduler/results', methods=['GET'])
+def debug_get_dice_results():
+    """最新のDiCE結果を取得するデバッグAPI"""
+    try:
+        if not last_dice_result:
+            return jsonify({
+                'status': 'success',
+                'message': 'DiCE結果がまだありません',
+                'data': None
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'data': last_dice_result
+        })
+    except Exception as e:
+        logger.error(f"DiCE結果取得エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+# ===== HELPER FUNCTIONS =====
+
 def get_user_config(user_id: str) -> Dict:
     """ユーザー設定を取得"""
     # main.pyのusers配列と同じ設定を取得
@@ -630,8 +992,81 @@ def get_user_config(user_id: str) -> Dict:
     # デフォルトを返す
     return users_config[0]
 
+def daily_dice_scheduler():
+    """毎日21:00にDiCE改善提案を生成するスケジューラー"""
+    global dice_scheduler_running, last_dice_result
+    
+    while dice_scheduler_running:
+        try:
+            now = datetime.now()
+            # 毎日21:00に実行
+            target_time = now.replace(hour=21, minute=0, second=0, microsecond=0)
+            
+            # 今日の21:00がまだ来ていない場合はそのまま、過ぎている場合は明日の21:00
+            if now > target_time:
+                target_time += timedelta(days=1)
+            
+            sleep_seconds = (target_time - now).total_seconds()
+            logger.info(f"次回DiCE実行予定: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({sleep_seconds:.0f}秒後)")
+            
+            # 指定時刻まで待機
+            time.sleep(sleep_seconds)
+            
+            if dice_scheduler_running:  # スケジューラーが停止されていないか確認
+                logger.info("定時DiCE改善提案を実行中...")
+                
+                # デフォルトユーザーでDiCE実行
+                user_id = 'default'
+                dice_result = run_daily_dice_for_user(user_id)
+                
+                if dice_result:
+                    last_dice_result = {
+                        'timestamp': datetime.now().isoformat(),
+                        'user_id': user_id,
+                        'result': dice_result,
+                        'execution_type': 'scheduled'
+                    }
+                    logger.info(f"定時DiCE実行完了: 改善ポイント {dice_result.get('total_improvement', 0):.1f}点")
+                else:
+                    logger.error("定時DiCE実行に失敗しました")
+                    
+        except Exception as e:
+            logger.error(f"DiCEスケジューラーエラー: {e}")
+            time.sleep(3600)  # エラー時は1時間待機
+
+def run_daily_dice_for_user(user_id: str):
+    """指定ユーザーの日次DiCE改善提案を実行"""
+    try:
+        # モデルが訓練されていることを確認
+        activity_data = sheets_connector.get_activity_data(user_id)
+        fitbit_data = sheets_connector.get_fitbit_data(user_id)
+        
+        if activity_data.empty:
+            logger.warning(f"ユーザー {user_id} の活動データが見つかりません")
+            return None
+        
+        # データ前処理とモデル訓練
+        enhanced_data = predictor.preprocess_activity_data(activity_data)
+        if not enhanced_data.empty:
+            enhanced_data = predictor.aggregate_fitbit_by_activity(enhanced_data, fitbit_data)
+            
+            # 最新のモデルで訓練
+            predictor.walk_forward_validation_train(enhanced_data)
+        
+        # 昨日のデータでDiCE実行
+        yesterday = datetime.now() - timedelta(days=1)
+        dice_result = explainer.generate_hourly_alternatives(enhanced_data, predictor, yesterday)
+        
+        return dice_result
+        
+    except Exception as e:
+        logger.error(f"ユーザー {user_id} のDiCE実行エラー: {e}")
+        return None
+
 def initialize_application():
     """アプリケーション初期化"""
+    global dice_scheduler_thread, dice_scheduler_running
+    
     try:
         logger.info("アプリケーションを初期化しています...")
         
@@ -639,14 +1074,26 @@ def initialize_application():
         scheduler.start_scheduler()
         logger.info("定期フィードバックスケジューラーを開始しました")
         
+        # DiCE daily scheduler開始
+        dice_scheduler_running = True
+        dice_scheduler_thread = threading.Thread(target=daily_dice_scheduler, daemon=True)
+        dice_scheduler_thread.start()
+        logger.info("DiCE日次スケジューラーを開始しました (毎日21:00実行)")
+        
         logger.info("アプリケーション初期化完了")
     except Exception as e:
         logger.error(f"アプリケーション初期化エラー: {e}")
 
 def cleanup_application():
     """アプリケーション終了処理"""
+    global dice_scheduler_running
+    
     try:
         logger.info("アプリケーションを終了しています...")
+        
+        # DiCE スケジューラー停止
+        dice_scheduler_running = False
+        
         scheduler.stop_scheduler()
         logger.info("アプリケーション終了完了")
     except Exception as e:
