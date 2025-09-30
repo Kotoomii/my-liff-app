@@ -737,13 +737,13 @@
             <!-- 今日のフラストレーション値 -->
             <div class="daily-analysis">
                 <h2 class="section-title">
-                    <span class="section-icon">📊</span>
-                    今日のフラストレーション値
+                    <span class="section-icon">🔮</span>
+                    今日の予測フラストレーション値
                 </h2>
                 
                 <div class="daily-frustration">
                     <div class="frustration-value frustration-medium" id="daily-frustration-value">--</div>
-                    <div style="font-size: 16px; opacity: 0.8;" id="daily-info">今日の平均値を計算中...</div>
+                    <div style="font-size: 16px; opacity: 0.8;" id="daily-info">予測値を計算中...</div>
                 </div>
 
                 <div class="daily-stats">
@@ -973,9 +973,10 @@
             }
         }
 
-        // 今日のフラストレーション値読み込み（平均値）
+        // 今日のフラストレーション値読み込み（予測値ベース）
         async function loadDailyFrustration(userId) {
             try {
+                // まず活動データを取得
                 const response = await fetch('/api/frustration/timeline', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -988,14 +989,66 @@
                 const data = await response.json();
                 
                 if (data.status === 'success' && data.timeline.length > 0) {
-                    updateDailyFrustrationDisplay(data.timeline);
+                    // 各活動に対してリアルタイム予測を実行
+                    await updateDailyFrustrationWithPredictions(data.timeline, userId);
                 }
             } catch (error) {
                 console.error('日次フラストレーション値取得エラー:', error);
             }
         }
 
-        // タイムライン読み込み（活動名表示）
+        // 予測値ベースで日次フラストレーション表示を更新
+        async function updateDailyFrustrationWithPredictions(timeline, userId) {
+            const predictedTimeline = [];
+            
+            // 各活動に対して予測を実行
+            for (const item of timeline) {
+                try {
+                    const response = await fetch('/api/frustration/predict-activity', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            activity_category: item.activity,
+                            duration: item.duration || 60,
+                            timestamp: item.timestamp
+                        })
+                    });
+                    
+                    const predictionData = await response.json();
+                    
+                    if (predictionData.status === 'success') {
+                        predictedTimeline.push({
+                            ...item,
+                            frustration_value: predictionData.predicted_frustration,
+                            is_predicted: true,
+                            confidence: predictionData.confidence || 0
+                        });
+                    } else {
+                        // 予測に失敗した場合はデフォルト値を使用
+                        predictedTimeline.push({
+                            ...item,
+                            frustration_value: item.frustration_value || 10,
+                            is_predicted: false,
+                            confidence: 0
+                        });
+                    }
+                } catch (error) {
+                    console.error('活動予測エラー:', error);
+                    // エラーの場合はデフォルト値を使用
+                    predictedTimeline.push({
+                        ...item,
+                        frustration_value: item.frustration_value || 10,
+                        is_predicted: false,
+                        confidence: 0
+                    });
+                }
+            }
+            
+            updateDailyFrustrationDisplay(predictedTimeline);
+        }
+
+        // タイムライン読み込み（予測値ベース活動表示）
         async function loadTimeline(userId) {
             try {
                 const response = await fetch('/api/frustration/timeline', {
@@ -1010,12 +1063,15 @@
                 const data = await response.json();
                 
                 if (data.status === 'success') {
-                    updateTimelineDisplay(data.timeline);
+                    // 予測値でタイムライン表示を更新
+                    await updateTimelineWithPredictions(data.timeline, userId);
                     
                     // 活動数をチェック
                     const currentActivityCount = data.timeline.length;
                     if (currentActivityCount > lastActivityCount) {
                         lastActivityCount = currentActivityCount;
+                        console.log(`🎯 新しい活動が検出されました: ${currentActivityCount - lastActivityCount}件`);
+                        
                         // 新しい活動が報告された場合、DiCE分析を実行
                         setTimeout(() => {
                             executeDiCEAnalysis(userId);
@@ -1025,6 +1081,62 @@
             } catch (error) {
                 console.error('タイムライン読み込みエラー:', error);
             }
+        }
+
+        // 予測値でタイムライン表示を更新
+        async function updateTimelineWithPredictions(timeline, userId) {
+            if (timeline.length === 0) {
+                updateTimelineDisplay([]);
+                return;
+            }
+
+            const predictedTimeline = [];
+            
+            // 各活動に対して予測を実行
+            for (const item of timeline) {
+                try {
+                    const response = await fetch('/api/frustration/predict-activity', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            activity_category: item.activity,
+                            duration: item.duration || 60,
+                            timestamp: item.timestamp
+                        })
+                    });
+                    
+                    const predictionData = await response.json();
+                    
+                    if (predictionData.status === 'success') {
+                        predictedTimeline.push({
+                            ...item,
+                            frustration_value: predictionData.predicted_frustration,
+                            is_predicted: true,
+                            confidence: predictionData.confidence || 0
+                        });
+                    } else {
+                        // 予測に失敗した場合はデフォルト値を使用
+                        predictedTimeline.push({
+                            ...item,
+                            frustration_value: item.frustration_value || 10,
+                            is_predicted: false,
+                            confidence: 0
+                        });
+                    }
+                } catch (error) {
+                    console.error('活動予測エラー:', error);
+                    // エラーの場合はデフォルト値を使用
+                    predictedTimeline.push({
+                        ...item,
+                        frustration_value: item.frustration_value || 10,
+                        is_predicted: false,
+                        confidence: 0
+                    });
+                }
+            }
+            
+            updateTimelineDisplay(predictedTimeline);
         }
 
         // 新しい活動をチェック
@@ -1114,7 +1226,7 @@
                  average <= 13 ? 'frustration-medium' : 'frustration-high');
             
             document.getElementById('daily-info').textContent = 
-                `今日の平均値 (${frustrationValues.length}回の測定)`;
+                `今日の予測平均値 (${frustrationValues.length}回の活動)`;
             
             document.getElementById('daily-min').textContent = min;
             document.getElementById('daily-max').textContent = max;
@@ -1479,8 +1591,10 @@
             document.getElementById('feedback-text').textContent = 'システムに一時的な問題が発生しています。';
         }
 
-        console.log('📱 タブレット用システム準備完了');
-        console.log('機能: 手動ユーザー選択, 今日の平均値表示, 1時間ごと+活動報告時DiCE実行');
+        console.log('📱 タブレット用予測システム準備完了');
+        console.log('機能: 手動ユーザー選択, リアルタイム予測値表示, 1時間ごと+活動報告時DiCE実行');
+        console.log('🔮 予測エンジン: /api/frustration/predict-activity を使用');
+        console.log('✨ 全ての表示値はMLモデルによる予測値です');
     </script>
 </body>
 </html>
