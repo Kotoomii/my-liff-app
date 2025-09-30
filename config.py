@@ -12,7 +12,7 @@ class Config:
     SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID', '15Mv9-N1RFKLmDd2vqYBLwKR-aPWA3Mgw9dAHHOWilLs')
     
     # デフォルトシート名（後方互換性のため）
-    ACTIVITY_SHEET_PATTERN = "Ua06e990fd6d5f4646615595d4e8d33"  # デフォルト活動データシート名
+    ACTIVITY_SHEET_PATTERN = "Ua06e990fd6d5f4646615595d4e8d337f"  # デフォルト活動データシート名
     FITBIT_SHEET_PATTERN = "kotoomi_Fitbit-data-kotomi"  # デフォルト生体データシート名
     FIXED_PLANS_SHEET = "FIXED_PLANS"  # 固定予定シート名
     WORKLOAD_DATA_SHEET = "WORKLOAD_DATA"  # 負荷データ保存シート名
@@ -23,7 +23,7 @@ class Config:
             'user_id': 'default',
             'name': 'デフォルトユーザー',
             'icon': '👤',
-            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33',  # LINEユーザーID (Excel対応)
+            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d337f',  # LINEユーザーID (Excel対応)
             'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi',  # username_Fitbit-data-identifier
             'description': 'メインユーザー（こときみ）'
         },
