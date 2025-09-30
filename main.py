@@ -558,6 +558,8 @@ def get_frustration_timeline():
         # タイムライン作成（モデル予測値を使用）
         timeline = []
         for idx, row in df_enhanced.iterrows():
+            predicted_frustration = None
+            
             # 各活動に対してモデル予測を実行
             try:
                 # 活動データのバッチ予測のために単一行のDataFrameを作成
@@ -565,27 +567,31 @@ def get_frustration_timeline():
                 prediction_result = predictor.predict_frustration_batch(single_row_df)
                 
                 if prediction_result and len(prediction_result) > 0:
-                    predicted_frustration = prediction_result[0].get('predicted_frustration', 10.0)
-                else:
-                    predicted_frustration = 10.0  # デフォルト値
-                    
+                    predicted_value = prediction_result[0].get('predicted_frustration')
+                    if predicted_value is not None:
+                        predicted_frustration = predicted_value
+                        
             except Exception as e:
-                logger.warning(f"予測エラー: {e}, デフォルト値を使用")
-                predicted_frustration = 10.0
+                logger.warning(f"予測エラー: {e}")
+                predicted_frustration = None
             
-            timeline.append({
-                'timestamp': row['Timestamp'].isoformat(),
-                'hour': row.get('hour', 0),
-                'activity': row.get('CatSub', 'unknown'),
-                'duration': row.get('Duration', 0),
-                'frustration_value': predicted_frustration,  # モデル予測値を使用
-                'actual_frustration': row.get('NASA_F'),      # 実データも保持（比較用）
-                'activity_change': row.get('activity_change', 0) == 1,
-                'lorenz_stats': {
-                    'mean': row.get('lorenz_mean', 0),
-                    'std': row.get('lorenz_std', 0)
-                }
-            })
+            # 予測値が取得できた場合のみタイムラインに追加
+            if predicted_frustration is not None:
+                timeline.append({
+                    'timestamp': row['Timestamp'].isoformat(),
+                    'hour': row.get('hour', 0),
+                    'activity': row.get('CatSub', 'unknown'),
+                    'duration': row.get('Duration', 0),
+                    'frustration_value': predicted_frustration,  # モデル予測値を使用
+                    'actual_frustration': row.get('NASA_F'),      # 実データも保持（比較用）
+                    'activity_change': row.get('activity_change', 0) == 1,
+                    'lorenz_stats': {
+                        'mean': row.get('lorenz_mean', 0),
+                        'std': row.get('lorenz_std', 0)
+                    }
+                })
+            else:
+                logger.info(f"活動をスキップ: 予測値が取得できませんでした - {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
         
         # 時間順にソート
         timeline.sort(key=lambda x: x['timestamp'])

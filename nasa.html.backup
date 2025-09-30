@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NASA-TLX 評価入力</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  /* モダンなUIのためのスタイル */
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 1em; background-color: #f4f6f9; }
+  .container { background-color: white; border-radius: 16px; padding: 1.5em; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  h2, h3 { text-align: center; color: #333; }
+  h3 { color: #555; border-bottom: 2px solid #f0f0f0; padding-bottom: 0.5em; margin-top: 2em; }
+  
+  /* 活動選択リストのスタイル */
+  .activity-list { list-style: none; padding: 0; max-height: 200px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 12px; }
+  .activity-item { padding: 1em; cursor: pointer; border-bottom: 1px solid #e0e0e0; transition: background-color 0.2s ease; }
+  .activity-item:last-child { border-bottom: none; }
+  .activity-item:hover { background-color: #f8f9fa; }
+  .activity-item.selected { background-color: #e7f3ff; font-weight: bold; color: #007bff; }
+  .time { font-weight: bold; }
+  .name { margin-left: 0.5em; }
+
+  /* 評価フォームのスタイル */
+  #form-wrapper { display: none; /* 最初は非表示 */ }
+  .slider-group { margin-bottom: 1.5em; }
+  .slider-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75em; font-weight: 600; }
+  .slider-label span:last-child { font-size: 1.2em; font-weight: bold; color: #007bff; background-color: #e7f3ff; padding: 2px 8px; border-radius: 8px; min-width: 2em; text-align: center; }
+  input[type=range] { width: 100%; }
+  
+  button { width: 100%; margin-top: 1.5em; padding: 16px; font-size: 1.2em; font-weight: 600; color: white; background: linear-gradient(45deg, #00c6ff, #0072ff); border: none; border-radius: 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h2 id="title">NASA-TLX 評価</h2>
+  
+  <!-- 1. 活動選択セクション -->
+  <div id="activity-selection-section">
+    <h3>1. 評価する活動を選択</h3>
+    <ul id="activity-list"></ul>
+  </div>
+
+  <!-- 2. 評価入力セクション -->
+  <div id="form-wrapper">
+    <h3 id="evaluation-title">2. 各項目を評価 (1-20)</h3>
+    <div id="form-container"></div>
+    <button id="sendButton">この内容で評価を記録</button>
+  </div>
+</div>
+
+<script>
+  // ★★★ あなたのNASA-TLX用LIFF IDを設定してください ★★★
+  const LIFF_ID = '2007728537-yleNDjVd';
+  
+  const QUESTIONS = { M: 'Mental Demand', P: 'Physical Demand', T: 'Temporal Demand', O: 'Performance', E: 'Effort', F: 'Frustration' };
+  const Q_KEYS = Object.keys(QUESTIONS);
+  let selectedRow = null;
+
+  window.onload = main;
+
+  async function main() {
+    try {
+      await liff.init({ liffId: LIFF_ID });
+      buildActivityList();
+    } catch (e) {
+      alert('LIFF初期化エラー: ' + JSON.stringify(e));
+    }
+  }
+
+  function buildActivityList() {
+    const params = new URLSearchParams(window.location.search);
+    const encodedActivities = params.get('activities'); 
+
+    const listElement = document.getElementById('activity-list');
+    listElement.innerHTML = ''; // リストをクリア
+
+    if (!encodedActivities) {
+      document.getElementById('activity-selection-section').innerHTML = '<h3>評価対象の活動はありません。</h3>';
+      return;
+    }
+
+    const activities = JSON.parse(decodeURIComponent(encodedActivities));
+    
+    if (activities.length === 0) {
+        document.getElementById('activity-selection-section').innerHTML = '<h3>評価対象の活動はありません。</h3>';
+        return;
+    }
+
+    activities.forEach(activity => {
+      const li = document.createElement('li');
+      li.className = 'activity-item';
+      li.dataset.row = activity.row;
+      li.innerHTML = `<span class="time">${activity.label.split(' ')[0]}</span> <span class="name">${activity.label.split(' ').slice(1).join(' ')}</span>`;
+      
+      li.onclick = function() {
+        document.querySelectorAll('.activity-item').forEach(item => item.classList.remove('selected'));
+        this.classList.add('selected');
+        selectedRow = this.dataset.row;
+        showNasaForm(activity.label);
+      };
+      listElement.appendChild(li);
+    });
+  }
+
+  function showNasaForm(activityLabel) {
+    const formWrapper = document.getElementById('form-wrapper');
+    const formContainer = document.getElementById('form-container');
+    document.getElementById('evaluation-title').textContent = `2. 「${activityLabel}」の評価`;
+    formContainer.innerHTML = '';
+
+    Q_KEYS.forEach((key) => {
+      formContainer.insertAdjacentHTML('beforeend', `
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>${QUESTIONS[key]}</span>
+            <span id="v-${key}">10</span>
+          </div>
+          <input type="range" id="r-${key}" min="1" max="20" value="10">
+        </div>
+      `);
+      document.getElementById(`r-${key}`).addEventListener('input', function() {
+        document.getElementById(`v-${key}`).textContent = this.value;
+      });
+    });
+    
+    document.getElementById('sendButton').onclick = sendMessage;
+    formWrapper.style.display = 'block';
+  }
+
+  async function sendMessage() {
+    if (!selectedRow) {
+      alert('リストから評価する活動を選択してください。');
+      return;
+    }
+    const vals = Q_KEYS.map(key => document.getElementById(`r-${key}`).value);
+    const txt = `NASA:row=${selectedRow};M=${vals[0]};P=${vals[1]};T=${vals[2]};O=${vals[3]};E=${vals[4]};F=${vals[5]}`;
+    
+    try {
+      if (!liff.isInClient()) { alert('LINEアプリ内から操作してください。'); return; }
+      await liff.sendMessages([{ type: 'text', text: txt }]);
+      liff.closeWindow();
+    } catch (e) {
+      alert('送信エラー: ' + JSON.stringify(e));
+    }
+  }
+</script>
+</body>
+</html>
