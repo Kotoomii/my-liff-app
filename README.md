@@ -799,6 +799,331 @@ export FLASK_ENV=development
 python main.py
 ```
 
+## 🤖 モデル作成・訓練方法
+
+### 基本的なモデル作成フロー
+
+#### 1. データ前処理とフィーチャーエンジニアリング
+
+```python
+def preprocess_activity_data(df):
+    """活動データの前処理"""
+    # 時間特徴量の抽出
+    df['hour'] = pd.to_datetime(df['Timestamp']).dt.hour
+    df['day_of_week'] = pd.to_datetime(df['Timestamp']).dt.dayofweek
+    df['is_weekend'] = df['day_of_week'].isin([5, 6])
+    
+    # カテゴリデータのエンコーディング
+    df = pd.get_dummies(df, columns=['CatMid', 'CatSub'])
+    
+    # NASA-TLX スコアの正規化
+    nasa_cols = ['NASA_M', 'NASA_P', 'NASA_T', 'NASA_O', 'NASA_E']
+    df[nasa_cols] = df[nasa_cols] / 20.0  # 0-1スケールに正規化
+    
+    # 活動変化の検出
+    df['activity_change'] = (df['CatSub'] != df['CatSub'].shift(1)).astype(int)
+    
+    return df
+```
+
+#### 2. Fitbitデータとの統合・特徴量生成
+
+```python
+def aggregate_fitbit_by_activity(activity_df, fitbit_df):
+    """活動時間帯ごとのFitbitデータ集約"""
+    enhanced_df = activity_df.copy()
+    
+    for idx, row in activity_df.iterrows():
+        start_time = pd.to_datetime(row['Timestamp'])
+        end_time = start_time + pd.Timedelta(minutes=row['Duration'])
+        
+        # 活動時間帯のFitbitデータを抽出
+        mask = (fitbit_df['Timestamp'] >= start_time) & (fitbit_df['Timestamp'] <= end_time)
+        fitbit_subset = fitbit_df[mask]
+        
+        if not fitbit_subset.empty:
+            # ローレンツプロット統計量の計算
+            enhanced_df.loc[idx, 'lorenz_mean'] = fitbit_subset['Lorenz_Area'].mean()
+            enhanced_df.loc[idx, 'lorenz_std'] = fitbit_subset['Lorenz_Area'].std()
+            enhanced_df.loc[idx, 'lorenz_max'] = fitbit_subset['Lorenz_Area'].max()
+            enhanced_df.loc[idx, 'lorenz_min'] = fitbit_subset['Lorenz_Area'].min()
+        else:
+            # データがない場合はデフォルト値
+            enhanced_df.loc[idx, 'lorenz_mean'] = 0
+            enhanced_df.loc[idx, 'lorenz_std'] = 0
+            enhanced_df.loc[idx, 'lorenz_max'] = 0
+            enhanced_df.loc[idx, 'lorenz_min'] = 0
+    
+    return enhanced_df
+```
+
+#### 3. Walk Forward Validation による時系列予測
+
+```python
+def walk_forward_validation_predict(self, X, y, test_size_days=7, min_train_days=30):
+    """ウォークフォワード検証による時系列予測"""
+    predictions = []
+    
+    # 時系列順でソート
+    X_sorted = X.sort_index()
+    y_sorted = y.sort_index()
+    
+    # 最小訓練期間を確保
+    min_train_size = min_train_days * 24  # 1日24時間分のデータ
+    test_size = test_size_days * 24
+    
+    start_idx = min_train_size
+    for end_idx in range(start_idx + test_size, len(X_sorted) + 1, test_size):
+        # 訓練データ
+        train_X = X_sorted.iloc[:end_idx - test_size]
+        train_y = y_sorted.iloc[:end_idx - test_size]
+        
+        # テストデータ
+        test_X = X_sorted.iloc[end_idx - test_size:end_idx]
+        
+        # モデル訓練
+        model = RandomForestRegressor(
+            n_estimators=100,
+            max_depth=10,
+            min_samples_split=5,
+            min_samples_leaf=2,
+            random_state=42
+        )
+        model.fit(train_X, train_y)
+        
+        # 予測
+        pred = model.predict(test_X)
+        
+        # 結果を保存
+        for i, prediction in enumerate(pred):
+            actual_idx = end_idx - test_size + i
+            predictions.append({
+                'index': X_sorted.index[actual_idx],
+                'predicted_frustration': float(prediction),
+                'model_version': f'wfv_{end_idx}'
+            })
+    
+    return predictions
+```
+
+#### 4. モデル性能評価
+
+```python
+def evaluate_model_performance(predictions, actual_values):
+    """モデル性能の評価"""
+    pred_values = [p['predicted_frustration'] for p in predictions]
+    
+    mae = mean_absolute_error(actual_values, pred_values)
+    mse = mean_squared_error(actual_values, pred_values)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(actual_values, pred_values)
+    
+    print(f"Walk Forward Validation 結果:")
+    print(f"MAE: {mae:.3f}")
+    print(f"RMSE: {rmse:.3f}")
+    print(f"R²: {r2:.3f}")
+    
+    return {
+        'mae': mae,
+        'rmse': rmse,
+        'r2': r2,
+        'n_predictions': len(predictions)
+    }
+```
+
+### リアルタイム予測のためのモデル更新
+
+#### 1. 増分学習による継続的改善
+
+```python
+def update_model_with_new_data(self, new_activity_data, new_fitbit_data):
+    """新しいデータでモデルを増分更新"""
+    
+    # 新データの前処理
+    processed_activity = self.preprocess_activity_data(new_activity_data)
+    enhanced_data = self.aggregate_fitbit_by_activity(processed_activity, new_fitbit_data)
+    
+    # 特徴量とターゲットの準備
+    feature_columns = self.get_feature_columns()
+    X_new = enhanced_data[feature_columns]
+    y_new = enhanced_data['NASA_F']
+    
+    # 既存データと結合
+    self.training_data = pd.concat([self.training_data, enhanced_data])
+    
+    # 最新の24時間分のデータでモデル再訓練
+    recent_data = self.training_data.tail(24)  # 24時間分
+    X_recent = recent_data[feature_columns]
+    y_recent = recent_data['NASA_F']
+    
+    # モデル再訓練
+    self.current_model = RandomForestRegressor(
+        n_estimators=100,
+        max_depth=10,
+        min_samples_split=5,
+        min_samples_leaf=2,
+        random_state=42
+    )
+    self.current_model.fit(X_recent, y_recent)
+    
+    logger.info(f"モデル更新完了: 訓練データ{len(X_recent)}件")
+```
+
+#### 2. 予測信頼度の計算
+
+```python
+def calculate_prediction_confidence(self, X):
+    """予測の信頼度を計算"""
+    
+    # Random Forestの各決定木から予測を取得
+    tree_predictions = []
+    for tree in self.current_model.estimators_:
+        pred = tree.predict(X)
+        tree_predictions.append(pred)
+    
+    # 予測値の分散を信頼度として利用
+    predictions_array = np.array(tree_predictions)
+    prediction_std = np.std(predictions_array, axis=0)
+    
+    # 分散が小さいほど信頼度が高い
+    confidence = 1.0 / (1.0 + prediction_std)
+    
+    return float(confidence[0]) if len(confidence) > 0 else 0.5
+```
+
+### 実際の訓練実行手順
+
+#### 1. 初期モデル作成
+
+```bash
+# 1. 必要なデータを確認
+python -c "
+from ml_model import FrustrationPredictor
+from sheets_connector import SheetsConnector
+
+# データ取得
+sheets = SheetsConnector()
+activity_data = sheets.get_activity_data('default')
+fitbit_data = sheets.get_fitbit_data('default')
+
+print(f'活動データ: {len(activity_data)}件')
+print(f'Fitbitデータ: {len(fitbit_data)}件')
+"
+
+# 2. モデル訓練実行
+python -c "
+from ml_model import FrustrationPredictor
+
+predictor = FrustrationPredictor()
+performance = predictor.train_initial_model('default')
+print('初期モデル訓練完了:', performance)
+"
+```
+
+#### 2. 継続的なモデル改善
+
+```python
+# 定期的なモデル再訓練（1日1回実行推奨）
+def daily_model_retrain():
+    """日次モデル再訓練"""
+    
+    predictor = FrustrationPredictor()
+    
+    # 過去7日間のデータを取得
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=7)
+    
+    activity_data = sheets_connector.get_activity_data_range('default', start_date, end_date)
+    fitbit_data = sheets_connector.get_fitbit_data_range('default', start_date, end_date)
+    
+    # モデル更新
+    predictor.update_model_with_new_data(activity_data, fitbit_data)
+    
+    # 性能評価
+    performance = predictor.evaluate_recent_performance()
+    
+    logger.info(f"日次モデル更新完了: {performance}")
+    
+    return performance
+```
+
+#### 3. モデル性能監視
+
+```python
+def monitor_model_performance():
+    """モデル性能の継続監視"""
+    
+    # 直近の予測精度をチェック
+    recent_predictions = sheets_connector.get_recent_predictions(days=3)
+    actual_values = sheets_connector.get_actual_frustration_values(days=3)
+    
+    if len(recent_predictions) > 0 and len(actual_values) > 0:
+        mae = mean_absolute_error(actual_values, recent_predictions)
+        
+        # 性能劣化の閾値チェック
+        if mae > 5.0:  # MAEが5.0を超えた場合
+            logger.warning(f"モデル性能劣化検出: MAE={mae}")
+            
+            # 自動再訓練をトリガー
+            daily_model_retrain()
+            
+            return False
+    
+    return True
+```
+
+### 特徴量重要度分析
+
+```python
+def analyze_feature_importance():
+    """特徴量重要度の分析"""
+    
+    if hasattr(self.current_model, 'feature_importances_'):
+        importance_dict = dict(zip(
+            self.feature_columns, 
+            self.current_model.feature_importances_
+        ))
+        
+        # 重要度順でソート
+        sorted_importance = sorted(
+            importance_dict.items(), 
+            key=lambda x: x[1], 
+            reverse=True
+        )
+        
+        print("特徴量重要度 (上位10):")
+        for feature, importance in sorted_importance[:10]:
+            print(f"  {feature}: {importance:.4f}")
+        
+        return sorted_importance
+    
+    return []
+```
+
+### モデルのバックアップ・復元
+
+```python
+def save_model_backup():
+    """モデルのバックアップ保存"""
+    import joblib
+    from datetime import datetime
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = f"models/frustration_model_backup_{timestamp}.pkl"
+    
+    joblib.dump(self.current_model, backup_path)
+    logger.info(f"モデルバックアップ保存: {backup_path}")
+    
+    return backup_path
+
+def restore_model_from_backup(backup_path):
+    """バックアップからモデルを復元"""
+    import joblib
+    
+    self.current_model = joblib.load(backup_path)
+    logger.info(f"モデル復元完了: {backup_path}")
+```
+
 ## 🎯 今後の拡張予定
 
 - **複数ユーザー対応**: チーム・組織での利用

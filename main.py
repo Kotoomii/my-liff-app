@@ -555,15 +555,31 @@ def get_frustration_timeline():
         activity_processed = predictor.preprocess_activity_data(daily_data)
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
         
-        # タイムライン作成
+        # タイムライン作成（モデル予測値を使用）
         timeline = []
         for idx, row in df_enhanced.iterrows():
+            # 各活動に対してモデル予測を実行
+            try:
+                # 活動データのバッチ予測のために単一行のDataFrameを作成
+                single_row_df = df_enhanced.iloc[[idx]]
+                prediction_result = predictor.predict_frustration_batch(single_row_df)
+                
+                if prediction_result and len(prediction_result) > 0:
+                    predicted_frustration = prediction_result[0].get('predicted_frustration', 10.0)
+                else:
+                    predicted_frustration = 10.0  # デフォルト値
+                    
+            except Exception as e:
+                logger.warning(f"予測エラー: {e}, デフォルト値を使用")
+                predicted_frustration = 10.0
+            
             timeline.append({
                 'timestamp': row['Timestamp'].isoformat(),
                 'hour': row.get('hour', 0),
                 'activity': row.get('CatSub', 'unknown'),
                 'duration': row.get('Duration', 0),
-                'frustration_value': row.get('NASA_F', 10),
+                'frustration_value': predicted_frustration,  # モデル予測値を使用
+                'actual_frustration': row.get('NASA_F'),      # 実データも保持（比較用）
                 'activity_change': row.get('activity_change', 0) == 1,
                 'lorenz_stats': {
                     'mean': row.get('lorenz_mean', 0),
