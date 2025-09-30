@@ -40,7 +40,7 @@ last_dice_result = {}
 # データ更新監視スレッド
 data_monitor_thread = None
 data_monitor_running = False
-last_prediction_result = {}
+last_prediction_result = {}  # 全ユーザーの予測結果を保存: {user_id: prediction_data}
 
 @app.route('/')
 def index():
@@ -197,6 +197,25 @@ def predict_activity_frustration():
         predicted_frustration = prediction_result['predicted_frustration']
         confidence = prediction_result['confidence']
         
+        # 予測結果をスプレッドシートに記録
+        prediction_data = {
+            'timestamp': timestamp.isoformat(),
+            'user_id': user_id,
+            'activity': activity_category,
+            'duration': duration,
+            'predicted_frustration': predicted_frustration,
+            'confidence': confidence,
+            'notes': f'Subcategory: {activity_subcategory}'
+        }
+        
+        # スプレッドシートに予測結果を保存（非同期で実行）
+        try:
+            sheets_connector.save_prediction_data(prediction_data)
+            logger.info(f"予測結果をスプレッドシートに記録: {user_id}, {activity_category}, 予測値: {predicted_frustration:.2f}")
+        except Exception as save_error:
+            logger.error(f"予測結果保存エラー: {save_error}")
+            # 保存エラーがあってもAPIレスポンスには影響しない
+        
         return jsonify({
             'status': 'success',
             'user_id': user_id,
@@ -205,7 +224,8 @@ def predict_activity_frustration():
             'subcategory': activity_subcategory,
             'duration': duration,
             'confidence': round(confidence, 3),
-            'timestamp': timestamp.isoformat()
+            'timestamp': timestamp.isoformat(),
+            'logged_to_sheets': True
         })
         
     except Exception as e:
@@ -1114,64 +1134,80 @@ def run_daily_dice_for_user(user_id: str):
 
 def data_monitor_loop():
     """
-    データ更新を監視し、新しいデータが追加されたら自動的にフラストレーション予測を実行
+    全ユーザーのデータ更新を監視し、新しいデータが追加されたら自動的にフラストレーション予測を実行
     """
     global data_monitor_running, last_prediction_result
 
     check_interval = 600  # 600秒（10分）ごとにチェック
+    
+    # 全ユーザーのリストを取得
+    users_config = [
+        {'user_id': 'default', 'name': 'デフォルトユーザー'},
+        {'user_id': 'user1', 'name': 'ユーザー1'},
+        {'user_id': 'user2', 'name': 'ユーザー2'},
+        {'user_id': 'user3', 'name': 'ユーザー3'}
+    ]
 
     while data_monitor_running:
         try:
-            # デフォルトユーザーの新データをチェック
-            user_id = 'default'
+            # 全ユーザーをチェック
+            for user_config in users_config:
+                user_id = user_config['user_id']
+                user_name = user_config['name']
+                
+                if sheets_connector.has_new_data(user_id):
+                    logger.info(f"新しいデータを検知しました。フラストレーション予測を実行します: {user_name} ({user_id})")
 
-            if sheets_connector.has_new_data(user_id):
-                logger.info(f"新しいデータを検知しました。フラストレーション予測を実行します: {user_id}")
+                    # 新しいデータを取得（キャッシュをクリアして最新データを取得）
+                    activity_data = sheets_connector.get_activity_data(user_id, use_cache=False)
+                    fitbit_data = sheets_connector.get_fitbit_data(user_id, use_cache=False)
 
-                # 新しいデータを取得（キャッシュをクリアして最新データを取得）
-                activity_data = sheets_connector.get_activity_data(user_id, use_cache=False)
-                fitbit_data = sheets_connector.get_fitbit_data(user_id, use_cache=False)
+                    if not activity_data.empty:
+                        # データ前処理
+                        activity_processed = predictor.preprocess_activity_data(activity_data)
+                        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
 
-                if not activity_data.empty:
-                    # データ前処理
-                    activity_processed = predictor.preprocess_activity_data(activity_data)
-                    df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+                        # モデル再訓練
+                        if len(df_enhanced) > 10:
+                            training_results = predictor.walk_forward_validation_train(df_enhanced)
+                            logger.info(f"モデル再訓練完了 ({user_name}): {training_results}")
 
-                    # モデル再訓練
-                    if len(df_enhanced) > 10:
-                        training_results = predictor.walk_forward_validation_train(df_enhanced)
-                        logger.info(f"モデル再訓練完了: {training_results}")
+                        # 最新の活動に対するフラストレーション予測
+                        latest_activity = activity_processed.iloc[-1]
+                        prediction_result = predictor.predict_single_activity(
+                            latest_activity.get('CatSub', 'unknown'),
+                            latest_activity.get('Duration', 60),
+                            latest_activity.get('Timestamp', datetime.now())
+                        )
 
-                    # 最新の活動に対するフラストレーション予測
-                    latest_activity = activity_processed.iloc[-1]
-                    prediction_result = predictor.predict_single_activity(
-                        latest_activity.get('CatSub', 'unknown'),
-                        latest_activity.get('Duration', 60),
-                        latest_activity.get('Timestamp', datetime.now())
-                    )
+                        # ユーザー別に予測結果を保存
+                        last_prediction_result[user_id] = {
+                            'timestamp': datetime.now().isoformat(),
+                            'user_id': user_id,
+                            'user_name': user_name,
+                            'latest_activity': latest_activity.get('CatSub', 'unknown'),
+                            'prediction': prediction_result,
+                            'data_count': len(df_enhanced)
+                        }
 
-                    # 予測結果を保存
-                    last_prediction_result = {
-                        'timestamp': datetime.now().isoformat(),
-                        'user_id': user_id,
-                        'latest_activity': latest_activity.get('CatSub', 'unknown'),
-                        'prediction': prediction_result,
-                        'data_count': len(df_enhanced)
-                    }
+                        logger.info(f"自動予測完了 ({user_name}): {prediction_result}")
 
-                    logger.info(f"自動予測完了: {prediction_result}")
-
-                    # 予測結果をスプレッドシートに保存
-                    prediction_data = {
-                        'timestamp': datetime.now().isoformat(),
-                        'user_id': user_id,
-                        'activity': latest_activity.get('CatSub', 'unknown'),
-                        'duration': latest_activity.get('Duration', 0),
-                        'predicted_frustration': prediction_result.get('predicted_frustration', 0),
-                        'confidence': prediction_result.get('confidence', 0),
-                        'actual_frustration': latest_activity.get('NASA_F', None)
-                    }
-                    sheets_connector.save_prediction_data(prediction_data)
+                        # 予測結果をスプレッドシートに保存
+                        prediction_data = {
+                            'timestamp': datetime.now().isoformat(),
+                            'user_id': user_id,
+                            'activity': latest_activity.get('CatSub', 'unknown'),
+                            'duration': latest_activity.get('Duration', 0),
+                            'predicted_frustration': prediction_result.get('predicted_frustration', 0),
+                            'confidence': prediction_result.get('confidence', 0),
+                            'actual_frustration': latest_activity.get('NASA_F', None)
+                        }
+                        
+                        try:
+                            sheets_connector.save_prediction_data(prediction_data)
+                            logger.info(f"予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {prediction_result.get('predicted_frustration', 0):.2f}")
+                        except Exception as save_error:
+                            logger.error(f"予測結果保存エラー ({user_name}): {save_error}")
 
             # 次のチェックまで待機
             time.sleep(check_interval)
