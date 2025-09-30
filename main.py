@@ -146,6 +146,8 @@ def predict_activity_frustration():
     新しい活動入力時のリアルタイムフラストレーション予測API
     """
     try:
+        from datetime import datetime, timedelta
+        
         data = request.get_json()
         user_id = data.get('user_id', 'default')
         activity_category = data.get('CatSub')  # 活動カテゴリ
@@ -159,8 +161,6 @@ def predict_activity_frustration():
         if start_time and end_time and not duration:
             # start_timeとend_timeから時間を計算
             try:
-                from datetime import datetime, timedelta
-                
                 # 時刻形式を解析 (HH:MM形式を想定)
                 start_hour, start_min = map(int, start_time.split(':'))
                 end_hour, end_min = map(int, end_time.split(':'))

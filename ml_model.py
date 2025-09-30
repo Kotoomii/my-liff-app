@@ -85,7 +85,7 @@ class FrustrationPredictor:
             activity_with_fitbit = []
             
             for idx, activity in activity_data.iterrows():
-                start_time = activity['Timestamp']
+                start_time = pd.to_datetime(activity['Timestamp'])
                 duration_minutes = activity['Duration']
                 end_time = start_time + timedelta(minutes=duration_minutes)
                 
