@@ -251,8 +251,13 @@ def predict_activity_frustration():
         
         data = request.get_json()
         user_id = data.get('user_id', 'default')
-        activity_category = data.get('CatSub')  # 活動カテゴリ
+        activity_category = data.get('CatSub', 'その他')  # 活動カテゴリ（デフォルト: その他）
         activity_subcategory = data.get('CatMid', activity_category)  # 活動サブカテゴリ
+
+        # 活動カテゴリのバリデーション
+        if not activity_category or activity_category.strip() == '':
+            activity_category = 'その他'
+            logger.warning("活動カテゴリが空またはNoneです。'その他'に設定しました。")
         
         # 時間の計算 - start_timeとend_timeがある場合はそれを使用
         start_time = data.get('start_time')
@@ -941,6 +946,151 @@ def health_check():
         })
     except Exception as e:
         logger.error(f"ヘルスチェックエラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/debug/model', methods=['GET'])
+def debug_model():
+    """モデルデバッグ情報取得API"""
+    try:
+        user_id = request.args.get('user_id', 'default')
+
+        # データ取得
+        activity_data = sheets_connector.get_activity_data(user_id)
+        fitbit_data = sheets_connector.get_fitbit_data(user_id)
+
+        # データ前処理
+        activity_processed = predictor.preprocess_activity_data(activity_data)
+        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+
+        # データ品質
+        data_quality = predictor.check_data_quality(df_enhanced)
+
+        # NASA_F統計
+        nasa_f_stats = None
+        if not df_enhanced.empty and 'NASA_F' in df_enhanced.columns:
+            nasa_f = df_enhanced['NASA_F'].dropna()
+            if not nasa_f.empty:
+                nasa_f_stats = {
+                    'count': int(len(nasa_f)),
+                    'mean': float(nasa_f.mean()),
+                    'std': float(nasa_f.std()),
+                    'min': float(nasa_f.min()),
+                    'max': float(nasa_f.max()),
+                    'unique_values': int(nasa_f.nunique()),
+                    'value_distribution': nasa_f.value_counts().head(10).to_dict()
+                }
+
+        # 活動統計
+        activity_stats = None
+        if not df_enhanced.empty and 'CatSub' in df_enhanced.columns:
+            activities = df_enhanced['CatSub'].dropna()
+            if not activities.empty:
+                activity_stats = {
+                    'total': int(len(activities)),
+                    'unique': int(activities.nunique()),
+                    'top_5': activities.value_counts().head(5).to_dict()
+                }
+
+        # モデル状態
+        model_info = {
+            'is_trained': predictor.model is not None,
+            'feature_count': len(predictor.feature_columns) if predictor.feature_columns else 0,
+            'feature_names': predictor.feature_columns if predictor.feature_columns else []
+        }
+
+        # エンコーダー情報
+        encoders_info = {}
+        if hasattr(predictor, 'encoders'):
+            for key, encoder in predictor.encoders.items():
+                if hasattr(encoder, 'classes_'):
+                    encoders_info[key] = {
+                        'n_classes': len(encoder.classes_),
+                        'classes': list(encoder.classes_)
+                    }
+
+        # Walk Forward Validation結果
+        wfv_results = None
+        if predictor.model is not None and len(df_enhanced) >= 10:
+            try:
+                training_results = predictor.walk_forward_validation_train(df_enhanced)
+                wfv_results = {
+                    'rmse': float(training_results.get('walk_forward_rmse', 0)),
+                    'mae': float(training_results.get('walk_forward_mae', 0)),
+                    'r2': float(training_results.get('walk_forward_r2', 0)),
+                    'prediction_diversity': training_results.get('prediction_diversity', {}),
+                    'feature_importance': {
+                        k: float(v) for k, v in sorted(
+                            training_results.get('feature_importance', {}).items(),
+                            key=lambda x: x[1],
+                            reverse=True
+                        )[:15]  # 上位15特徴量
+                    }
+                }
+            except Exception as e:
+                logger.error(f"WFV実行エラー: {e}")
+                wfv_results = {'error': str(e)}
+
+        # テスト予測
+        test_predictions = []
+        if not df_enhanced.empty and predictor.model is not None:
+            test_cases = df_enhanced.head(3)
+            for idx, row in test_cases.iterrows():
+                activity = row.get('CatSub')
+                if activity is None:
+                    activity = 'unknown'
+
+                duration = row.get('Duration', 60)
+                timestamp = pd.to_datetime(row.get('Timestamp'))
+                actual = row.get('NASA_F')
+
+                # 固定値予測
+                pred1 = predictor.predict_single_activity(activity, duration, timestamp)
+
+                # 履歴使用予測
+                pred2 = predictor.predict_with_history(activity, duration, timestamp, df_enhanced)
+
+                test_predictions.append({
+                    'activity': activity,
+                    'timestamp': timestamp.isoformat(),
+                    'actual': float(actual) if pd.notna(actual) else None,
+                    'predicted_fixed': float(pred1.get('predicted_frustration', 0)),
+                    'predicted_history': float(pred2.get('predicted_frustration', 0)),
+                    'historical_records': int(pred2.get('historical_records', 0))
+                })
+
+        # 診断
+        issues = []
+        if data_quality['total_samples'] < 10:
+            issues.append(f"データ数不足: {data_quality['total_samples']}件")
+        if nasa_f_stats and nasa_f_stats['std'] < 1.0:
+            issues.append(f"NASA_Fの分散が小さい: {nasa_f_stats['std']:.2f}")
+        if nasa_f_stats and nasa_f_stats['unique_values'] < 3:
+            issues.append(f"NASA_Fの種類が少ない: {nasa_f_stats['unique_values']}種類")
+        if not predictor.model:
+            issues.append("モデル未訓練")
+        if activity_stats and activity_stats['unique'] < 3:
+            issues.append(f"活動種類が少ない: {activity_stats['unique']}種類")
+
+        return jsonify({
+            'status': 'success',
+            'user_id': user_id,
+            'timestamp': datetime.now().isoformat(),
+            'data_quality': data_quality,
+            'nasa_f_stats': nasa_f_stats,
+            'activity_stats': activity_stats,
+            'model_info': model_info,
+            'encoders_info': encoders_info,
+            'wfv_results': wfv_results,
+            'test_predictions': test_predictions,
+            'issues': issues,
+            'diagnosis': 'OK' if not issues else 'Issues detected'
+        })
+
+    except Exception as e:
+        logger.error(f"モデルデバッグエラー: {e}", exc_info=True)
         return jsonify({
             'status': 'error',
             'message': str(e)

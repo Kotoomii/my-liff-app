@@ -610,7 +610,10 @@ class FrustrationPredictor:
             features[f'hist_{period}_avg_frustration'] = 10.0
             features[f'hist_{period}_duration'] = 150.0
 
-        logger.warning(f"⚠️ 予測に固定値の特徴量を使用しています。活動: {activity_category}")
+        if activity_category:
+            logger.warning(f"⚠️ 予測に固定値の特徴量を使用しています。活動: {activity_category}")
+        else:
+            logger.warning("⚠️ 予測に固定値の特徴量を使用しています。活動: 不明（Noneまたは空）")
 
         return features
 
