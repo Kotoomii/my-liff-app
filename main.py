@@ -719,11 +719,12 @@ def get_frustration_timeline():
             if has_fitbit_data:
                 # 各活動に対してモデル予測を実行
                 try:
-                    # 単一活動の予測を実行
-                    prediction_result = predictor.predict_single_activity(
-                        activity_category=row.get('CatSub', '不明'),  # 'Sub'ではなく'CatSub'
+                    # 履歴データを使った予測（訓練時と同じ方法）
+                    prediction_result = predictor.predict_with_history(
+                        activity_category=row.get('CatSub', '不明'),
                         duration=row.get('Duration', 60),
-                        current_time=pd.to_datetime(row.get('Timestamp'))
+                        current_time=pd.to_datetime(row.get('Timestamp')),
+                        historical_data=df_enhanced  # 全履歴データを渡す
                     )
                     
                     if prediction_result and 'predicted_frustration' in prediction_result:
@@ -926,7 +927,7 @@ def health_check():
         # 各コンポーネントの状態確認
         sheets_status = sheets_connector.test_connection()
         scheduler_status = scheduler.get_status()
-        
+
         return jsonify({
             'status': 'success',
             'timestamp': datetime.now().isoformat(),
@@ -940,6 +941,97 @@ def health_check():
         })
     except Exception as e:
         logger.error(f"ヘルスチェックエラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/data/stats', methods=['GET'])
+def get_data_stats():
+    """データ統計情報取得API"""
+    try:
+        user_id = request.args.get('user_id', 'default')
+
+        # データ取得
+        activity_data = sheets_connector.get_activity_data(user_id)
+        fitbit_data = sheets_connector.get_fitbit_data(user_id)
+
+        # データ前処理
+        activity_processed = predictor.preprocess_activity_data(activity_data)
+        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+
+        # データ品質チェック
+        data_quality = predictor.check_data_quality(df_enhanced)
+
+        # NASA_F統計
+        nasa_f_stats = {}
+        if not activity_data.empty and 'NASA_F' in activity_data.columns:
+            nasa_f_values = pd.to_numeric(activity_data['NASA_F'], errors='coerce').dropna()
+            if not nasa_f_values.empty:
+                nasa_f_stats = {
+                    'count': int(len(nasa_f_values)),
+                    'mean': float(nasa_f_values.mean()),
+                    'std': float(nasa_f_values.std()),
+                    'min': float(nasa_f_values.min()),
+                    'max': float(nasa_f_values.max()),
+                    'median': float(nasa_f_values.median()),
+                    'unique_values': int(nasa_f_values.nunique())
+                }
+
+        # 活動カテゴリ統計
+        activity_stats = {}
+        if not activity_data.empty and 'CatSub' in activity_data.columns:
+            activity_counts = activity_data['CatSub'].value_counts()
+            activity_stats = {
+                'total_activities': int(len(activity_data)),
+                'unique_activities': int(activity_data['CatSub'].nunique()),
+                'top_activities': activity_counts.head(10).to_dict()
+            }
+
+        # Fitbitデータ統計
+        fitbit_stats = {
+            'total_records': int(len(fitbit_data)) if not fitbit_data.empty else 0,
+            'has_data': not fitbit_data.empty
+        }
+
+        # モデル統計
+        model_stats = {
+            'is_trained': predictor.model is not None,
+            'feature_count': len(predictor.feature_columns) if predictor.feature_columns else 0,
+            'training_history_count': len(predictor.walk_forward_history) if predictor.walk_forward_history else 0
+        }
+
+        # 日付範囲
+        date_range = {}
+        if not activity_data.empty and 'Timestamp' in activity_data.columns:
+            timestamps = pd.to_datetime(activity_data['Timestamp'], errors='coerce').dropna()
+            if not timestamps.empty:
+                date_range = {
+                    'earliest': timestamps.min().isoformat(),
+                    'latest': timestamps.max().isoformat(),
+                    'days_span': (timestamps.max() - timestamps.min()).days
+                }
+
+        return jsonify({
+            'status': 'success',
+            'user_id': user_id,
+            'timestamp': datetime.now().isoformat(),
+            'data_quality': data_quality,
+            'nasa_f_stats': nasa_f_stats,
+            'activity_stats': activity_stats,
+            'fitbit_stats': fitbit_stats,
+            'model_stats': model_stats,
+            'date_range': date_range,
+            'summary': {
+                'total_activity_records': int(len(activity_data)) if not activity_data.empty else 0,
+                'processed_records': int(len(df_enhanced)) if not df_enhanced.empty else 0,
+                'data_sufficient': data_quality.get('is_sufficient', False),
+                'quality_level': data_quality.get('quality_level', 'unknown')
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"データ統計取得エラー: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)

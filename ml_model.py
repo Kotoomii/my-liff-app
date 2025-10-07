@@ -545,58 +545,194 @@ class FrustrationPredictor:
             logger.error(f"モデル読み込みエラー: {e}")
             return False
     
-    def create_features_for_new_activity(self, activity_category: str, duration: int = 60, 
+    def create_features_for_new_activity(self, activity_category: str, duration: int = 60,
                                        current_time: datetime = None) -> dict:
         """
         新しい活動に対して特徴量を作成（リアルタイム予測用）
+
+        ⚠️ WARNING: この関数は訓練時と異なる特徴量を作成します
+        訓練時は過去24時間の統計を使用しますが、予測時は使用できません
+        そのため、予測値が偏る可能性があります
         """
         if current_time is None:
             current_time = datetime.now()
-            
+
         # 基本的な時間特徴量
         features = {
-            'Duration': duration,
-            'hour': current_time.hour,
-            'day_of_week': current_time.weekday(),
-            'is_weekend': 1 if current_time.weekday() >= 5 else 0
+            'current_duration': duration,
+            'current_hour': current_time.hour,
+            'current_dayofweek': current_time.weekday(),
+            'current_is_weekend': 1 if current_time.weekday() >= 5 else 0
         }
-        
-        # 時間帯の特徴量
-        time_periods = [
-            (0, 6, 'night'), (6, 12, 'morning'), 
-            (12, 18, 'afternoon'), (18, 24, 'evening')
-        ]
-        
-        for start_hour, end_hour, period in time_periods:
-            features[f'is_{period}'] = 1 if start_hour <= current_time.hour < end_hour else 0
-        
+
         # 活動カテゴリーのエンコーディング
-        if hasattr(self, 'encoders') and 'CatSub' in self.encoders:
+        if hasattr(self, 'encoders') and 'current_activity' in self.encoders:
             try:
-                encoded_cat = self.encoders['CatSub'].transform([activity_category])[0]
-                features['CatSub_encoded'] = encoded_cat
-            except:
-                features['CatSub_encoded'] = 0  # デフォルト値
+                # 既知の活動カテゴリで変換を試みる
+                encoded_cat = self.encoders['current_activity'].transform([activity_category])[0]
+                features['current_activity'] = encoded_cat
+            except ValueError:
+                # 未知のカテゴリは'その他'として扱う
+                try:
+                    features['current_activity'] = self.encoders['current_activity'].transform(['その他'])[0]
+                except:
+                    features['current_activity'] = 0
         else:
-            features['CatSub_encoded'] = 0
-            
-        # デフォルトのFitbit値（平均的な値）
-        fitbit_defaults = {
-            'avg_HR': 75.0,
-            'avg_Steps': 100.0,
-            'avg_Distance': 0.1,
-            'avg_Calories': 50.0,
-            'avg_Sleep_Efficiency': 85.0,
-            'avg_Sleep_Minutes_Asleep': 480.0,
-            'avg_Sleep_Minutes_REM': 120.0,
-            'avg_Sleep_Minutes_Deep': 60.0,
-            'avg_Sleep_Minutes_Light': 300.0
+            features['current_activity'] = 0
+
+        # 過去24時間の統計特徴量（デフォルト値）
+        # 注意: 実際の履歴データがないため、平均的な値を使用
+        # これが予測値が偏る主な原因です
+        features['hist_avg_frustration'] = 10.0  # NASA_Fの典型的な平均値
+        features['hist_std_frustration'] = 2.0   # 標準偏差
+        features['hist_max_frustration'] = 15.0
+        features['hist_min_frustration'] = 5.0
+        features['hist_total_duration'] = 600.0  # 10時間分
+        features['hist_avg_duration'] = 60.0
+        features['hist_activity_changes'] = 5
+
+        # Fitbit統計特徴量（過去24時間の平均）
+        # 注意: これらも固定値のため予測が偏ります
+        fitbit_features = {
+            'hist_lorenz_mean': 8000.0,
+            'hist_lorenz_std': 1000.0,
+            'hist_lorenz_min': 6000.0,
+            'hist_lorenz_max': 10000.0,
+            'hist_lorenz_median': 8000.0,
+            'hist_lorenz_q25': 7000.0,
+            'hist_lorenz_q75': 9000.0
         }
-        
-        features.update(fitbit_defaults)
-        
+        features.update(fitbit_features)
+
+        # 時間帯別特徴量（過去24時間）
+        # これらも固定値
+        for period in ['night', 'morning', 'afternoon', 'evening']:
+            features[f'hist_{period}_avg_frustration'] = 10.0
+            features[f'hist_{period}_duration'] = 150.0
+
+        logger.warning(f"⚠️ 予測に固定値の特徴量を使用しています。活動: {activity_category}")
+
         return features
-    
+
+    def predict_with_history(self, activity_category: str, duration: int,
+                            current_time: datetime, historical_data: pd.DataFrame) -> dict:
+        """
+        過去の履歴データを使用して予測（訓練時と同じ方法）
+
+        Args:
+            activity_category: 活動カテゴリ
+            duration: 活動時間（分）
+            current_time: 現在時刻
+            historical_data: 過去のデータ（aggregate_fitbit_by_activityの出力）
+
+        Returns:
+            予測結果
+        """
+        try:
+            if self.model is None:
+                return self.predict_single_activity(activity_category, duration, current_time)
+
+            if historical_data.empty or len(historical_data) < 5:
+                logger.warning("履歴データが不足しているため、簡易予測を使用します")
+                return self.predict_single_activity(activity_category, duration, current_time)
+
+            # 過去24時間のデータを取得
+            lookback_time = current_time - timedelta(hours=24)
+            recent_data = historical_data[historical_data['Timestamp'] >= lookback_time]
+
+            if recent_data.empty:
+                # 全履歴データを使用
+                recent_data = historical_data
+
+            # 特徴量を構築（訓練時と同じ方法）
+            features = {}
+
+            # 現在の活動の基本特徴量
+            features['current_hour'] = current_time.hour
+            features['current_dayofweek'] = current_time.weekday()
+            features['current_is_weekend'] = 1 if current_time.weekday() >= 5 else 0
+            features['current_duration'] = duration
+
+            # 活動カテゴリのエンコード
+            if 'current_activity' in self.encoders:
+                try:
+                    features['current_activity'] = self.encoders['current_activity'].transform([activity_category])[0]
+                except ValueError:
+                    try:
+                        features['current_activity'] = self.encoders['current_activity'].transform(['その他'])[0]
+                    except:
+                        features['current_activity'] = 0
+            else:
+                features['current_activity'] = 0
+
+            # 過去24時間の統計特徴量（実データを使用）
+            features['hist_avg_frustration'] = recent_data['NASA_F'].mean()
+            features['hist_std_frustration'] = recent_data['NASA_F'].std() if len(recent_data) > 1 else 0
+            features['hist_max_frustration'] = recent_data['NASA_F'].max()
+            features['hist_min_frustration'] = recent_data['NASA_F'].min()
+            features['hist_total_duration'] = recent_data['Duration'].sum()
+            features['hist_avg_duration'] = recent_data['Duration'].mean()
+            features['hist_activity_changes'] = recent_data['activity_change'].sum() if 'activity_change' in recent_data.columns else 0
+
+            # Fitbit統計特徴量（実データを使用）
+            fitbit_cols = ['lorenz_mean', 'lorenz_std', 'lorenz_min', 'lorenz_max',
+                          'lorenz_median', 'lorenz_q25', 'lorenz_q75']
+            for col in fitbit_cols:
+                if col in recent_data.columns:
+                    features[f'hist_{col}'] = recent_data[col].mean()
+                else:
+                    features[f'hist_{col}'] = 8000.0
+
+            # 時間帯別特徴量（実データを使用）
+            for start_hour, end_hour, label in [(0, 6, 'night'), (6, 12, 'morning'),
+                                              (12, 18, 'afternoon'), (18, 24, 'evening')]:
+                hour_data = recent_data[
+                    (recent_data['hour'] >= start_hour) &
+                    (recent_data['hour'] < end_hour)
+                ] if 'hour' in recent_data.columns else pd.DataFrame()
+
+                features[f'hist_{label}_avg_frustration'] = hour_data['NASA_F'].mean() if not hour_data.empty else 10.0
+                features[f'hist_{label}_duration'] = hour_data['Duration'].sum() if not hour_data.empty else 0.0
+
+            # NaN値を置換
+            for key, value in features.items():
+                if pd.isna(value):
+                    if 'frustration' in key:
+                        features[key] = 10.0
+                    elif 'duration' in key:
+                        features[key] = 0.0
+                    elif 'lorenz' in key:
+                        features[key] = 8000.0
+                    else:
+                        features[key] = 0.0
+
+            # 予測実行
+            pred_df = pd.DataFrame([features])
+
+            # モデルの特徴量に合わせる
+            for col in self.feature_columns:
+                if col not in pred_df.columns:
+                    pred_df[col] = 0.0
+
+            pred_df = pred_df[self.feature_columns]
+            prediction = self.model.predict(pred_df)[0]
+            confidence = self.get_prediction_confidence(prediction, features)
+
+            return {
+                'predicted_frustration': float(prediction),
+                'confidence': float(confidence),
+                'activity_category': activity_category,
+                'duration': duration,
+                'timestamp': current_time,
+                'features_used': len(self.feature_columns),
+                'used_historical_data': True,
+                'historical_records': len(recent_data)
+            }
+
+        except Exception as e:
+            logger.error(f"履歴データを使った予測エラー: {e}")
+            return self.predict_single_activity(activity_category, duration, current_time)
+
     def predict_single_activity(self, activity_category: str, duration: int = 60,
                                current_time: datetime = None) -> dict:
         """
