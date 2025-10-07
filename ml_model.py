@@ -636,13 +636,31 @@ class FrustrationPredictor:
                 logger.warning("履歴データが不足しているため、簡易予測を使用します")
                 return self.predict_single_activity(activity_category, duration, current_time)
 
-            # 過去24時間のデータを取得
+            # 過去24時間のデータを取得（現在時刻より前のデータのみ）
             lookback_time = current_time - timedelta(hours=24)
-            recent_data = historical_data[historical_data['Timestamp'] >= lookback_time]
+            recent_data = historical_data[
+                (historical_data['Timestamp'] >= lookback_time) &
+                (historical_data['Timestamp'] < current_time)  # 現在時刻より前のみ
+            ]
 
             if recent_data.empty:
-                # 全履歴データを使用
-                recent_data = historical_data
+                # 現在時刻より前の全履歴データを使用
+                recent_data = historical_data[historical_data['Timestamp'] < current_time]
+
+            if recent_data.empty:
+                # それでも空なら簡易予測にフォールバック
+                logger.warning(f"予測時刻 {current_time} より前のデータがありません")
+                return self.predict_single_activity(activity_category, duration, current_time)
+
+            # NASA_Fカラムが存在し、有効な値があるか確認
+            if 'NASA_F' not in recent_data.columns:
+                logger.error("履歴データにNASA_Fカラムがありません")
+                return self.predict_single_activity(activity_category, duration, current_time)
+
+            valid_frustration = recent_data['NASA_F'].dropna()
+            if valid_frustration.empty:
+                logger.warning("履歴データに有効なNASA_F値がありません")
+                return self.predict_single_activity(activity_category, duration, current_time)
 
             # 特徴量を構築（訓練時と同じ方法）
             features = {}
@@ -666,13 +684,17 @@ class FrustrationPredictor:
                 features['current_activity'] = 0
 
             # 過去24時間の統計特徴量（実データを使用）
-            features['hist_avg_frustration'] = recent_data['NASA_F'].mean()
-            features['hist_std_frustration'] = recent_data['NASA_F'].std() if len(recent_data) > 1 else 0
-            features['hist_max_frustration'] = recent_data['NASA_F'].max()
-            features['hist_min_frustration'] = recent_data['NASA_F'].min()
-            features['hist_total_duration'] = recent_data['Duration'].sum()
-            features['hist_avg_duration'] = recent_data['Duration'].mean()
-            features['hist_activity_changes'] = recent_data['activity_change'].sum() if 'activity_change' in recent_data.columns else 0
+            features['hist_avg_frustration'] = float(recent_data['NASA_F'].mean())
+            features['hist_std_frustration'] = float(recent_data['NASA_F'].std()) if len(recent_data) > 1 else 0.0
+            features['hist_max_frustration'] = float(recent_data['NASA_F'].max())
+            features['hist_min_frustration'] = float(recent_data['NASA_F'].min())
+            features['hist_total_duration'] = float(recent_data['Duration'].sum())
+            features['hist_avg_duration'] = float(recent_data['Duration'].mean())
+            features['hist_activity_changes'] = int(recent_data['activity_change'].sum()) if 'activity_change' in recent_data.columns else 0
+
+            if self.config.ENABLE_DEBUG_LOGS:
+                logger.debug(f"予測時刻: {current_time}, 履歴データ数: {len(recent_data)}, "
+                           f"hist_avg_frustration: {features['hist_avg_frustration']:.2f}")
 
             # Fitbit統計特徴量（実データを使用）
             fitbit_cols = ['lorenz_mean', 'lorenz_std', 'lorenz_min', 'lorenz_max',
