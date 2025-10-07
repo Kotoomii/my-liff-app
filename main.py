@@ -58,9 +58,16 @@ else:
 
 logger = logging.getLogger(__name__)
 
-# Flask標準ログの抑制
+# Flask標準ログの抑制（HTTPアクセスログを無効化）
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+log.disabled = True  # 完全に無効化
+
+# GUnicornアクセスログも抑制
+gunicorn_logger = logging.getLogger('gunicorn.access')
+gunicorn_logger.disabled = True
+gunicorn_error_logger = logging.getLogger('gunicorn.error')
+gunicorn_error_logger.setLevel(logging.ERROR)
 
 # グローバルインスタンス
 predictor = FrustrationPredictor()
@@ -692,22 +699,29 @@ def get_frustration_timeline():
         # データ前処理
         activity_processed = predictor.preprocess_activity_data(daily_data)
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-        
+
+        # モデルが訓練されていない場合は訓練
+        if predictor.model is None and len(df_enhanced) > 10:
+            try:
+                predictor.walk_forward_validation_train(df_enhanced)
+            except Exception as train_error:
+                logger.error(f"モデル訓練エラー: {train_error}")
+
         # タイムライン作成（モデル予測値を使用）
         timeline = []
         for idx, row in df_enhanced.iterrows():
             predicted_frustration = None
-            
+
             # Fitbitデータの有無をチェック
             has_fitbit_data = check_fitbit_data_availability(row)
-            
+
             # Fitbitデータが利用可能な場合のみ予測を実行
             if has_fitbit_data:
                 # 各活動に対してモデル予測を実行
                 try:
                     # 単一活動の予測を実行
                     prediction_result = predictor.predict_single_activity(
-                        activity_category=row.get('Sub', '不明'),
+                        activity_category=row.get('CatSub', '不明'),  # 'Sub'ではなく'CatSub'
                         duration=row.get('Duration', 60),
                         current_time=pd.to_datetime(row.get('Timestamp'))
                     )
@@ -723,15 +737,24 @@ def get_frustration_timeline():
                     logger.debug(f"Fitbitデータ不足のため予測をスキップ: {row.get('Timestamp', 'unknown')}")
                 predicted_frustration = None
             
-            # 予測値が取得できた場合のみタイムラインに追加
-            if predicted_frustration is not None:
+            # タイムラインに追加（予測値がない場合は実測値を使用）
+            frustration_to_use = predicted_frustration
+            if frustration_to_use is None:
+                # 予測値がない場合は実測値（NASA_F）を使用
+                frustration_to_use = row.get('NASA_F')
+                if config.ENABLE_DEBUG_LOGS:
+                    logger.debug(f"予測値なし、実測値を使用: {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
+
+            # 予測値も実測値もない場合のみスキップ
+            if frustration_to_use is not None:
                 timeline.append({
                     'timestamp': row['Timestamp'].isoformat(),
                     'hour': row.get('hour', 0),
                     'activity': row.get('CatSub', 'unknown'),
                     'duration': row.get('Duration', 0),
-                    'frustration_value': predicted_frustration,  # モデル予測値を使用
+                    'frustration_value': float(frustration_to_use),  # 予測値または実測値
                     'actual_frustration': row.get('NASA_F'),      # 実データも保持（比較用）
+                    'is_predicted': predicted_frustration is not None,  # 予測値かどうかのフラグ
                     'activity_change': row.get('activity_change', 0) == 1,
                     'lorenz_stats': {
                         'mean': row.get('lorenz_mean', 0),
@@ -740,7 +763,7 @@ def get_frustration_timeline():
                 })
             else:
                 if config.ENABLE_DEBUG_LOGS:
-                    logger.debug(f"活動をスキップ: 予測値が取得できませんでした - {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
+                    logger.debug(f"活動をスキップ: 予測値も実測値もありません - {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
         
         # 時間順にソート
         timeline.sort(key=lambda x: x['timestamp'])
