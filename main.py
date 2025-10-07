@@ -22,8 +22,45 @@ from config import Config
 
 app = Flask(__name__)
 
-logging.basicConfig(level=logging.INFO)
+# Cloud Run用ログ設定
+config = Config()
+
+# 構造化ログ用のフォーマッター
+class StructuredFormatter(logging.Formatter):
+    def format(self, record):
+        log_obj = {
+            'severity': record.levelname,
+            'message': record.getMessage(),
+            'timestamp': datetime.utcnow().isoformat() + 'Z'
+        }
+        if hasattr(record, 'user_id'):
+            log_obj['user_id'] = record.user_id
+        if hasattr(record, 'endpoint'):
+            log_obj['endpoint'] = record.endpoint
+        if record.exc_info:
+            log_obj['exception'] = self.formatException(record.exc_info)
+        return json.dumps(log_obj)
+
+# ログレベル設定
+log_level = getattr(logging, config.LOG_LEVEL.upper(), logging.WARNING)
+
+# Cloud Run環境では構造化ログを使用
+if config.IS_CLOUD_RUN:
+    handler = logging.StreamHandler()
+    handler.setFormatter(StructuredFormatter())
+    logging.basicConfig(level=log_level, handlers=[handler])
+else:
+    # ローカル環境では標準フォーマット
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
 logger = logging.getLogger(__name__)
+
+# Flask標準ログの抑制
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 # グローバルインスタンス
 predictor = FrustrationPredictor()
@@ -41,6 +78,46 @@ last_dice_result = {}
 data_monitor_thread = None
 data_monitor_running = False
 last_prediction_result = {}  # 全ユーザーの予測結果を保存: {user_id: prediction_data}
+
+def check_fitbit_data_availability(row):
+    """
+    Fitbitデータが利用可能かチェックする
+    主要な生体情報（心拍数、歩数、カロリー等）が存在するかを確認
+    """
+    try:
+        # 重要なFitbit統計量カラムをチェック
+        essential_fitbit_columns = [
+            'avg_Steps', 'avg_Calories', 'std_Steps', 'std_Calories',
+            'max_Steps', 'min_Steps', 'max_Calories', 'min_Calories'
+        ]
+        
+        # 少なくとも半分以上の重要データが有効値を持っている必要がある
+        valid_count = 0
+        total_count = len(essential_fitbit_columns)
+        
+        for col in essential_fitbit_columns:
+            value = row.get(col)
+            # None、NaN、空文字、0以外の有効な値をチェック
+            if value is not None and str(value).strip() != '' and pd.notna(value):
+                try:
+                    float_val = float(value)
+                    if float_val > 0:  # 0より大きい値のみ有効とする
+                        valid_count += 1
+                except (ValueError, TypeError):
+                    continue
+        
+        # 少なくとも60%以上の重要データが有効な場合、Fitbitデータありとする
+        availability_ratio = valid_count / total_count
+        is_available = availability_ratio >= 0.6
+        
+        if not is_available:
+            logger.debug(f"Fitbitデータ不足: {valid_count}/{total_count} カラムが有効 ({availability_ratio:.1%})")
+        
+        return is_available
+        
+    except Exception as e:
+        logger.warning(f"Fitbitデータ可用性チェックエラー: {e}")
+        return False
 
 @app.route('/')
 def index():
@@ -110,28 +187,45 @@ def predict_frustration():
         # Fitbitデータとの統合
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
         
+        # データ品質チェック
+        data_quality = predictor.check_data_quality(df_enhanced)
+
         # Walk Forward Validationで学習
         if len(df_enhanced) > 10:
             training_results = predictor.walk_forward_validation_train(df_enhanced)
         else:
-            training_results = {}
-        
+            training_results = {
+                'data_quality': data_quality,
+                'error': f'データ数が不足しています（{len(df_enhanced)}件）。最低10件以上のデータが必要です。'
+            }
+
         # フラストレーション値予測
         prediction_result = predictor.predict_frustration_at_activity_change(
             df_enhanced, target_timestamp
         )
-        
+
         # 行動変更タイミング一覧
         change_timestamps = predictor.get_activity_change_timestamps(df_enhanced)
-        
-        return jsonify({
+
+        response = {
             'status': 'success',
             'user_id': user_id,
             'prediction': prediction_result,
             'activity_change_timestamps': [ts.isoformat() for ts in change_timestamps],
             'model_performance': training_results,
+            'data_quality': data_quality,
             'timestamp': datetime.now().isoformat()
-        })
+        }
+
+        # データ不足時の警告メッセージを追加
+        if not data_quality['is_sufficient']:
+            response['warning'] = {
+                'message': 'データが不足しているため、予測精度が低い可能性があります。',
+                'details': data_quality['warnings'],
+                'recommendations': data_quality['recommendations']
+            }
+
+        return jsonify(response)
         
     except Exception as e:
         logger.error(f"フラストレーション値予測エラー: {e}")
@@ -173,7 +267,8 @@ def predict_activity_frustration():
                     end_total_min += 24 * 60  # 翌日とみなす
                 
                 duration = end_total_min - start_total_min
-                logger.info(f"時間計算: {start_time} → {end_time} = {duration}分")
+                if config.ENABLE_DEBUG_LOGS:
+                    logger.debug(f"時間計算: {start_time} → {end_time} = {duration}分")
                 
             except (ValueError, AttributeError) as e:
                 logger.warning(f"時刻解析エラー: {e}, デフォルト60分を使用")
@@ -199,33 +294,54 @@ def predict_activity_frustration():
                 'predicted_frustration': default_frustration,
                 'activity': activity_category,
                 'duration': duration,
-                'confidence': 0.5,
+                'confidence': 0.0,
+                'is_new_user': True,
                 'message': '初回利用のためデフォルト値を返しました',
+                'warning': {
+                    'message': '新規ユーザーです。データが蓄積されるまで予測精度は低くなります。',
+                    'recommendations': [
+                        '活動データを継続的に記録してください。',
+                        '最低10件以上のデータで予測が可能になります。',
+                        '30件以上のデータで精度が大幅に向上します。'
+                    ]
+                },
                 'timestamp': timestamp.isoformat()
             })
         
         # データ前処理とモデル学習
         activity_processed = predictor.preprocess_activity_data(activity_data)
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-        
+
+        # データ品質チェック
+        data_quality = predictor.check_data_quality(df_enhanced)
+
         if len(df_enhanced) > 5:  # 最低5件のデータで学習
-            predictor.walk_forward_validation_train(df_enhanced)
-        
+            training_results = predictor.walk_forward_validation_train(df_enhanced)
+        else:
+            training_results = None
+
         # 新しい活動のフラストレーション値予測
         prediction_result = predictor.predict_single_activity(
-            activity_category, 
-            duration, 
+            activity_category,
+            duration,
             timestamp
         )
-        
+
         if 'error' in prediction_result:
             return jsonify({
                 'status': 'error',
-                'message': prediction_result['error']
+                'message': prediction_result['error'],
+                'data_quality': data_quality
             }), 400
-        
+
         predicted_frustration = prediction_result['predicted_frustration']
         confidence = prediction_result['confidence']
+
+        # データ品質に基づいて信頼度を調整
+        if not data_quality['is_sufficient']:
+            confidence = min(confidence, 0.3)  # データ不足時は信頼度を下げる
+        elif data_quality['quality_level'] == 'minimal':
+            confidence = min(confidence, 0.5)
         
         # 予測結果をスプレッドシートに記録
         prediction_data = {
@@ -243,12 +359,13 @@ def predict_activity_frustration():
         # データ監視ループによる自動予測結果は data_monitor_loop で保存される
         try:
             sheets_connector.save_prediction_data(prediction_data)
-            logger.info(f"手動予測結果をスプレッドシートに記録: {user_id}, {activity_category}, 予測値: {predicted_frustration:.2f}")
+            if config.LOG_PREDICTIONS:
+                logger.info(f"手動予測結果をスプレッドシートに記録: {user_id}, {activity_category}, 予測値: {predicted_frustration:.2f}")
         except Exception as save_error:
             logger.error(f"予測結果保存エラー: {save_error}")
             # 保存エラーがあってもAPIレスポンスには影響しない
         
-        return jsonify({
+        response = {
             'status': 'success',
             'user_id': user_id,
             'predicted_frustration': round(predicted_frustration, 2),
@@ -257,8 +374,19 @@ def predict_activity_frustration():
             'duration': duration,
             'confidence': round(confidence, 3),
             'timestamp': timestamp.isoformat(),
-            'logged_to_sheets': True
-        })
+            'logged_to_sheets': True,
+            'data_quality': data_quality
+        }
+
+        # データ不足時の警告を追加
+        if not data_quality['is_sufficient']:
+            response['warning'] = {
+                'message': 'データが不足しているため、予測精度が低くなっています。',
+                'details': data_quality['warnings'],
+                'recommendations': data_quality['recommendations']
+            }
+
+        return jsonify(response)
         
     except Exception as e:
         logger.error(f"活動フラストレーション予測エラー: {e}")
@@ -512,7 +640,8 @@ def get_frustration_timeline():
         user_id = data.get('user_id', 'default')
         date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
         
-        logger.info(f"Timeline API呼び出し - user_id: {user_id}, date: {date}")
+        if config.ENABLE_DEBUG_LOGS:
+            logger.debug(f"Timeline API呼び出し - user_id: {user_id}, date: {date}")
         
         # データ取得
         activity_data = sheets_connector.get_activity_data(user_id)
@@ -525,14 +654,23 @@ def get_frustration_timeline():
                     'status': 'success',
                     'date': date,
                     'timeline': [],
+                    'is_new_user': True,
                     'message': 'Google Sheetsに接続できません。認証設定を確認してください。'
                 })
             else:
                 return jsonify({
-                    'status': 'success', 
+                    'status': 'success',
                     'date': date,
                     'timeline': [],
-                    'message': 'データがありません'
+                    'is_new_user': True,
+                    'message': 'データがありません',
+                    'warning': {
+                        'message': '新規ユーザーまたはデータ未記録です。',
+                        'recommendations': [
+                            '活動データを記録してください。',
+                            'データが蓄積されると、フラストレーション予測とDiCE提案が利用可能になります。'
+                        ]
+                    }
                 })
         
         # 指定日のデータをフィルタリング
@@ -560,20 +698,29 @@ def get_frustration_timeline():
         for idx, row in df_enhanced.iterrows():
             predicted_frustration = None
             
-            # 各活動に対してモデル予測を実行
-            try:
-                # 単一活動の予測を実行
-                prediction_result = predictor.predict_single_activity(
-                    activity_category=row.get('Sub', '不明'),
-                    duration=row.get('Duration', 60),
-                    current_time=pd.to_datetime(row.get('Timestamp'))
-                )
-                
-                if prediction_result and 'predicted_frustration' in prediction_result:
-                    predicted_frustration = prediction_result['predicted_frustration']
+            # Fitbitデータの有無をチェック
+            has_fitbit_data = check_fitbit_data_availability(row)
+            
+            # Fitbitデータが利用可能な場合のみ予測を実行
+            if has_fitbit_data:
+                # 各活動に対してモデル予測を実行
+                try:
+                    # 単一活動の予測を実行
+                    prediction_result = predictor.predict_single_activity(
+                        activity_category=row.get('Sub', '不明'),
+                        duration=row.get('Duration', 60),
+                        current_time=pd.to_datetime(row.get('Timestamp'))
+                    )
+                    
+                    if prediction_result and 'predicted_frustration' in prediction_result:
+                        predicted_frustration = prediction_result['predicted_frustration']
                         
-            except Exception as e:
-                logger.warning(f"予測エラー: {e}")
+                except Exception as e:
+                    logger.warning(f"予測エラー: {e}")
+                    predicted_frustration = None
+            else:
+                if config.ENABLE_DEBUG_LOGS:
+                    logger.debug(f"Fitbitデータ不足のため予測をスキップ: {row.get('Timestamp', 'unknown')}")
                 predicted_frustration = None
             
             # 予測値が取得できた場合のみタイムラインに追加
@@ -592,7 +739,8 @@ def get_frustration_timeline():
                     }
                 })
             else:
-                logger.info(f"活動をスキップ: 予測値が取得できませんでした - {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
+                if config.ENABLE_DEBUG_LOGS:
+                    logger.debug(f"活動をスキップ: 予測値が取得できませんでした - {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
         
         # 時間順にソート
         timeline.sort(key=lambda x: x['timestamp'])
@@ -968,7 +1116,8 @@ def debug_trigger_dice():
         else:
             target_date = datetime.now().date()
         
-        logger.info(f"手動DiCE実行開始: ユーザー={user_id}, 日付={target_date}")
+        if config.ENABLE_DEBUG_LOGS:
+            logger.debug(f"手動DiCE実行開始: ユーザー={user_id}, 日付={target_date}")
         
         dice_result = run_daily_dice_for_user(user_id)
         
@@ -1077,7 +1226,8 @@ def debug_trigger_data_check():
 def get_tablet_data(user_id):
     """タブレット用統合データAPI - すべてのデータを一度に取得"""
     try:
-        logger.info(f"タブレットデータAPI呼び出し - user_id: {user_id}")
+        if config.ENABLE_DEBUG_LOGS:
+            logger.debug(f"タブレットデータAPI呼び出し - user_id: {user_id}")
         
         # 今日の日付を取得
         today = datetime.now().strftime('%Y-%m-%d')
@@ -1221,18 +1371,20 @@ def daily_dice_scheduler():
                 target_time += timedelta(days=1)
             
             sleep_seconds = (target_time - now).total_seconds()
-            logger.info(f"次回DiCE実行予定: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({sleep_seconds:.0f}秒後)")
+            if config.ENABLE_INFO_LOGS:
+                logger.info(f"次回DiCE実行予定: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({sleep_seconds:.0f}秒後)")
             
             # 指定時刻まで待機
             time.sleep(sleep_seconds)
             
             if dice_scheduler_running:  # スケジューラーが停止されていないか確認
-                logger.info("定時DiCE改善提案を実行中...")
-                
+                if config.ENABLE_INFO_LOGS:
+                    logger.info("定時DiCE改善提案を実行中...")
+
                 # デフォルトユーザーでDiCE実行
                 user_id = 'default'
                 dice_result = run_daily_dice_for_user(user_id)
-                
+
                 if dice_result:
                     last_dice_result = {
                         'timestamp': datetime.now().isoformat(),
@@ -1240,7 +1392,8 @@ def daily_dice_scheduler():
                         'result': dice_result,
                         'execution_type': 'scheduled'
                     }
-                    logger.info(f"定時DiCE実行完了: 改善ポイント {dice_result.get('total_improvement', 0):.1f}点")
+                    if config.ENABLE_INFO_LOGS:
+                        logger.info(f"定時DiCE実行完了: 改善ポイント {dice_result.get('total_improvement', 0):.1f}点")
                 else:
                     logger.error("定時DiCE実行に失敗しました")
                     
@@ -1298,7 +1451,8 @@ def data_monitor_loop():
                 user_name = user_config['name']
                 
                 if sheets_connector.has_new_data(user_id):
-                    logger.info(f"新しいデータを検知しました。フラストレーション予測を実行します: {user_name} ({user_id})")
+                    if config.ENABLE_INFO_LOGS:
+                        logger.info(f"新しいデータを検知しました。フラストレーション予測を実行します: {user_name} ({user_id})")
 
                     # 新しいデータを取得（キャッシュをクリアして最新データを取得）
                     activity_data = sheets_connector.get_activity_data(user_id, use_cache=False)
@@ -1312,7 +1466,8 @@ def data_monitor_loop():
                         # モデル再訓練
                         if len(df_enhanced) > 10:
                             training_results = predictor.walk_forward_validation_train(df_enhanced)
-                            logger.info(f"モデル再訓練完了 ({user_name}): {training_results}")
+                            if config.LOG_MODEL_TRAINING:
+                                logger.info(f"モデル再訓練完了 ({user_name}): {training_results}")
 
                         # 最新の活動に対するフラストレーション予測
                         latest_activity = activity_processed.iloc[-1]
@@ -1332,7 +1487,8 @@ def data_monitor_loop():
                             'data_count': len(df_enhanced)
                         }
 
-                        logger.info(f"自動予測完了 ({user_name}): {prediction_result}")
+                        if config.LOG_PREDICTIONS:
+                            logger.info(f"自動予測完了 ({user_name}): {prediction_result}")
 
                         # 予測結果をスプレッドシートに保存（重複チェック付き）
                         activity_timestamp = latest_activity.get('Timestamp')
@@ -1352,9 +1508,11 @@ def data_monitor_loop():
                             # 重複チェック：同じactivity_timestampの予測データが既に存在するかチェック
                             if not sheets_connector.is_prediction_duplicate(user_id, activity_timestamp):
                                 sheets_connector.save_prediction_data(prediction_data)
-                                logger.info(f"自動予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {prediction_result.get('predicted_frustration', 0):.2f}")
+                                if config.LOG_PREDICTIONS:
+                                    logger.info(f"自動予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {prediction_result.get('predicted_frustration', 0):.2f}")
                             else:
-                                logger.info(f"重複する予測データをスキップ: {user_name}, {latest_activity.get('CatSub', 'unknown')}")
+                                if config.ENABLE_DEBUG_LOGS:
+                                    logger.debug(f"重複する予測データをスキップ: {user_name}, {latest_activity.get('CatSub', 'unknown')}")
                         except Exception as save_error:
                             logger.error(f"予測結果保存エラー ({user_name}): {save_error}")
 
@@ -1370,25 +1528,30 @@ def initialize_application():
     global dice_scheduler_thread, dice_scheduler_running, data_monitor_thread, data_monitor_running
 
     try:
-        logger.info("アプリケーションを初期化しています...")
+        if config.ENABLE_INFO_LOGS:
+            logger.info("アプリケーションを初期化しています...")
 
         # スケジューラー開始
         scheduler.start_scheduler()
-        logger.info("定期フィードバックスケジューラーを開始しました")
+        if config.ENABLE_INFO_LOGS:
+            logger.info("定期フィードバックスケジューラーを開始しました")
 
         # DiCE daily scheduler開始
         dice_scheduler_running = True
         dice_scheduler_thread = threading.Thread(target=daily_dice_scheduler, daemon=True)
         dice_scheduler_thread.start()
-        logger.info("DiCE日次スケジューラーを開始しました (毎日21:00実行)")
+        if config.ENABLE_INFO_LOGS:
+            logger.info("DiCE日次スケジューラーを開始しました (毎日21:00実行)")
 
         # データ更新監視スレッド開始
         data_monitor_running = True
         data_monitor_thread = threading.Thread(target=data_monitor_loop, daemon=True)
         data_monitor_thread.start()
-        logger.info("データ更新監視スレッドを開始しました (10分ごとにチェック)")
+        if config.ENABLE_INFO_LOGS:
+            logger.info("データ更新監視スレッドを開始しました (10分ごとにチェック)")
 
-        logger.info("アプリケーション初期化完了")
+        if config.ENABLE_INFO_LOGS:
+            logger.info("アプリケーション初期化完了")
     except Exception as e:
         logger.error(f"アプリケーション初期化エラー: {e}")
 
@@ -1397,7 +1560,8 @@ def cleanup_application():
     global dice_scheduler_running, data_monitor_running
 
     try:
-        logger.info("アプリケーションを終了しています...")
+        if config.ENABLE_INFO_LOGS:
+            logger.info("アプリケーションを終了しています...")
 
         # DiCE スケジューラー停止
         dice_scheduler_running = False
@@ -1406,7 +1570,8 @@ def cleanup_application():
         data_monitor_running = False
 
         scheduler.stop_scheduler()
-        logger.info("アプリケーション終了完了")
+        if config.ENABLE_INFO_LOGS:
+            logger.info("アプリケーション終了完了")
     except Exception as e:
         logger.error(f"アプリケーション終了エラー: {e}")
 
@@ -1420,7 +1585,8 @@ if __name__ == '__main__':
         app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
         
     except KeyboardInterrupt:
-        logger.info("キーボード割り込みによる終了")
+        if config.ENABLE_INFO_LOGS:
+            logger.info("キーボード割り込みによる終了")
     except Exception as e:
         logger.error(f"アプリケーション実行エラー: {e}")
     finally:

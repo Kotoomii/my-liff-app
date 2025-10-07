@@ -102,8 +102,20 @@ class Config:
         'NASA_F': 'フラストレーション'
     }
     
-    # ログレベル
-    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
-    
+    # ログレベル設定
+    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'WARNING')  # Cloud Run本番環境ではWARNING推奨
+
     # デバッグモード
     DEBUG = os.environ.get('FLASK_ENV') == 'development'
+
+    # Cloud Run環境判定
+    IS_CLOUD_RUN = os.environ.get('K_SERVICE') is not None
+
+    # ログ出力設定
+    ENABLE_DEBUG_LOGS = os.environ.get('ENABLE_DEBUG_LOGS', 'false').lower() == 'true'
+    ENABLE_INFO_LOGS = os.environ.get('ENABLE_INFO_LOGS', 'false').lower() == 'true'
+
+    # 詳細ログ出力を制御するフラグ
+    LOG_PREDICTIONS = os.environ.get('LOG_PREDICTIONS', 'false').lower() == 'true'
+    LOG_DATA_OPERATIONS = os.environ.get('LOG_DATA_OPERATIONS', 'false').lower() == 'true'
+    LOG_MODEL_TRAINING = os.environ.get('LOG_MODEL_TRAINING', 'false').lower() == 'true'

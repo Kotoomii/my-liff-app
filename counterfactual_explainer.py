@@ -216,12 +216,16 @@ class ActivityCounterfactualExplainer:
         try:
             if not counterfactual_results:
                 return self._get_fallback_explanation()
-            
+
             # 改善効果順にソート
             counterfactual_results.sort(key=lambda x: x['improvement'], reverse=True)
-            
+
             total_improvement = sum(cf['improvement'] for cf in counterfactual_results)
             avg_improvement = total_improvement / len(counterfactual_results)
+
+            # 提案の多様性をチェック
+            unique_activities = len(set(cf['alternative_activity'] for cf in counterfactual_results))
+            is_diverse = unique_activities >= min(3, len(counterfactual_results))
             
             # 時間軸での結果を整理
             timeline_results = []
@@ -252,7 +256,7 @@ class ActivityCounterfactualExplainer:
             # 活動カテゴリ別の分析
             activity_analysis = self._analyze_activity_patterns(counterfactual_results)
             
-            return {
+            result = {
                 'type': 'activity_counterfactual',
                 'total_improvement': total_improvement,
                 'average_improvement': avg_improvement,
@@ -262,8 +266,23 @@ class ActivityCounterfactualExplainer:
                 'activity_analysis': activity_analysis,
                 'confidence': min(0.9, 0.6 + 0.3 * len(counterfactual_results) / 10),
                 'summary': f"過去24時間で{len(counterfactual_results)}個の行動変更により、"
-                          f"平均{avg_improvement:.1f}点のフラストレーション改善が期待できます。"
+                          f"平均{avg_improvement:.1f}点のフラストレーション改善が期待できます。",
+                'diversity_check': {
+                    'unique_suggestions': unique_activities,
+                    'total_suggestions': len(counterfactual_results),
+                    'is_diverse': is_diverse
+                }
             }
+
+            # 多様性が低い場合の警告
+            if not is_diverse:
+                result['warning'] = {
+                    'message': 'DiCEの提案が単調になっています。データの多様性が不足している可能性があります。',
+                    'unique_activities': unique_activities,
+                    'recommendation': '様々な種類の活動データを記録することで、より多様な提案が可能になります。'
+                }
+
+            return result
             
         except Exception as e:
             logger.error(f"反実仮想結果まとめエラー: {e}")
@@ -540,11 +559,16 @@ class ActivityCounterfactualExplainer:
             
             # 改善効果の高い時間帯をハイライト
             significant_improvements = [
-                item for item in hourly_schedule 
+                item for item in hourly_schedule
                 if item.get('improvement', 0) > 3
             ]
-            
-            return {
+
+            # 提案の多様性チェック
+            suggested_activities = [item.get('suggested_activity') for item in hourly_schedule if item.get('suggested_activity')]
+            unique_suggestions = len(set(suggested_activities))
+            is_diverse = unique_suggestions >= min(3, len(suggested_activities)) if suggested_activities else False
+
+            result = {
                 'type': 'hourly_dice_schedule',
                 'date': target_date.strftime('%Y-%m-%d'),
                 'hourly_schedule': hourly_schedule,
@@ -553,8 +577,23 @@ class ActivityCounterfactualExplainer:
                 'significant_improvements': significant_improvements,
                 'message': f"今日このような活動をしていたらストレスレベルが{total_improvement:.1f}点下がっていました",
                 'confidence': min(0.9, 0.5 + len(significant_improvements) * 0.1),
-                'summary': f"24時間中{len(significant_improvements)}時間で大きな改善の可能性がありました"
+                'summary': f"24時間中{len(significant_improvements)}時間で大きな改善の可能性がありました",
+                'diversity_check': {
+                    'unique_suggestions': unique_suggestions,
+                    'total_suggestions': len(suggested_activities),
+                    'is_diverse': is_diverse
+                }
             }
+
+            # 多様性が低い場合の警告
+            if not is_diverse and len(suggested_activities) > 0:
+                result['warning'] = {
+                    'message': 'DiCEの時間別提案が単調になっています。学習データが不足しているか、偏っている可能性があります。',
+                    'unique_suggestions': unique_suggestions,
+                    'recommendation': 'より多様な活動データを記録することで、個別化された提案が可能になります。'
+                }
+
+            return result
             
         except Exception as e:
             logger.error(f"時間別DiCE提案生成エラー: {e}")

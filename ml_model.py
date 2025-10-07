@@ -126,7 +126,8 @@ class FrustrationPredictor:
                 activity_with_fitbit.append(activity_enhanced)
             
             result_df = pd.DataFrame(activity_with_fitbit)
-            logger.info(f"Fitbit統計量化完了: {len(result_df)} 行")
+            if self.config.LOG_DATA_OPERATIONS:
+                logger.info(f"Fitbit統計量化完了: {len(result_df)} 行")
             return result_df
             
         except Exception as e:
@@ -228,14 +229,79 @@ class FrustrationPredictor:
             logger.error(f"特徴量作成エラー: {e}")
             return None
     
+    def check_data_quality(self, df_enhanced: pd.DataFrame) -> Dict:
+        """
+        学習データの品質と十分性をチェック
+        """
+        try:
+            data_quality = {
+                'total_samples': len(df_enhanced),
+                'is_sufficient': False,
+                'quality_level': 'insufficient',
+                'warnings': [],
+                'recommendations': []
+            }
+
+            # データ数の評価
+            if len(df_enhanced) < 10:
+                data_quality['warnings'].append(f"データ数が不足しています（{len(df_enhanced)}件/最低10件必要）")
+                data_quality['recommendations'].append("より多くの活動データを記録してください。最低10件以上が必要です。")
+            elif len(df_enhanced) < 30:
+                data_quality['quality_level'] = 'minimal'
+                data_quality['is_sufficient'] = True
+                data_quality['warnings'].append(f"データ数が少ないため、予測精度が低い可能性があります（{len(df_enhanced)}件）")
+                data_quality['recommendations'].append("30件以上のデータで精度が向上します。")
+            elif len(df_enhanced) < 100:
+                data_quality['quality_level'] = 'moderate'
+                data_quality['is_sufficient'] = True
+                data_quality['warnings'].append("データ数は適切ですが、さらに増やすとより正確な予測が可能です。")
+            else:
+                data_quality['quality_level'] = 'good'
+                data_quality['is_sufficient'] = True
+
+            # フラストレーション値の分散チェック
+            if 'NASA_F' in df_enhanced.columns:
+                frustration_std = df_enhanced['NASA_F'].std()
+                frustration_unique = df_enhanced['NASA_F'].nunique()
+
+                if frustration_std < 1.0:
+                    data_quality['warnings'].append(f"フラストレーション値のバラつきが小さく、モデルが同じ値を予測する可能性があります（標準偏差: {frustration_std:.2f}）")
+                    data_quality['recommendations'].append("様々な状況での活動データを記録してください。")
+
+                if frustration_unique < 3:
+                    data_quality['warnings'].append(f"フラストレーション値の種類が少なすぎます（{frustration_unique}種類）")
+                    data_quality['recommendations'].append("異なるフラストレーション値を持つデータを追加してください。")
+
+            # 活動の多様性チェック
+            if 'CatSub' in df_enhanced.columns:
+                activity_unique = df_enhanced['CatSub'].nunique()
+                if activity_unique < 3:
+                    data_quality['warnings'].append(f"活動の種類が少なすぎます（{activity_unique}種類）")
+                    data_quality['recommendations'].append("様々な種類の活動データを記録してください。")
+
+            return data_quality
+
+        except Exception as e:
+            logger.error(f"データ品質チェックエラー: {e}")
+            return {
+                'total_samples': 0,
+                'is_sufficient': False,
+                'quality_level': 'error',
+                'warnings': [str(e)],
+                'recommendations': []
+            }
+
     def walk_forward_validation_train(self, df_enhanced: pd.DataFrame) -> Dict:
         """
         Walk Forward Validationによる学習
         各行動変更タイミングで、過去24時間のデータで学習し、現在のフラストレーション値を予測
         """
         try:
+            # データ品質チェック
+            data_quality = self.check_data_quality(df_enhanced)
+
             if len(df_enhanced) < 10:
-                raise ValueError("Walk Forward Validationには最低10個のデータポイントが必要です")
+                raise ValueError(f"Walk Forward Validationには最低10個のデータポイントが必要です（現在: {len(df_enhanced)}件）")
             
             predictions = []
             actuals = []
@@ -331,16 +397,34 @@ class FrustrationPredictor:
             
             self.walk_forward_history = training_results
             
+            # 予測値の多様性チェック
+            prediction_std = np.std(predictions)
+            prediction_unique = len(np.unique(np.round(predictions, 1)))
+
             results = {
                 'walk_forward_rmse': rmse,
                 'walk_forward_mae': mae,
                 'walk_forward_r2': r2,
                 'total_predictions': len(predictions),
                 'feature_importance': dict(zip(self.feature_columns, model.feature_importances_)),
-                'prediction_history': training_results[-10:]  # 最新10件のみ返す
+                'prediction_history': training_results[-10:],  # 最新10件のみ返す
+                'data_quality': data_quality,
+                'prediction_diversity': {
+                    'std': float(prediction_std),
+                    'unique_values': int(prediction_unique),
+                    'is_diverse': prediction_std > 1.0 and prediction_unique > 3
+                }
             }
-            
-            logger.info(f"Walk Forward Validation完了 - RMSE: {rmse:.2f}, MAE: {mae:.2f}, R²: {r2:.3f}")
+
+            # 予測値が単調な場合の警告
+            if prediction_std < 1.0:
+                logger.warning(f"⚠️ 予測値のバラつきが小さいです（標準偏差: {prediction_std:.2f}）。データ不足またはデータの偏りが原因の可能性があります。")
+
+            if prediction_unique < 3:
+                logger.warning(f"⚠️ 予測値の種類が少なすぎます（{prediction_unique}種類）。モデルが同じ値を繰り返し予測しています。")
+
+            if self.config.LOG_MODEL_TRAINING:
+                logger.info(f"Walk Forward Validation完了 - RMSE: {rmse:.2f}, MAE: {mae:.2f}, R²: {r2:.3f}, データ品質: {data_quality['quality_level']}")
             return results
             
         except Exception as e:
@@ -437,7 +521,8 @@ class FrustrationPredictor:
                 'walk_forward_history': self.walk_forward_history
             }
             joblib.dump(model_data, filepath)
-            logger.info(f"モデルを保存しました: {filepath}")
+            if self.config.LOG_MODEL_TRAINING:
+                logger.info(f"モデルを保存しました: {filepath}")
         except Exception as e:
             logger.error(f"モデル保存エラー: {e}")
     
@@ -450,7 +535,8 @@ class FrustrationPredictor:
                 self.encoders = model_data['encoders']
                 self.feature_columns = model_data['feature_columns']
                 self.walk_forward_history = model_data.get('walk_forward_history', [])
-                logger.info(f"モデルを読み込みました: {filepath}")
+                if self.config.LOG_MODEL_TRAINING:
+                    logger.info(f"モデルを読み込みました: {filepath}")
                 return True
             else:
                 logger.warning(f"モデルファイルが見つかりません: {filepath}")
