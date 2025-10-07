@@ -419,15 +419,40 @@ def predict_activity_frustration():
         data_quality = predictor.check_data_quality(df_enhanced)
 
         # モデルが訓練されていない場合は自動訓練
-        if predictor.model is None and len(df_enhanced) >= 10:
-            logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
-            ensure_model_trained(user_id)
+        if predictor.model is None:
+            if len(df_enhanced) >= 10:
+                logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
+                training_result = ensure_model_trained(user_id)
 
-        # 新しい活動のフラストレーション値予測
-        prediction_result = predictor.predict_single_activity(
+                # 訓練が失敗した場合はエラーを返す
+                if training_result.get('status') != 'success':
+                    return jsonify({
+                        'status': 'error',
+                        'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
+                        'user_id': user_id,
+                        'data_quality': data_quality,
+                        'training_result': training_result
+                    }), 400
+            else:
+                # データ不足の場合
+                return jsonify({
+                    'status': 'error',
+                    'message': f'データ不足: {len(df_enhanced)}件 < 10件。モデルを訓練できません。',
+                    'user_id': user_id,
+                    'data_count': len(df_enhanced),
+                    'data_quality': data_quality,
+                    'warning': {
+                        'message': 'データが不足しているため、モデルを訓練できません。',
+                        'recommendations': data_quality.get('recommendations', [])
+                    }
+                }), 400
+
+        # 新しい活動のフラストレーション値予測（履歴データを使用）
+        prediction_result = predictor.predict_with_history(
             activity_category,
             duration,
-            timestamp
+            timestamp,
+            df_enhanced  # 履歴データを渡す
         )
 
         if 'error' in prediction_result:
@@ -1780,6 +1805,9 @@ def daily_dice_scheduler():
 def run_daily_dice_for_user(user_id: str):
     """指定ユーザーの日次DiCE改善提案を実行"""
     try:
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
         # モデルが訓練されていることを確認
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
@@ -1794,7 +1822,11 @@ def run_daily_dice_for_user(user_id: str):
             enhanced_data = predictor.aggregate_fitbit_by_activity(enhanced_data, fitbit_data)
 
             # 最新のモデルで訓練
-            predictor.walk_forward_validation_train(enhanced_data)
+            if len(enhanced_data) >= 10:
+                predictor.walk_forward_validation_train(enhanced_data)
+            else:
+                logger.warning(f"ユーザー {user_id} のデータ不足: {len(enhanced_data)}件")
+                return None
 
         # 昨日のデータでDiCE実行
         yesterday = datetime.now() - timedelta(days=1)
@@ -1830,6 +1862,9 @@ def data_monitor_loop():
                     if config.ENABLE_INFO_LOGS:
                         logger.info(f"新しいデータを検知しました。フラストレーション予測を実行します: {user_name} ({user_id})")
 
+                    # ユーザーごとのpredictorを取得
+                    predictor = get_predictor(user_id)
+
                     # 新しいデータを取得（キャッシュをクリアして最新データを取得）
                     activity_data = sheets_connector.get_activity_data(user_id, use_cache=False)
                     fitbit_data = sheets_connector.get_fitbit_data(user_id, use_cache=False)
@@ -1840,17 +1875,18 @@ def data_monitor_loop():
                         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
 
                         # モデル再訓練
-                        if len(df_enhanced) > 10:
+                        if len(df_enhanced) >= 10:
                             training_results = predictor.walk_forward_validation_train(df_enhanced)
                             if config.LOG_MODEL_TRAINING:
                                 logger.info(f"モデル再訓練完了 ({user_name}): {training_results}")
 
-                        # 最新の活動に対するフラストレーション予測
+                        # 最新の活動に対するフラストレーション予測（履歴データを使用）
                         latest_activity = activity_processed.iloc[-1]
-                        prediction_result = predictor.predict_single_activity(
+                        prediction_result = predictor.predict_with_history(
                             latest_activity.get('CatSub', 'unknown'),
                             latest_activity.get('Duration', 60),
-                            latest_activity.get('Timestamp', datetime.now())
+                            latest_activity.get('Timestamp', datetime.now()),
+                            df_enhanced  # 履歴データを渡す
                         )
 
                         # ユーザー別に予測結果を保存

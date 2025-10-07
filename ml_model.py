@@ -31,40 +31,53 @@ class FrustrationPredictor:
         """
         活動データを行動単位に前処理
         最小区切り時間は15分
+        webhooktest.pyの特徴量エンジニアリングを統合
         """
         try:
             if activity_data.empty:
                 return pd.DataFrame()
-                
+
             # データ型変換
             activity_data = activity_data.copy()
             activity_data['Timestamp'] = pd.to_datetime(activity_data['Timestamp'])
-            
+
             # フラストレーション値のチェック
             if 'NASA_F' not in activity_data.columns:
                 logger.error("NASA_F列が見つかりません")
                 return pd.DataFrame()
-            
+
             # 数値変換
             activity_data['NASA_F'] = pd.to_numeric(activity_data['NASA_F'], errors='coerce')
             activity_data['Duration'] = pd.to_numeric(activity_data['Duration'], errors='coerce')
-            
+
             # 15分未満の活動を除外
             activity_data = activity_data[activity_data['Duration'] >= 15]
-            
+
             # 行動変更タイミングの検出
             activity_data = activity_data.sort_values('Timestamp')
             activity_data['activity_change'] = (
                 activity_data['CatSub'] != activity_data['CatSub'].shift(1)
             ).astype(int)
-            
-            # 時間特徴量の追加
+
+            # 時間特徴量の追加（webhooktest.py形式）
             activity_data['hour'] = activity_data['Timestamp'].dt.hour
+            activity_data['hour_rad'] = 2 * np.pi * activity_data['hour'] / 24
+            activity_data['hour_sin'] = np.sin(activity_data['hour_rad'])
+            activity_data['hour_cos'] = np.cos(activity_data['hour_rad'])
+
+            # 曜日特徴量
             activity_data['dayofweek'] = activity_data['Timestamp'].dt.dayofweek
             activity_data['is_weekend'] = (activity_data['dayofweek'] >= 5).astype(int)
-            
+            activity_data['weekday_str'] = activity_data['Timestamp'].dt.strftime('%a')
+
+            # 曜日のOne-Hot Encoding
+            activity_data = pd.get_dummies(activity_data, columns=['weekday_str'], prefix='weekday')
+
+            # NASA_Fのスケーリング（0-20 → 0-1）
+            activity_data['NASA_F_scaled'] = activity_data['NASA_F'] / 20.0
+
             return activity_data
-            
+
         except Exception as e:
             logger.error(f"活動データ前処理エラー: {e}")
             return pd.DataFrame()
@@ -72,14 +85,22 @@ class FrustrationPredictor:
     def aggregate_fitbit_by_activity(self, activity_data: pd.DataFrame, fitbit_data: pd.DataFrame) -> pd.DataFrame:
         """
         Fitbitデータを行動の長さごとに統計量化
+        webhooktest.py形式のスケーリングを追加
         """
         try:
             if activity_data.empty or fitbit_data.empty:
                 return activity_data
-                
+
             fitbit_data = fitbit_data.copy()
             fitbit_data['Timestamp'] = pd.to_datetime(fitbit_data['Timestamp'])
             fitbit_data['Lorenz_Area'] = pd.to_numeric(fitbit_data['Lorenz_Area'], errors='coerce')
+
+            # Lorenz_Areaのスケーリング（webhooktest.py形式）
+            lorenz_max = fitbit_data['Lorenz_Area'].max()
+            if lorenz_max > 0:
+                fitbit_data['Lorenz_Area_scaled'] = fitbit_data['Lorenz_Area'] / lorenz_max
+            else:
+                fitbit_data['Lorenz_Area_scaled'] = fitbit_data['Lorenz_Area']
             
             # 各活動期間のFitbitデータ統計量を計算
             activity_with_fitbit = []
@@ -159,12 +180,19 @@ class FrustrationPredictor:
             
             # 特徴量を構築
             features = {}
-            
-            # 現在の活動の基本特徴量
+
+            # 現在の活動の基本特徴量（webhooktest.py形式の時間特徴量を追加）
             features['current_hour'] = current_activity['hour']
+            features['current_hour_sin'] = current_activity.get('hour_sin', np.sin(2 * np.pi * current_activity['hour'] / 24))
+            features['current_hour_cos'] = current_activity.get('hour_cos', np.cos(2 * np.pi * current_activity['hour'] / 24))
             features['current_dayofweek'] = current_activity['dayofweek']
             features['current_is_weekend'] = current_activity['is_weekend']
             features['current_duration'] = current_activity['Duration']
+
+            # 曜日のOne-Hot特徴量を追加
+            weekday_cols = [col for col in df_with_fitbit.columns if col.startswith('weekday_')]
+            for col in weekday_cols:
+                features[f'current_{col}'] = current_activity.get(col, 0)
             
             # カテゴリ特徴量のエンコード
             if 'CatSub' in current_activity and pd.notna(current_activity['CatSub']):
@@ -665,14 +693,27 @@ class FrustrationPredictor:
                 logger.warning("履歴データに有効なNASA_F値がありません")
                 return self.predict_single_activity(activity_category, duration, current_time)
 
-            # 特徴量を構築（訓練時と同じ方法）
+            # 特徴量を構築（訓練時と同じ方法、webhooktest.py形式）
             features = {}
 
-            # 現在の活動の基本特徴量
+            # 現在の活動の基本特徴量（時間の周期性を追加）
             features['current_hour'] = current_time.hour
+            hour_rad = 2 * np.pi * current_time.hour / 24
+            features['current_hour_sin'] = np.sin(hour_rad)
+            features['current_hour_cos'] = np.cos(hour_rad)
             features['current_dayofweek'] = current_time.weekday()
             features['current_is_weekend'] = 1 if current_time.weekday() >= 5 else 0
             features['current_duration'] = duration
+
+            # 曜日のOne-Hot特徴量を追加
+            weekday_str = current_time.strftime('%a')
+            weekday_cols = [col for col in historical_data.columns if col.startswith('weekday_')]
+            for col in weekday_cols:
+                # 現在の曜日に対応するカラムのみ1、それ以外は0
+                if f'weekday_{weekday_str}' == col:
+                    features[f'current_{col}'] = 1
+                else:
+                    features[f'current_{col}'] = 0
 
             # 活動カテゴリのエンコード
             if 'current_activity' in self.encoders:
