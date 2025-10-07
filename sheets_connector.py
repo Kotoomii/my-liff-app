@@ -659,15 +659,16 @@ class SheetsConnector:
 
     def save_prediction_data(self, prediction_data: Dict) -> bool:
         """
-        予測結果をスプレッドシートに保存
+        予測結果をスプレッドシートに保存（ユーザー別シート）
         """
         try:
             if not self.gc:
                 logger.warning("Google Sheetsクライアントが初期化されていません")
                 return False
 
-            # PREDICTION_DATAシートを取得または作成
-            sheet_name = "PREDICTION_DATA"
+            # ユーザー別のPREDICTION_DATAシート名を生成
+            user_id = prediction_data.get('user_id', 'default')
+            sheet_name = f"PREDICTION_DATA_{user_id}"
             worksheet = self._find_worksheet_by_exact_name(sheet_name)
 
             if not worksheet:
@@ -684,7 +685,7 @@ class SheetsConnector:
                     'PredictionError', 'ModelVersion', 'Notes'
                 ]
                 worksheet.append_row(headers)
-                logger.info("PREDICTION_DATAシートを作成しました")
+                logger.info(f"PREDICTION_DATAシートを作成しました: {sheet_name}")
 
             # データ行を準備
             predicted_frustration = prediction_data.get('predicted_frustration', 0)

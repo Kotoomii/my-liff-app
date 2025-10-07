@@ -597,37 +597,55 @@ class FrustrationPredictor:
         
         return features
     
-    def predict_single_activity(self, activity_category: str, duration: int = 60, 
+    def predict_single_activity(self, activity_category: str, duration: int = 60,
                                current_time: datetime = None) -> dict:
         """
         単一の活動に対してフラストレーション値を予測
         """
         try:
             if self.model is None:
+                logger.warning("⚠️ モデルが訓練されていません。デフォルト値を返します。")
                 return {
                     'predicted_frustration': 10.0,
                     'confidence': 0.0,
-                    'error': 'モデルが訓練されていません'
+                    'error': 'モデルが訓練されていません',
+                    'diagnosis': 'モデル未訓練: データが10件以上になると自動訓練されます'
                 }
-                
+
             # 特徴量作成
             features = self.create_features_for_new_activity(activity_category, duration, current_time)
-            
+
             # DataFrameに変換
             feature_df = pd.DataFrame([features])
-            
+
             # モデルで使用する特徴量に合わせる
             for col in self.feature_columns:
                 if col not in feature_df.columns:
                     feature_df[col] = 0.0
-                    
+
             feature_df = feature_df[self.feature_columns]
-            
+
             # 予測実行
             prediction = self.model.predict(feature_df)[0]
             confidence = self.get_prediction_confidence(prediction, features)
-            
-            return {
+
+            # デバッグ情報: 予測値の多様性チェック
+            diagnosis = None
+            if hasattr(self, '_last_predictions'):
+                self._last_predictions.append(prediction)
+                if len(self._last_predictions) > 10:
+                    self._last_predictions = self._last_predictions[-10:]
+
+                # 直近10件の予測値の標準偏差をチェック
+                if len(self._last_predictions) >= 5:
+                    pred_std = np.std(self._last_predictions)
+                    if pred_std < 0.5:
+                        diagnosis = f"警告: 予測値の多様性が低い（標準偏差: {pred_std:.3f}）。データの分散不足またはモデルの問題の可能性"
+                        logger.warning(f"⚠️ {diagnosis}")
+            else:
+                self._last_predictions = [prediction]
+
+            result = {
                 'predicted_frustration': float(prediction),
                 'confidence': float(confidence),
                 'activity_category': activity_category,
@@ -635,6 +653,11 @@ class FrustrationPredictor:
                 'timestamp': current_time or datetime.now(),
                 'features_used': len(self.feature_columns)
             }
+
+            if diagnosis:
+                result['diagnosis'] = diagnosis
+
+            return result
             
         except Exception as e:
             logger.error(f"単一活動予測エラー: {e}")
