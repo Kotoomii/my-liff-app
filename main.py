@@ -70,11 +70,91 @@ gunicorn_error_logger = logging.getLogger('gunicorn.error')
 gunicorn_error_logger.setLevel(logging.ERROR)
 
 # グローバルインスタンス
-predictor = FrustrationPredictor()
 sheets_connector = SheetsConnector()
 explainer = ActivityCounterfactualExplainer()
 feedback_generator = LLMFeedbackGenerator()
 scheduler = FeedbackScheduler()
+
+# ユーザーごとのモデル管理
+user_predictors = {}  # {user_id: FrustrationPredictor}
+
+def get_predictor(user_id: str) -> FrustrationPredictor:
+    """
+    ユーザーごとのpredictorを取得（存在しない場合は作成）
+    """
+    if user_id not in user_predictors:
+        logger.info(f"新しいpredictorを作成: user_id={user_id}")
+        user_predictors[user_id] = FrustrationPredictor()
+    return user_predictors[user_id]
+
+def ensure_model_trained(user_id: str, force_retrain: bool = False) -> dict:
+    """
+    ユーザーのモデルが訓練されていることを確認
+    必要に応じて自動訓練を実行
+
+    Args:
+        user_id: ユーザーID
+        force_retrain: 強制再訓練
+
+    Returns:
+        訓練結果または状態情報
+    """
+    predictor = get_predictor(user_id)
+
+    # モデルが訓練済みで強制再訓練でない場合はスキップ
+    if predictor.model is not None and not force_retrain:
+        return {
+            'status': 'already_trained',
+            'message': 'モデルは既に訓練済みです'
+        }
+
+    # データ取得
+    activity_data = sheets_connector.get_activity_data(user_id)
+    fitbit_data = sheets_connector.get_fitbit_data(user_id)
+
+    if activity_data.empty:
+        return {
+            'status': 'no_data',
+            'message': 'データがありません',
+            'user_id': user_id
+        }
+
+    # データ前処理
+    activity_processed = predictor.preprocess_activity_data(activity_data)
+    df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+
+    # データ品質チェック
+    data_quality = predictor.check_data_quality(df_enhanced)
+
+    if len(df_enhanced) < 10:
+        return {
+            'status': 'insufficient_data',
+            'message': f'データ不足: {len(df_enhanced)}件 < 10件',
+            'user_id': user_id,
+            'data_count': len(df_enhanced),
+            'data_quality': data_quality
+        }
+
+    # モデル訓練
+    try:
+        training_results = predictor.walk_forward_validation_train(df_enhanced)
+        logger.info(f"モデル訓練完了: user_id={user_id}, "
+                   f"RMSE={training_results.get('walk_forward_rmse', 0):.2f}")
+        return {
+            'status': 'success',
+            'message': 'モデル訓練完了',
+            'user_id': user_id,
+            'data_count': len(df_enhanced),
+            'training_results': training_results,
+            'data_quality': data_quality
+        }
+    except Exception as e:
+        logger.error(f"モデル訓練エラー: user_id={user_id}, error={e}")
+        return {
+            'status': 'error',
+            'message': f'訓練エラー: {str(e)}',
+            'user_id': user_id
+        }
 
 # DiCE daily scheduler
 dice_scheduler_thread = None
@@ -173,43 +253,51 @@ def predict_frustration():
         if target_timestamp:
             target_timestamp = datetime.fromisoformat(target_timestamp)
         
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
+        # モデルが訓練されていない場合は自動訓練
+        training_info = {'auto_trained': False}
+        if predictor.model is None:
+            logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
+            training_result = ensure_model_trained(user_id)
+            training_info = {
+                'auto_trained': True,
+                'status': training_result.get('status'),
+                'message': training_result.get('message')
+            }
+
         # データ取得
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
-        
+
         if activity_data.empty:
             return jsonify({
                 'status': 'error',
                 'message': '活動データが見つかりません'
             }), 400
-        
+
         # データ前処理
         activity_processed = predictor.preprocess_activity_data(activity_data)
         if activity_processed.empty:
             return jsonify({
-                'status': 'error', 
+                'status': 'error',
                 'message': 'データの前処理に失敗しました'
             }), 400
-        
+
         # Fitbitデータとの統合
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-        
+
         # データ品質チェック
         data_quality = predictor.check_data_quality(df_enhanced)
-
-        # Walk Forward Validationで学習
-        if len(df_enhanced) > 10:
-            training_results = predictor.walk_forward_validation_train(df_enhanced)
-        else:
-            training_results = {
-                'data_quality': data_quality,
-                'error': f'データ数が不足しています（{len(df_enhanced)}件）。最低10件以上のデータが必要です。'
-            }
 
         # フラストレーション値予測
         prediction_result = predictor.predict_frustration_at_activity_change(
             df_enhanced, target_timestamp
         )
+
+        # モデルパフォーマンス情報
+        training_results = training_info if training_info['auto_trained'] else {'status': 'already_trained'}
 
         # 行動変更タイミング一覧
         change_timestamps = predictor.get_activity_change_timestamps(df_enhanced)
@@ -293,10 +381,13 @@ def predict_activity_frustration():
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp)
         
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
         # 過去データ取得・前処理
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
-        
+
         if activity_data.empty:
             # 初回利用時のデフォルト予測値を返す
             default_frustration = 10.0  # 1-20スケールの中間値
@@ -319,7 +410,7 @@ def predict_activity_frustration():
                 },
                 'timestamp': timestamp.isoformat()
             })
-        
+
         # データ前処理とモデル学習
         activity_processed = predictor.preprocess_activity_data(activity_data)
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
@@ -327,10 +418,10 @@ def predict_activity_frustration():
         # データ品質チェック
         data_quality = predictor.check_data_quality(df_enhanced)
 
-        if len(df_enhanced) > 5:  # 最低5件のデータで学習
-            training_results = predictor.walk_forward_validation_train(df_enhanced)
-        else:
-            training_results = None
+        # モデルが訓練されていない場合は自動訓練
+        if predictor.model is None and len(df_enhanced) >= 10:
+            logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
+            ensure_model_trained(user_id)
 
         # 新しい活動のフラストレーション値予測
         prediction_result = predictor.predict_single_activity(
@@ -701,16 +792,32 @@ def get_frustration_timeline():
                 'message': '指定日のデータが見つかりません'
             })
         
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
         # データ前処理
         activity_processed = predictor.preprocess_activity_data(daily_data)
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
 
-        # モデルが訓練されていない場合は訓練
-        if predictor.model is None and len(df_enhanced) > 10:
-            try:
-                predictor.walk_forward_validation_train(df_enhanced)
-            except Exception as train_error:
-                logger.error(f"モデル訓練エラー: {train_error}")
+        # モデルが訓練されていない場合は自動訓練
+        training_info = None
+        if predictor.model is None:
+            logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
+            training_result = ensure_model_trained(user_id)
+            training_info = {
+                'auto_trained': True,
+                'status': training_result.get('status'),
+                'message': training_result.get('message')
+            }
+
+            if training_result.get('status') != 'success':
+                # 訓練失敗時は警告を含めて継続
+                logger.warning(f"自動訓練失敗: {training_result.get('message')}")
+        else:
+            training_info = {
+                'auto_trained': False,
+                'status': 'already_trained'
+            }
 
         # タイムライン作成（モデル予測値を使用）
         timeline = []
@@ -779,7 +886,8 @@ def get_frustration_timeline():
             'user_id': user_id,
             'date': date,
             'timeline': timeline,
-            'total_entries': len(timeline)
+            'total_entries': len(timeline),
+            'training_info': training_info
         })
         
     except Exception as e:
@@ -956,6 +1064,9 @@ def debug_model():
     """モデルデバッグ情報取得API"""
     try:
         user_id = request.args.get('user_id', 'default')
+
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
 
         # データ取得
         activity_data = sheets_connector.get_activity_data(user_id)
