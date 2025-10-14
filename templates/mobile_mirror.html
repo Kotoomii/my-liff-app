@@ -458,7 +458,7 @@
 
         .activity-bar-name {
             font-weight: bold;
-            font-size: 11px;
+            font-size: 16px;
             margin-bottom: 2px;
             white-space: nowrap;
             overflow: hidden;
@@ -1444,28 +1444,7 @@
 
         // 時間軸を作成
         function createTimelineAxis(container, activities) {
-            // 時間軸のベースラインを作成
-            const timelineAxis = document.createElement('div');
-            timelineAxis.className = 'timeline-axis';
-            
-            // 時間目盛りを作成
-            for (let hour = 0; hour < 24; hour++) {
-                const hourMarker = document.createElement('div');
-                hourMarker.className = 'hour-marker';
-                
-                // 3時間ごと（0, 3, 6, 9, 12, 15, 18, 21時）に太い線
-                if (hour % 3 === 0) {
-                    hourMarker.classList.add('major');
-                    hourMarker.innerHTML = `<span class="hour-label">${hour}</span>`;
-                }
-                
-                hourMarker.style.left = (hour / 24 * 100) + '%';
-                timelineAxis.appendChild(hourMarker);
-            }
-            
-            container.appendChild(timelineAxis);
-
-            // 活動バーを配置
+            // 活動バーを配置（メモリなし）
             activities.forEach(activity => {
                 const activityBar = createActivityBar(activity);
                 container.appendChild(activityBar);
@@ -1474,28 +1453,7 @@
 
         // DiCE提案タイムライン作成
         function createDiCETimelineAxis(container, suggestions) {
-            // 時間軸のベースラインを作成
-            const timelineAxis = document.createElement('div');
-            timelineAxis.className = 'timeline-axis';
-            
-            // 時間目盛りを作成
-            for (let hour = 0; hour < 24; hour++) {
-                const hourMarker = document.createElement('div');
-                hourMarker.className = 'hour-marker';
-                
-                // 3時間ごと（0, 3, 6, 9, 12, 15, 18, 21時）に太い線
-                if (hour % 3 === 0) {
-                    hourMarker.classList.add('major');
-                    hourMarker.innerHTML = `<span class="hour-label">${hour}</span>`;
-                }
-                
-                hourMarker.style.left = (hour / 24 * 100) + '%';
-                timelineAxis.appendChild(hourMarker);
-            }
-            
-            container.appendChild(timelineAxis);
-
-            // DiCE提案バーを配置
+            // DiCE提案バーを配置（メモリなし）
             suggestions.forEach(suggestion => {
                 const suggestionBar = createDiCESuggestionBar(suggestion);
                 container.appendChild(suggestionBar);
@@ -1541,7 +1499,6 @@
             activityInfo.innerHTML = `
                 <div class="activity-bar-name">${activity.activity}</div>
                 <div class="activity-bar-time">${startTimeStr}-${endTimeStr}</div>
-                <div class="activity-bar-duration">${Math.round(activity.durationMinutes)}分</div>
                 <div class="activity-bar-frustration">F:${activity.avgFrustration.toFixed(1)}</div>
             `;
             
