@@ -207,13 +207,13 @@
         }
 
         .frustration-value {
-            font-size: 3em;
+            font-size: 2.2em;
             font-weight: bold;
             margin: 5px 0;
             text-shadow: 0 0 25px rgba(255, 255, 255, 0.6);
             transition: all 1s ease;
             display: block;
-            line-height: 1.1;
+            line-height: 1;
         }
 
         .frustration-low { color: #4CAF50; }
@@ -266,7 +266,7 @@
             padding: 20px 10px 10px 10px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 10px;
-            height: 120px;
+            height: 140px;
             overflow: hidden;
             flex-shrink: 0;
         }
@@ -278,7 +278,7 @@
             background: rgba(0, 100, 0, 0.1);
             border: 2px solid rgba(76, 175, 80, 0.3);
             border-radius: 10px;
-            height: 120px;
+            height: 140px;
             overflow: hidden;
             flex-shrink: 0;
         }
@@ -396,8 +396,8 @@
 
         .timeline-activity-bar {
             position: absolute;
-            top: 25px;
-            height: 65px;
+            top: 20px;
+            height: 110px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -428,8 +428,8 @@
 
         .dice-suggestion-bar {
             position: absolute;
-            top: 25px;
-            height: 65px;
+            top: 20px;
+            height: 110px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -446,7 +446,7 @@
         }
 
         .activity-bar-info {
-            padding: 6px;
+            padding: 8px 6px;
             height: 100%;
             display: flex;
             flex-direction: column;
@@ -454,21 +454,24 @@
             text-align: center;
             color: white;
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+            gap: 4px;
         }
 
         .activity-bar-name {
             font-weight: bold;
             font-size: 16px;
-            margin-bottom: 2px;
+            margin-bottom: 0;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            line-height: 1.2;
         }
 
         .activity-bar-time {
-            font-size: 9px;
+            font-size: 12px;
             opacity: 0.9;
-            margin-bottom: 1px;
+            margin-bottom: 0;
+            line-height: 1.1;
         }
 
         .activity-bar-duration {
@@ -477,9 +480,10 @@
         }
 
         .activity-bar-frustration {
-            font-size: 9px;
+            font-size: 12px;
             font-weight: bold;
-            margin-top: 2px;
+            margin-top: 0;
+            line-height: 1.1;
         }
 
         .timeline-legend {
