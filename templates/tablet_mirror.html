@@ -162,6 +162,7 @@
             display: flex;
             flex-direction: column;
             max-height: 100%;
+            justify-content: flex-start;
         }
 
         .daily-analysis::before {
@@ -182,7 +183,7 @@
 
         .section-title {
             font-size: 16px;
-            margin-bottom: 8px;
+            margin-bottom: 5px;
             display: flex;
             align-items: center;
             gap: 8px;
@@ -199,23 +200,23 @@
         /* 今日のフラストレーション値表示 - さらにコンパクト化 */
         .daily-frustration {
             text-align: center;
-            margin: 5px 0;
+            margin: 0;
             position: relative;
             z-index: 2;
-            flex: 1;
+            flex: 0 0 auto;
             display: flex;
             flex-direction: column;
-            justify-content: center;
+            justify-content: flex-start;
         }
 
         .frustration-value {
             font-size: 2em;
             font-weight: bold;
-            margin: 3px 0;
+            margin: 0;
             text-shadow: 0 0 25px rgba(255, 255, 255, 0.6);
             transition: all 1s ease;
             display: block;
-            line-height: 1;
+            line-height: 1.2;
         }
 
         .frustration-low { color: #4CAF50; }
@@ -226,7 +227,7 @@
             display: flex;
             justify-content: space-around;
             gap: 8px;
-            margin-top: 8px;
+            margin-top: 5px;
             position: relative;
             z-index: 2;
         }
