@@ -153,7 +153,7 @@
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
             border-radius: 15px;
-            padding: 15px;
+            padding: 10px;
             border: 1px solid rgba(255, 255, 255, 0.2);
             flex: 1;
             position: relative;
@@ -197,19 +197,19 @@
         /* 今日のフラストレーション値表示 - コンパクト化 */
         .daily-frustration {
             text-align: center;
-            margin: 10px 0;
+            margin: 5px 0;
             position: relative;
             z-index: 2;
-            flex: 1;
+            flex: 0;
             display: flex;
             flex-direction: column;
             justify-content: center;
         }
 
         .frustration-value {
-            font-size: 2.2em;
+            font-size: 1.5em;
             font-weight: bold;
-            margin: 5px 0;
+            margin: 3px 0;
             text-shadow: 0 0 25px rgba(255, 255, 255, 0.6);
             transition: all 1s ease;
             display: block;
@@ -223,8 +223,8 @@
         .daily-stats {
             display: flex;
             justify-content: space-around;
-            gap: 8px;
-            margin-top: 10px;
+            gap: 6px;
+            margin-top: 5px;
             position: relative;
             z-index: 2;
         }
@@ -232,20 +232,20 @@
         .stat-item {
             text-align: center;
             background: rgba(255, 255, 255, 0.15);
-            padding: 8px 10px;
+            padding: 6px 8px;
             border-radius: 8px;
             flex: 1;
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .stat-value {
-            font-size: 16px;
+            font-size: 14px;
             font-weight: bold;
-            margin-bottom: 3px;
+            margin-bottom: 2px;
         }
 
         .stat-label {
-            font-size: 11px;
+            font-size: 10px;
             opacity: 0.9;
         }
 
@@ -442,7 +442,8 @@
             cursor: pointer;
             transition: all 0.3s ease;
             border: 2px solid transparent;
-            overflow: hidden;
+            overflow: visible;
+            min-width: 60px;
         }
 
         .timeline-activity-bar:hover {
@@ -499,31 +500,32 @@
 
         .activity-bar-name {
             font-weight: bold;
-            font-size: 12px;
-            margin-bottom: 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            line-height: 1.2;
+            font-size: 14px;
+            margin-bottom: 2px;
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+            line-height: 1.3;
+            word-wrap: break-word;
         }
 
         .activity-bar-time {
-            font-size: 10px;
+            font-size: 11px;
             opacity: 0.9;
-            margin-bottom: 0;
-            line-height: 1.1;
+            margin-bottom: 2px;
+            line-height: 1.2;
         }
 
         .activity-bar-duration {
-            font-size: 8px;
+            font-size: 9px;
             opacity: 0.8;
         }
 
         .activity-bar-frustration {
-            font-size: 10px;
+            font-size: 11px;
             font-weight: bold;
-            margin-top: 0;
-            line-height: 1.1;
+            margin-top: 2px;
+            line-height: 1.2;
         }
 
         .timeline-legend {
@@ -744,11 +746,23 @@
                 gap: 15px;
                 padding: 15px;
             }
-            
+
             .section-title {
-                font-size: 20px;
+                font-size: 18px;
             }
-            
+
+            .daily-analysis {
+                padding: 12px;
+            }
+
+            .frustration-value {
+                font-size: 1.8em;
+            }
+
+            .daily-stats {
+                margin-top: 8px;
+            }
+
             .timeline-container,
             .dice-timeline-container {
                 height: 90px;
@@ -1493,7 +1507,24 @@
 
         // 時間軸を作成
         function createTimelineAxis(container, activities) {
-            // 活動バーを配置（メモリなし）
+            // 時間軸目盛りを追加
+            const timeAxis = document.createElement('div');
+            timeAxis.className = 'timeline-axis';
+            for (let hour = 0; hour <= 24; hour += 3) {
+                const marker = document.createElement('div');
+                marker.className = 'hour-marker major';
+                marker.style.left = (hour / 24 * 100) + '%';
+
+                const label = document.createElement('div');
+                label.className = 'hour-label';
+                label.textContent = hour;
+                marker.appendChild(label);
+
+                timeAxis.appendChild(marker);
+            }
+            container.appendChild(timeAxis);
+
+            // 活動バーを配置
             activities.forEach(activity => {
                 const activityBar = createActivityBar(activity);
                 container.appendChild(activityBar);
@@ -1502,7 +1533,24 @@
 
         // DiCE提案タイムライン作成
         function createDiCETimelineAxis(container, suggestions) {
-            // DiCE提案バーを配置（メモリなし）
+            // 時間軸目盛りを追加
+            const timeAxis = document.createElement('div');
+            timeAxis.className = 'timeline-axis';
+            for (let hour = 0; hour <= 24; hour += 3) {
+                const marker = document.createElement('div');
+                marker.className = 'hour-marker major';
+                marker.style.left = (hour / 24 * 100) + '%';
+
+                const label = document.createElement('div');
+                label.className = 'hour-label';
+                label.textContent = hour;
+                marker.appendChild(label);
+
+                timeAxis.appendChild(marker);
+            }
+            container.appendChild(timeAxis);
+
+            // DiCE提案バーを配置
             suggestions.forEach(suggestion => {
                 const suggestionBar = createDiCESuggestionBar(suggestion);
                 container.appendChild(suggestionBar);
