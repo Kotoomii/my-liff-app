@@ -145,7 +145,7 @@
             flex-direction: column;
             min-height: 0;
             margin-top: 10px;
-            padding-bottom: 80px;
+            padding-bottom: 150px;
         }
 
         /* 今日のフラストレーション値 - コンパクト化 */
@@ -221,30 +221,32 @@
         .frustration-high { color: #F44336; }
 
         .daily-stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 5px;
-            margin-top: 8px;
+            display: flex;
+            justify-content: space-around;
+            gap: 8px;
+            margin-top: 10px;
             position: relative;
             z-index: 2;
         }
 
         .stat-item {
             text-align: center;
-            background: rgba(255, 255, 255, 0.1);
-            padding: 6px;
-            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 8px 10px;
+            border-radius: 8px;
+            flex: 1;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .stat-value {
-            font-size: 14px;
+            font-size: 16px;
             font-weight: bold;
-            margin-bottom: 2px;
+            margin-bottom: 3px;
         }
 
         .stat-label {
-            font-size: 10px;
-            opacity: 0.8;
+            font-size: 11px;
+            opacity: 0.9;
         }
 
         /* 24時間タイムライン - 全幅1行表示 */
@@ -267,8 +269,30 @@
             background: rgba(0, 0, 0, 0.2);
             border-radius: 10px;
             height: 140px;
-            overflow: hidden;
+            overflow-x: auto;
+            overflow-y: hidden;
             flex-shrink: 0;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .timeline-container::-webkit-scrollbar {
+            height: 6px;
+        }
+
+        .timeline-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .timeline-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        .timeline-inner {
+            position: relative;
+            min-width: 800px;
+            height: 100%;
         }
 
         .dice-timeline-container {
@@ -279,8 +303,24 @@
             border: 2px solid rgba(76, 175, 80, 0.3);
             border-radius: 10px;
             height: 140px;
-            overflow: hidden;
+            overflow-x: auto;
+            overflow-y: hidden;
             flex-shrink: 0;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .dice-timeline-container::-webkit-scrollbar {
+            height: 6px;
+        }
+
+        .dice-timeline-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .dice-timeline-container::-webkit-scrollbar-thumb {
+            background: rgba(76, 175, 80, 0.3);
+            border-radius: 3px;
         }
 
         .timeline-title {
@@ -459,7 +499,7 @@
 
         .activity-bar-name {
             font-weight: bold;
-            font-size: 16px;
+            font-size: 12px;
             margin-bottom: 0;
             white-space: nowrap;
             overflow: hidden;
@@ -468,7 +508,7 @@
         }
 
         .activity-bar-time {
-            font-size: 12px;
+            font-size: 10px;
             opacity: 0.9;
             margin-bottom: 0;
             line-height: 1.1;
@@ -480,7 +520,7 @@
         }
 
         .activity-bar-frustration {
-            font-size: 12px;
+            font-size: 10px;
             font-weight: bold;
             margin-top: 0;
             line-height: 1.1;
@@ -1371,11 +1411,16 @@
 
             if (timeline.length === 0) return;
 
+            // 横スクロール用の内部ラッパーを作成
+            const innerWrapper = document.createElement('div');
+            innerWrapper.className = 'timeline-inner';
+            container.appendChild(innerWrapper);
+
             // 活動データを処理して時間軸に配置
             const processedActivities = processActivitiesForTimeline(timeline);
-            
+
             // 時間軸を作成（0:00-23:59の24時間）
-            createTimelineAxis(container, processedActivities);
+            createTimelineAxis(innerWrapper, processedActivities);
         }
 
         // 活動データを時間軸用に処理
@@ -1571,8 +1616,13 @@
                 return;
             }
 
+            // 横スクロール用の内部ラッパーを作成
+            const innerWrapper = document.createElement('div');
+            innerWrapper.className = 'timeline-inner';
+            container.appendChild(innerWrapper);
+
             // DiCE提案タイムライン作成
-            createDiCETimelineAxis(container, analysis.timeline);
+            createDiCETimelineAxis(innerWrapper, analysis.timeline);
         }
 
 
