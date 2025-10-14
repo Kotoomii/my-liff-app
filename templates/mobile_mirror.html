@@ -145,7 +145,7 @@
             flex-direction: column;
             min-height: 0;
             margin-top: 10px;
-            padding-bottom: 250px;
+            padding-bottom: 350px;
         }
 
         /* 今日のフラストレーション値 - コンパクト化 */
@@ -270,7 +270,7 @@
             padding: 20px 10px 10px 10px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 10px;
-            height: 180px;
+            height: 220px;
             overflow-x: auto;
             overflow-y: hidden;
             flex-shrink: 0;
@@ -304,7 +304,7 @@
             background: rgba(0, 100, 0, 0.1);
             border: 2px solid rgba(76, 175, 80, 0.3);
             border-radius: 10px;
-            height: 180px;
+            height: 220px;
             overflow-x: auto;
             overflow-y: hidden;
             flex-shrink: 0;
@@ -439,7 +439,7 @@
         .timeline-activity-bar {
             position: absolute;
             top: 20px;
-            height: 150px;
+            height: 190px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -472,7 +472,7 @@
         .dice-suggestion-bar {
             position: absolute;
             top: 20px;
-            height: 150px;
+            height: 190px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -756,7 +756,12 @@
                 margin-bottom: 8px;
             }
 
-            .daily-analysis,
+            .daily-analysis {
+                height: 140px;
+                max-height: 140px;
+                padding: 10px;
+            }
+
             .dice-section,
             .feedback-section {
                 height: 280px;
@@ -765,15 +770,16 @@
             }
 
             .frustration-value {
-                font-size: 18px;
+                font-size: 16px;
             }
 
             .daily-frustration {
-                margin: 8px 0 5px 0;
+                margin: 5px 0 3px 0;
             }
 
             .daily-stats {
-                margin-top: 10px;
+                margin-top: 5px;
+                gap: 4px;
             }
 
             .stat-item {
