@@ -135,8 +135,9 @@
         .top-row {
             display: flex;
             gap: 15px;
-            height: 35%;
-            min-height: 250px;
+            height: 28%;
+            min-height: 200px;
+            max-height: 220px;
         }
 
         /* 下段：タイムライン全幅 */
@@ -193,10 +194,10 @@
             filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
         }
 
-        /* 今日のフラストレーション値表示 - コンパクト化 */
+        /* 今日のフラストレーション値表示 - さらにコンパクト化 */
         .daily-frustration {
             text-align: center;
-            margin: 10px 0;
+            margin: 5px 0;
             position: relative;
             z-index: 2;
             flex: 1;
@@ -206,13 +207,13 @@
         }
 
         .frustration-value {
-            font-size: 3em;
+            font-size: 2.5em;
             font-weight: bold;
-            margin: 5px 0;
+            margin: 3px 0;
             text-shadow: 0 0 25px rgba(255, 255, 255, 0.6);
             transition: all 1s ease;
             display: block;
-            line-height: 1.1;
+            line-height: 1;
         }
 
         .frustration-low { color: #4CAF50; }
@@ -222,8 +223,8 @@
         .daily-stats {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 5px;
-            margin-top: 8px;
+            gap: 4px;
+            margin-top: 5px;
             position: relative;
             z-index: 2;
         }
@@ -231,18 +232,18 @@
         .stat-item {
             text-align: center;
             background: rgba(255, 255, 255, 0.1);
-            padding: 6px;
-            border-radius: 6px;
+            padding: 4px;
+            border-radius: 4px;
         }
 
         .stat-value {
-            font-size: 14px;
+            font-size: 12px;
             font-weight: bold;
-            margin-bottom: 2px;
+            margin-bottom: 1px;
         }
 
         .stat-label {
-            font-size: 10px;
+            font-size: 9px;
             opacity: 0.8;
         }
 
@@ -261,23 +262,23 @@
 
         .timeline-container {
             position: relative;
-            margin-top: 10px;
-            padding: 20px 10px 10px 10px;
+            margin-top: 8px;
+            padding: 18px 10px 8px 10px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 10px;
-            height: 120px;
+            height: 90px;
             overflow: hidden;
             flex-shrink: 0;
         }
 
         .dice-timeline-container {
             position: relative;
-            margin-top: 10px;
-            padding: 20px 10px 10px 10px;
+            margin-top: 8px;
+            padding: 18px 10px 8px 10px;
             background: rgba(0, 100, 0, 0.1);
             border: 2px solid rgba(76, 175, 80, 0.3);
             border-radius: 10px;
-            height: 120px;
+            height: 90px;
             overflow: hidden;
             flex-shrink: 0;
         }
@@ -395,8 +396,8 @@
 
         .timeline-activity-bar {
             position: absolute;
-            top: 25px;
-            height: 65px;
+            top: 22px;
+            height: 60px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -427,8 +428,8 @@
 
         .dice-suggestion-bar {
             position: absolute;
-            top: 25px;
-            height: 65px;
+            top: 22px;
+            height: 60px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
