@@ -745,14 +745,23 @@
                 padding: 15px;
             }
 
-            .section-title {
-                font-size: 18px;
+            .top-row {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 15px;
             }
 
-            .daily-analysis {
-                padding: 10px;
-                height: 140px;
-                max-height: 140px;
+            .section-title {
+                font-size: 16px;
+                margin-bottom: 8px;
+            }
+
+            .daily-analysis,
+            .dice-section,
+            .feedback-section {
+                height: 280px;
+                max-height: 280px;
+                padding: 12px;
             }
 
             .frustration-value {
@@ -760,11 +769,23 @@
             }
 
             .daily-frustration {
-                margin: 2px 0;
+                margin: 8px 0 5px 0;
             }
 
             .daily-stats {
-                margin-top: 8px;
+                margin-top: 10px;
+            }
+
+            .stat-item {
+                padding: 8px 10px;
+            }
+
+            .stat-value {
+                font-size: 16px;
+            }
+
+            .stat-label {
+                font-size: 11px;
             }
 
             .timeline-container,
