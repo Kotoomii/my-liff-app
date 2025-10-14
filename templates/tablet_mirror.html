@@ -88,6 +88,7 @@
             min-width: 200px;
             display: none;
             border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 10000;
         }
 
         .user-dropdown.active {
@@ -221,30 +222,31 @@
         .frustration-high { color: #F44336; }
 
         .daily-stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 4px;
-            margin-top: 5px;
+            display: flex;
+            justify-content: space-around;
+            gap: 8px;
+            margin-top: 8px;
             position: relative;
             z-index: 2;
         }
 
         .stat-item {
             text-align: center;
-            background: rgba(255, 255, 255, 0.1);
-            padding: 4px;
-            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 5px 10px;
+            border-radius: 8px;
+            flex: 1;
         }
 
         .stat-value {
-            font-size: 12px;
+            font-size: 16px;
             font-weight: bold;
-            margin-bottom: 1px;
+            margin-bottom: 2px;
         }
 
         .stat-label {
-            font-size: 9px;
-            opacity: 0.8;
+            font-size: 10px;
+            opacity: 0.9;
         }
 
         /* 24時間タイムライン - 全幅1行表示 */
@@ -458,26 +460,26 @@
 
         .activity-bar-name {
             font-weight: bold;
-            font-size: 11px;
-            margin-bottom: 2px;
+            font-size: 14px;
+            margin-bottom: 3px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
         .activity-bar-time {
-            font-size: 9px;
+            font-size: 11px;
             opacity: 0.9;
-            margin-bottom: 1px;
+            margin-bottom: 2px;
         }
 
         .activity-bar-duration {
-            font-size: 8px;
+            font-size: 10px;
             opacity: 0.8;
         }
 
         .activity-bar-frustration {
-            font-size: 9px;
+            font-size: 11px;
             font-weight: bold;
             margin-top: 2px;
         }
@@ -1448,17 +1450,11 @@
             const timelineAxis = document.createElement('div');
             timelineAxis.className = 'timeline-axis';
             
-            // 時間目盛りを作成
-            for (let hour = 0; hour < 24; hour++) {
+            // 時間目盛りを作成（3時間ごとのみ）
+            for (let hour = 0; hour < 24; hour += 3) {
                 const hourMarker = document.createElement('div');
-                hourMarker.className = 'hour-marker';
-                
-                // 3時間ごと（0, 3, 6, 9, 12, 15, 18, 21時）に太い線
-                if (hour % 3 === 0) {
-                    hourMarker.classList.add('major');
-                    hourMarker.innerHTML = `<span class="hour-label">${hour}</span>`;
-                }
-                
+                hourMarker.className = 'hour-marker major';
+                hourMarker.innerHTML = `<span class="hour-label">${hour}</span>`;
                 hourMarker.style.left = (hour / 24 * 100) + '%';
                 timelineAxis.appendChild(hourMarker);
             }
@@ -1478,17 +1474,11 @@
             const timelineAxis = document.createElement('div');
             timelineAxis.className = 'timeline-axis';
             
-            // 時間目盛りを作成
-            for (let hour = 0; hour < 24; hour++) {
+            // 時間目盛りを作成（3時間ごとのみ）
+            for (let hour = 0; hour < 24; hour += 3) {
                 const hourMarker = document.createElement('div');
-                hourMarker.className = 'hour-marker';
-                
-                // 3時間ごと（0, 3, 6, 9, 12, 15, 18, 21時）に太い線
-                if (hour % 3 === 0) {
-                    hourMarker.classList.add('major');
-                    hourMarker.innerHTML = `<span class="hour-label">${hour}</span>`;
-                }
-                
+                hourMarker.className = 'hour-marker major';
+                hourMarker.innerHTML = `<span class="hour-label">${hour}</span>`;
                 hourMarker.style.left = (hour / 24 * 100) + '%';
                 timelineAxis.appendChild(hourMarker);
             }
