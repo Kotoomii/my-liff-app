@@ -223,6 +223,11 @@ def tablet_mirror():
     """タブレット専用UI - 手動ユーザー選択・日次平均表示"""
     return render_template('tablet_mirror.html')
 
+@app.route('/mobile')
+def mobile_mirror():
+    """スマホ専用UI - 手動ユーザー選択・縦スクロール表示"""
+    return render_template('mobile_mirror.html')
+
 @app.route('/trends')
 def frustration_trends():
     """ユーザー別フラストレーション値推移確認シート"""
