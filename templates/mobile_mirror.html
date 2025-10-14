@@ -155,11 +155,13 @@
             border-radius: 15px;
             padding: 10px;
             border: 1px solid rgba(255, 255, 255, 0.2);
-            flex: 1;
+            flex: 0 0 auto;
             position: relative;
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            max-height: 180px;
+            height: 180px;
         }
 
         .daily-analysis::before {
@@ -180,7 +182,7 @@
 
         .section-title {
             font-size: 16px;
-            margin-bottom: 8px;
+            margin-bottom: 5px;
             display: flex;
             align-items: center;
             gap: 8px;
@@ -753,6 +755,8 @@
 
             .daily-analysis {
                 padding: 12px;
+                height: 200px;
+                max-height: 200px;
             }
 
             .frustration-value {
@@ -895,7 +899,7 @@
 
                 <div class="daily-frustration">
                     <div class="frustration-value frustration-medium" id="daily-frustration-value">--</div>
-                    <div style="font-size: 12px; opacity: 0.8;" id="daily-info">計算中...</div>
+                    <div style="font-size: 10px; opacity: 0.8;" id="daily-info">計算中...</div>
                 </div>
 
                 <div class="daily-stats">
