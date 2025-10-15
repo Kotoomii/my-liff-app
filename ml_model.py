@@ -200,7 +200,7 @@ class FrustrationPredictor:
                 if 'current_activity' not in self.encoders:
                     self.encoders['current_activity'] = LabelEncoder()
                     # 既知の活動カテゴリで初期化
-                    known_activities = ['睡眠', '食事', '仕事', '休憩', '運動', '通勤', '娯楽', 'その他']
+                    known_activities = ['睡眠', '食事', '身のまわりの用事', '療養・静養', '仕事', '仕事のつきあい', '授業・学内の活動', '学校外の学習', '炊事・掃除・洗濯', '買い物', '子どもの世話', '家庭雑事', '通勤', '通学', '社会参加', '会話・交際', 'スポーツ', '行楽・散策', '趣味・娯楽・教養（インターネット除く）', '趣味・娯楽・教養 のインターネット（動画除く）', 'インターネット動画', 'テレビ', '録画番組・DVD', 'ラジオ', '新聞', '雑誌・漫画・本', '音楽', '休息', 'その他', '不明']
                     self.encoders['current_activity'].fit(known_activities)
                 
                 try:
