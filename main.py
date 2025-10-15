@@ -261,17 +261,6 @@ def predict_frustration():
         # ユーザーごとのpredictorを取得
         predictor = get_predictor(user_id)
 
-        # モデルが訓練されていない場合は自動訓練
-        training_info = {'auto_trained': False}
-        if predictor.model is None:
-            logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
-            training_result = ensure_model_trained(user_id)
-            training_info = {
-                'auto_trained': True,
-                'status': training_result.get('status'),
-                'message': training_result.get('message')
-            }
-
         # データ取得
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
@@ -295,6 +284,27 @@ def predict_frustration():
 
         # データ品質チェック
         data_quality = predictor.check_data_quality(df_enhanced)
+
+        # モデルが訓練されていない場合は自動訓練
+        training_info = {'auto_trained': False}
+        if predictor.model is None:
+            logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
+            training_result = ensure_model_trained(user_id)
+            training_info = {
+                'auto_trained': True,
+                'status': training_result.get('status'),
+                'message': training_result.get('message')
+            }
+
+            # 訓練が失敗した場合はエラーを返す
+            if training_result.get('status') != 'success':
+                return jsonify({
+                    'status': 'error',
+                    'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
+                    'user_id': user_id,
+                    'data_quality': data_quality,
+                    'training_result': training_result
+                }), 400
 
         # フラストレーション値予測
         prediction_result = predictor.predict_frustration_at_activity_change(
