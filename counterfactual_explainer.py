@@ -22,8 +22,8 @@ class ActivityCounterfactualExplainer:
         self.dice_exp = None
         self.predictor = None
         
-    def generate_activity_based_explanation(self, 
-                                          df_enhanced: pd.DataFrame, 
+    def generate_activity_based_explanation(self,
+                                          df_enhanced: pd.DataFrame,
                                           predictor,
                                           target_timestamp: datetime = None,
                                           lookback_hours: int = 24) -> Dict:
@@ -33,40 +33,87 @@ class ActivityCounterfactualExplainer:
         """
         try:
             self.predictor = predictor
-            
+
             if target_timestamp is None:
                 target_timestamp = datetime.now()
-            
+
+            if self.config.ENABLE_DEBUG_LOGS:
+                logger.debug(f"DiCE説明生成開始: target_timestamp={target_timestamp}, lookback_hours={lookback_hours}")
+
+            # データ存在チェック
+            if df_enhanced.empty:
+                logger.warning("DiCE説明生成: データが空です")
+                return self._get_no_data_explanation("データが空です")
+
             # 過去24時間の行動変更タイミングを取得
             cutoff_time = target_timestamp - timedelta(hours=lookback_hours)
             recent_activities = df_enhanced[
-                (df_enhanced['Timestamp'] >= cutoff_time) & 
+                (df_enhanced['Timestamp'] >= cutoff_time) &
                 (df_enhanced['Timestamp'] <= target_timestamp) &
                 (df_enhanced['activity_change'] == 1)
             ].copy()
-            
+
+            if self.config.ENABLE_DEBUG_LOGS:
+                logger.debug(f"対象期間の活動数: {len(recent_activities)}")
+
             if recent_activities.empty:
-                return self._get_fallback_explanation()
-            
+                logger.info(f"DiCE説明生成: 指定期間（{cutoff_time}〜{target_timestamp}）に行動変更タイミングがありません")
+                return self._get_no_solution_explanation(
+                    f"指定期間に行動変更タイミングがありませんでした",
+                    details={
+                        'period_start': cutoff_time.isoformat(),
+                        'period_end': target_timestamp.isoformat(),
+                        'total_activities_in_period': len(df_enhanced[
+                            (df_enhanced['Timestamp'] >= cutoff_time) &
+                            (df_enhanced['Timestamp'] <= target_timestamp)
+                        ]),
+                        'reason': 'no_activity_changes'
+                    }
+                )
+
             # 各行動変更タイミングについて反実仮想例を生成
             counterfactual_results = []
-            
+            failed_generations = 0
+
             for idx, activity in recent_activities.iterrows():
-                cf_result = self._generate_single_activity_counterfactual(
-                    df_enhanced, idx, activity
-                )
-                if cf_result:
-                    counterfactual_results.append(cf_result)
-            
+                try:
+                    cf_result = self._generate_single_activity_counterfactual(
+                        df_enhanced, idx, activity
+                    )
+                    if cf_result:
+                        counterfactual_results.append(cf_result)
+                    else:
+                        failed_generations += 1
+                        if self.config.ENABLE_DEBUG_LOGS:
+                            logger.debug(f"活動 {activity.get('CatSub', 'unknown')} の代替案生成に失敗")
+                except Exception as cf_error:
+                    failed_generations += 1
+                    logger.warning(f"活動 {activity.get('CatSub', 'unknown')} の反実仮想例生成中にエラー: {cf_error}")
+
+            logger.info(f"DiCE生成結果: 成功={len(counterfactual_results)}, 失敗={failed_generations}, 合計={len(recent_activities)}")
+
             if not counterfactual_results:
-                return self._get_fallback_explanation()
-            
+                logger.warning(f"DiCE説明生成: すべての活動で代替案を生成できませんでした（対象活動数: {len(recent_activities)}）")
+                return self._get_no_solution_explanation(
+                    f"{len(recent_activities)}個の活動を分析しましたが、改善提案を生成できませんでした",
+                    details={
+                        'total_activities_analyzed': len(recent_activities),
+                        'failed_generations': failed_generations,
+                        'reason': 'no_improvements_found',
+                        'possible_causes': [
+                            'モデルの学習データが不足している',
+                            '既にフラストレーション値が低く、改善の余地が少ない',
+                            '代替活動の選択肢が限定されている'
+                        ]
+                    }
+                )
+
             # 結果をまとめて返す
             return self._summarize_counterfactual_results(counterfactual_results)
-            
+
         except Exception as e:
-            logger.error(f"行動単位反実仮想説明生成エラー: {e}")
-            return self._get_fallback_explanation()
+            logger.error(f"行動単位反実仮想説明生成で予期しないエラー: {e}", exc_info=True)
+            return self._get_error_explanation(str(e))
     
     def _generate_single_activity_counterfactual(self, 
                                                df_enhanced: pd.DataFrame, 
@@ -470,10 +517,12 @@ class ActivityCounterfactualExplainer:
         
         return advice
     
-    def _get_fallback_explanation(self) -> Dict:
-        """フォールバック用の基本的な説明"""
+    def _get_error_explanation(self, error_message: str) -> Dict:
+        """エラー発生時の説明"""
         return {
-            'type': 'fallback',
+            'type': 'error',
+            'status': 'error',
+            'error_message': error_message,
             'total_improvement': 0,
             'timeline': [],
             'suggestions': [
@@ -482,8 +531,55 @@ class ActivityCounterfactualExplainer:
                 "好きな音楽を聴いてリラックスしましょう",
                 "十分な睡眠時間を確保してください"
             ],
-            'confidence': 0.3
+            'confidence': 0.0,
+            'user_message': 'DiCEの実行中にエラーが発生しました。システム管理者に連絡してください。'
         }
+
+    def _get_no_data_explanation(self, reason: str, details: dict = None) -> Dict:
+        """データが不足している場合の説明"""
+        result = {
+            'type': 'no_data',
+            'status': 'no_data',
+            'reason': reason,
+            'total_improvement': 0,
+            'timeline': [],
+            'suggestions': [
+                "活動データを継続的に記録してください",
+                "より多くのデータが蓄積されると、詳細な提案が可能になります",
+                "定期的な休憩を取り、深呼吸をしましょう",
+                "軽い運動や散歩でリフレッシュしてください"
+            ],
+            'confidence': 0.1,
+            'user_message': 'データが不足しているため、DiCEによる改善提案を生成できませんでした。'
+        }
+        if details:
+            result['details'] = details
+        return result
+
+    def _get_no_solution_explanation(self, reason: str, details: dict = None) -> Dict:
+        """改善提案が見つからない場合の説明（データはあるが解なし）"""
+        result = {
+            'type': 'no_solution',
+            'status': 'no_solution',
+            'reason': reason,
+            'total_improvement': 0,
+            'timeline': [],
+            'suggestions': [
+                "現在のフラストレーション値は既に低い水準にあります",
+                "健康的な生活リズムを維持しましょう",
+                "定期的な休憩を取り、深呼吸をしましょう",
+                "軽い運動や散歩でリフレッシュしてください"
+            ],
+            'confidence': 0.3,
+            'user_message': 'データを分析しましたが、現時点では大きな改善提案を生成できませんでした。'
+        }
+        if details:
+            result['details'] = details
+        return result
+
+    def _get_fallback_explanation(self) -> Dict:
+        """フォールバック用の基本的な説明（後方互換性のため保持）"""
+        return self._get_no_solution_explanation("代替案を生成できませんでした")
     
     def _get_fallback_daily_summary(self) -> Dict:
         """フォールバック用の日次サマリー"""
@@ -500,7 +596,7 @@ class ActivityCounterfactualExplainer:
             'confidence': 0.3
         }
     
-    def generate_hourly_alternatives(self, activities_data: pd.DataFrame, 
+    def generate_hourly_alternatives(self, activities_data: pd.DataFrame,
                                    predictor, target_date: datetime = None) -> dict:
         """
         1日の終わりに時間単位の粒度でDiCE改善提案を生成
@@ -508,42 +604,68 @@ class ActivityCounterfactualExplainer:
         try:
             if target_date is None:
                 target_date = datetime.now().date()
-            
+
+            if self.config.ENABLE_DEBUG_LOGS:
+                logger.debug(f"時間別DiCE提案生成開始: target_date={target_date}")
+
+            # データ存在チェック
+            if activities_data.empty:
+                logger.warning("時間別DiCE提案生成: 活動データが空です")
+                return self._get_no_data_hourly_schedule("活動データが空です")
+
             # 指定日のデータを抽出
             day_data = activities_data[
                 activities_data['Timestamp'].dt.date == target_date
             ].copy()
-            
+
             if day_data.empty:
-                return self._get_fallback_hourly_schedule()
-            
+                logger.info(f"時間別DiCE提案生成: {target_date}のデータが見つかりません")
+                return self._get_no_data_hourly_schedule(
+                    f"{target_date}のデータが見つかりませんでした",
+                    details={
+                        'target_date': target_date.strftime('%Y-%m-%d'),
+                        'reason': 'no_data_for_date',
+                        'total_records': len(activities_data)
+                    }
+                )
+
+            logger.info(f"対象日の活動データ数: {len(day_data)}")
+
             # 時間別の改善提案を生成
             hourly_schedule = []
             total_improvement = 0
-            
+            generation_errors = 0
+
             # 24時間分のスケジュールを生成
             for hour in range(24):
                 hour_start = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=hour)
                 hour_end = hour_start + timedelta(hours=1)
-                
+
                 # この時間帯の活動データを取得
                 hour_activities = day_data[
-                    (day_data['Timestamp'] >= hour_start) & 
+                    (day_data['Timestamp'] >= hour_start) &
                     (day_data['Timestamp'] < hour_end)
                 ]
-                
+
                 if not hour_activities.empty:
                     # 実際の活動があった時間帯
                     original_activity = hour_activities.iloc[0]
-                    
-                    # 代替活動の提案を生成
-                    alternative_suggestion = self._generate_hourly_alternative(
-                        original_activity, predictor, hour
-                    )
-                    
-                    if alternative_suggestion:
-                        hourly_schedule.append(alternative_suggestion)
-                        total_improvement += alternative_suggestion.get('improvement', 0)
+
+                    try:
+                        # 代替活動の提案を生成
+                        alternative_suggestion = self._generate_hourly_alternative(
+                            original_activity, predictor, hour
+                        )
+
+                        if alternative_suggestion:
+                            hourly_schedule.append(alternative_suggestion)
+                            total_improvement += alternative_suggestion.get('improvement', 0)
+                        else:
+                            if self.config.ENABLE_DEBUG_LOGS:
+                                logger.debug(f"{hour}時台: 代替活動の生成に失敗（活動: {original_activity.get('CatSub', 'unknown')}）")
+                    except Exception as hour_error:
+                        generation_errors += 1
+                        logger.warning(f"{hour}時台の代替活動生成中にエラー: {hour_error}")
                 else:
                     # 活動データがない時間帯は推奨活動を提案
                     recommended_activity = self._recommend_activity_for_hour(hour)
@@ -556,7 +678,26 @@ class ActivityCounterfactualExplainer:
                         'reason': '健康的な生活リズムのため',
                         'confidence': 0.6
                     })
-            
+
+            logger.info(f"時間別DiCE生成結果: 提案数={len(hourly_schedule)}, 合計改善={total_improvement:.1f}, エラー={generation_errors}")
+
+            # 改善提案が全くない場合
+            if total_improvement == 0 and generation_errors == 0:
+                logger.warning(f"時間別DiCE提案生成: 改善提案を生成できませんでした（対象活動数: {len(day_data)}）")
+                return self._get_no_solution_hourly_schedule(
+                    f"{len(day_data)}個の活動を分析しましたが、改善提案を生成できませんでした",
+                    details={
+                        'target_date': target_date.strftime('%Y-%m-%d'),
+                        'total_activities': len(day_data),
+                        'reason': 'no_improvements_found',
+                        'possible_causes': [
+                            'モデルの学習データが不足している',
+                            'フラストレーション値が既に低く、改善の余地が少ない',
+                            '代替活動の選択肢が限定されている'
+                        ]
+                    }
+                )
+
             # 改善効果の高い時間帯をハイライト
             significant_improvements = [
                 item for item in hourly_schedule
@@ -582,6 +723,12 @@ class ActivityCounterfactualExplainer:
                     'unique_suggestions': unique_suggestions,
                     'total_suggestions': len(suggested_activities),
                     'is_diverse': is_diverse
+                },
+                'generation_stats': {
+                    'total_hours_analyzed': 24,
+                    'hours_with_activities': len([item for item in hourly_schedule if item.get('original_activity') != '未記録']),
+                    'hours_with_improvements': len(significant_improvements),
+                    'generation_errors': generation_errors
                 }
             }
 
@@ -594,10 +741,10 @@ class ActivityCounterfactualExplainer:
                 }
 
             return result
-            
+
         except Exception as e:
-            logger.error(f"時間別DiCE提案生成エラー: {e}")
-            return self._get_fallback_hourly_schedule()
+            logger.error(f"時間別DiCE提案生成で予期しないエラー: {e}", exc_info=True)
+            return self._get_error_hourly_schedule(str(e))
     
     def _generate_hourly_alternative(self, original_activity: pd.Series, 
                                    predictor, hour: int) -> dict:
@@ -706,16 +853,57 @@ class ActivityCounterfactualExplainer:
         key = (original, alternative)
         return improvement_reasons.get(key, f'{alternative}によるストレス軽減効果')
     
-    def _get_fallback_hourly_schedule(self) -> dict:
-        """
-        フォールバック用の時間別スケジュール
-        """
+    def _get_error_hourly_schedule(self, error_message: str) -> dict:
+        """エラー発生時の時間別スケジュール"""
         return {
-            'type': 'fallback_hourly_schedule',
+            'type': 'error',
+            'status': 'error',
+            'error_message': error_message,
             'date': datetime.now().strftime('%Y-%m-%d'),
             'hourly_schedule': [],
             'total_improvement': 0,
-            'message': '今日このような活動をしていたらストレスレベルが下がっていました',
-            'confidence': 0.3,
-            'summary': 'データが不足しているため、詳細な提案を生成できませんでした'
+            'message': 'エラーが発生しました',
+            'confidence': 0.0,
+            'summary': 'DiCEの実行中にエラーが発生しました。システム管理者に連絡してください。',
+            'user_message': 'DiCEの実行中にエラーが発生しました。システム管理者に連絡してください。'
         }
+
+    def _get_no_data_hourly_schedule(self, reason: str, details: dict = None) -> dict:
+        """データが不足している場合の時間別スケジュール"""
+        result = {
+            'type': 'no_data',
+            'status': 'no_data',
+            'reason': reason,
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'hourly_schedule': [],
+            'total_improvement': 0,
+            'message': 'データが不足しています',
+            'confidence': 0.1,
+            'summary': 'データが不足しているため、詳細な提案を生成できませんでした',
+            'user_message': 'データが不足しているため、DiCEによる改善提案を生成できませんでした。'
+        }
+        if details:
+            result['details'] = details
+        return result
+
+    def _get_no_solution_hourly_schedule(self, reason: str, details: dict = None) -> dict:
+        """改善提案が見つからない場合の時間別スケジュール（データはあるが解なし）"""
+        result = {
+            'type': 'no_solution',
+            'status': 'no_solution',
+            'reason': reason,
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'hourly_schedule': [],
+            'total_improvement': 0,
+            'message': '改善提案を生成できませんでした',
+            'confidence': 0.3,
+            'summary': 'データを分析しましたが、現時点では大きな改善提案を生成できませんでした',
+            'user_message': 'データを分析しましたが、現時点では大きな改善提案を生成できませんでした。'
+        }
+        if details:
+            result['details'] = details
+        return result
+
+    def _get_fallback_hourly_schedule(self) -> dict:
+        """フォールバック用の時間別スケジュール（後方互換性のため保持）"""
+        return self._get_no_solution_hourly_schedule("詳細な提案を生成できませんでした")
