@@ -537,24 +537,27 @@ def generate_daily_dice_schedule():
         data = request.get_json()
         user_id = data.get('user_id', 'default')
         target_date = data.get('date', datetime.now().date().isoformat())
-        
+
         if isinstance(target_date, str):
             target_date = datetime.fromisoformat(target_date).date()
-        
+
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
         # その日の活動データを取得
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
-        
+
         if activity_data.empty:
             return jsonify({
                 'status': 'error',
                 'message': '活動データが見つかりません'
             }), 400
-        
+
         # 指定日のデータをフィルタリング
         activity_data['Date'] = pd.to_datetime(activity_data['Timestamp']).dt.date
         daily_activities = activity_data[activity_data['Date'] == target_date].copy()
-        
+
         if daily_activities.empty:
             return jsonify({
                 'status': 'success',
@@ -564,7 +567,7 @@ def generate_daily_dice_schedule():
                 'schedule': [],
                 'recommendations': []
             })
-        
+
         # データ前処理とモデル学習
         activity_processed = predictor.preprocess_activity_data(activity_data)
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
@@ -707,20 +710,23 @@ def generate_dice_analysis():
         user_id = data.get('user_id', 'default')
         target_timestamp = data.get('timestamp')
         lookback_hours = data.get('lookback_hours', 24)
-        
+
         if target_timestamp:
             target_timestamp = datetime.fromisoformat(target_timestamp)
-        
+
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
         # データ取得
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
-        
+
         if activity_data.empty:
             return jsonify({
                 'status': 'error',
                 'message': '活動データが見つかりません'
             }), 400
-        
+
         # データ前処理
         activity_processed = predictor.preprocess_activity_data(activity_data)
         if activity_processed.empty:
@@ -728,14 +734,14 @@ def generate_dice_analysis():
                 'status': 'error',
                 'message': 'データの前処理に失敗しました'
             }), 400
-        
+
         # Fitbitデータとの統合
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-        
+
         # モデル学習（必要に応じて）
         if len(df_enhanced) > 10 and predictor.model is None:
             predictor.walk_forward_validation_train(df_enhanced)
-        
+
         # DiCE分析実行
         dice_result = explainer.generate_activity_based_explanation(
             df_enhanced, predictor, target_timestamp, lookback_hours
@@ -936,22 +942,25 @@ def generate_feedback():
         data = request.get_json()
         user_id = data.get('user_id', 'default')
         feedback_type = data.get('type', 'evening')  # 'morning' or 'evening'
-        
+
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
         # DiCE結果を取得（過去24時間）
         dice_results = []
-        
+
         # 過去24時間のDiCE分析を実行
         for hours_back in range(0, 24, 6):  # 6時間おきに分析
             target_time = datetime.now() - timedelta(hours=hours_back)
-            
+
             # データ取得
             activity_data = sheets_connector.get_activity_data(user_id)
             fitbit_data = sheets_connector.get_fitbit_data(user_id)
-            
+
             if not activity_data.empty:
                 activity_processed = predictor.preprocess_activity_data(activity_data)
                 df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-                
+
                 if len(df_enhanced) > 5:
                     dice_result = explainer.generate_activity_based_explanation(
                         df_enhanced, predictor, target_time, 6
@@ -1067,6 +1076,11 @@ def get_feedback_history():
 def health_check():
     """ヘルスチェック"""
     try:
+        user_id = request.args.get('user_id', 'default')
+
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
         # 各コンポーネントの状態確認
         sheets_status = sheets_connector.test_connection()
         scheduler_status = scheduler.get_status()
@@ -1243,6 +1257,9 @@ def get_data_stats():
     try:
         user_id = request.args.get('user_id', 'default')
 
+        # ユーザーごとのpredictorを取得
+        predictor = get_predictor(user_id)
+
         # データ取得
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
@@ -1288,8 +1305,8 @@ def get_data_stats():
         # モデル統計
         model_stats = {
             'is_trained': predictor.model is not None,
-            'feature_count': len(predictor.feature_columns) if predictor.feature_columns else 0,
-            'training_history_count': len(predictor.walk_forward_history) if predictor.walk_forward_history else 0
+            'feature_count': len(predictor.feature_columns) if hasattr(predictor, 'feature_columns') and predictor.feature_columns else 0,
+            'training_history_count': len(predictor.walk_forward_history) if hasattr(predictor, 'walk_forward_history') and predictor.walk_forward_history else 0
         }
 
         # 日付範囲
@@ -1654,7 +1671,7 @@ def get_tablet_data(user_id):
         dice_data = {}
         try:
             with app.test_request_context(json={'user_id': user_id}):
-                dice_response = get_dice_analysis()
+                dice_response = generate_dice_analysis()
                 if hasattr(dice_response, 'get_json'):
                     dice_result = dice_response.get_json()
                     if dice_result and dice_result.get('status') == 'success':
