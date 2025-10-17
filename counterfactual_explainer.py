@@ -182,13 +182,25 @@ class ActivityCounterfactualExplainer:
             X_train = df_train[predictor.feature_columns].copy()
             y_train = df_train['NASA_F_scaled']
 
-            # DiCEがカテゴリカルとして扱わないよう、活動列と曜日列をint型に変換
+            # 活動カテゴリ列のみを変更可能にする
             activity_cols = [col for col in predictor.feature_columns if col.startswith('activity_')]
             weekday_cols = [col for col in predictor.feature_columns if col.startswith('weekday_')]
 
+            # デバッグ: features_to_varyの内容を確認
+            logger.warning(f"🔧 DiCE: predictor.feature_columns数 = {len(predictor.feature_columns)}")
+            logger.warning(f"🔧 DiCE: activity_cols（変更可能な列）数 = {len(activity_cols)}")
+
+            if len(activity_cols) == 0:
+                logger.error("DiCE: activity_colsが空です！活動カテゴリ列が見つかりません")
+                return None
+
+            # DiCEがカテゴリカルとして扱わないよう、活動列と曜日列をint型に変換
+            # これはdice_dataを作成する前に行う必要がある！
             for col in activity_cols + weekday_cols:
                 if col in X_train.columns:
                     X_train[col] = X_train[col].astype(int)
+
+            logger.warning(f"🔧 DiCE: X_trainの活動列と曜日列をint型に変換しました")
 
             # query_featuresも同じように変換
             query_features = query_features.copy()
@@ -196,29 +208,19 @@ class ActivityCounterfactualExplainer:
                 if col in query_features.columns:
                     query_features[col] = query_features[col].astype(int)
 
-            logger.warning(f"🔧 DiCE: 活動列と曜日列をint型に変換しました")
+            logger.warning(f"🔧 DiCE: query_featuresの活動列と曜日列をint型に変換しました")
 
-            # DiCEデータオブジェクトを作成
-            # 活動カテゴリ列のみを変更可能にする
+            # DiCEデータオブジェクトを作成（変換後のX_trainを使用）
+            dice_data = pd.concat([X_train, y_train], axis=1)
 
             # webhooktest.py形式: 生体情報と時間特徴量をcontinuousに指定
-            # 曜日はcategoricalとして扱う（continuous_featuresに含めない）
             continuous_features = ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
 
-            # デバッグ: features_to_varyの内容を確認
-            logger.warning(f"🔧 DiCE: predictor.feature_columns数 = {len(predictor.feature_columns)}")
-            logger.warning(f"🔧 DiCE: activity_cols（変更可能な列）数 = {len(activity_cols)}")
-            logger.warning(f"🔧 DiCE: continuous_features（固定列） = {continuous_features}")
+            logger.warning(f"🔧 DiCE: continuous_features = {continuous_features}")
             if len(activity_cols) <= 10:
                 logger.warning(f"🔧 DiCE: activity_cols（全て） = {activity_cols}")
             else:
                 logger.warning(f"🔧 DiCE: activity_cols数が多いため、最初の10個のみ表示 = {activity_cols[:10]}")
-
-            if len(activity_cols) == 0:
-                logger.error("DiCE: activity_colsが空です！活動カテゴリ列が見つかりません")
-                return None
-
-            dice_data = pd.concat([X_train, y_train], axis=1)
             d = dice_ml.Data(
                 dataframe=dice_data,
                 continuous_features=continuous_features,
