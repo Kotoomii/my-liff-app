@@ -748,9 +748,15 @@ def generate_dice_analysis():
         # Fitbitデータとの統合
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
 
-        # モデル学習（必要に応じて）
-        if len(df_enhanced) > 10 and predictor.model is None:
-            predictor.walk_forward_validation_train(df_enhanced)
+        # モデルが訓練されていることを確認（DiCE実行前に必須）
+        training_result = ensure_model_trained(user_id)
+        if training_result.get('status') not in ['success', 'already_trained']:
+            return jsonify({
+                'status': 'error',
+                'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
+                'user_id': user_id,
+                'training_result': training_result
+            }), 400
 
         # DiCE分析実行
         dice_result = explainer.generate_activity_based_explanation(
