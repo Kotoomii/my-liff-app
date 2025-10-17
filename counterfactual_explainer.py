@@ -236,12 +236,30 @@ class ActivityCounterfactualExplainer:
 
             logger.info(f"DiCE実行: 現在F値(予測値)={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲={desired_range} (F値{improvement_low*20:.1f}-{improvement_high*20:.1f}に相当)")
 
+            # 生体情報と時間特徴を固定するためのpermitted_range設定
+            # features_to_varyで指定されていない列は、元の値から変更されないように制約
+            permitted_range = {}
+            for col in continuous_features:
+                if col in query_features.columns:
+                    val = query_features[col].iloc[0]
+                    # 生体情報と時間は現在値±0.001の範囲に固定（実質変更不可）
+                    permitted_range[col] = [val - 0.001, val + 0.001]
+
+            # 曜日も固定
+            weekday_cols = [col for col in query_features.columns if col.startswith('weekday_')]
+            for col in weekday_cols:
+                val = query_features[col].iloc[0]
+                permitted_range[col] = [val, val]  # 完全固定
+
+            logger.warning(f"🔧 DiCE: permitted_range設定 = 生体情報と時間を固定")
+
             # DiCEで反実仮想例を生成（既に定義したquery_featuresを使用）
             dice_exp = exp.generate_counterfactuals(
                 query_instances=query_features,
                 total_CFs=5,
                 desired_range=desired_range,  # 動的範囲: 現在値から20-40%改善を目標
-                features_to_vary=activity_cols  # 活動カテゴリのみ変更
+                features_to_vary=activity_cols,  # 活動カテゴリのみ変更
+                permitted_range=permitted_range  # 生体情報・時間を固定
             )
 
             # 結果を取得
