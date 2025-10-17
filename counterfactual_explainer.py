@@ -77,12 +77,18 @@ class ActivityCounterfactualExplainer:
         DiCEを使用して反実仮想例を生成 (webhooktest.py形式のシンプルな実装)
         """
         try:
-            # 現在のフラストレーション値
-            current_frustration_scaled = activity.get('NASA_F_scaled')
-            if pd.isna(current_frustration_scaled):
-                logger.warning("NASA_F_scaledがNaNです")
+            # 現在の活動のフラストレーション値をモデルで予測
+            # クエリインスタンスを準備
+            query_features = df_enhanced.iloc[[activity_idx]][predictor.feature_columns]
+
+            # モデルで予測（スケーリング後の値: 0-1）
+            current_frustration_scaled = predictor.model.predict(query_features)[0]
+
+            if np.isnan(current_frustration_scaled) or np.isinf(current_frustration_scaled):
+                logger.warning(f"予測値が不正です (NaN/Inf): {current_frustration_scaled}")
                 return None
 
+            # スケール戻し（0-1 → 1-20）
             current_frustration = current_frustration_scaled * 20.0
 
             # 訓練データを準備: NaN値を除外
@@ -119,18 +125,15 @@ class ActivityCounterfactualExplainer:
             # DiCE Explainerを作成
             exp = Dice(d, m)
 
-            # クエリインスタンスを準備
-            query_instance = df_enhanced.iloc[[activity_idx]][predictor.feature_columns]
-
             # F値は1-20の範囲 → スケーリング後は0.05-1.0
             # desired_range=[0.05, 0.25]は固定値（F値1-5に相当する範囲）
             # この範囲にフラストレーション値が改善されるような活動を提案
 
-            logger.info(f"DiCE実行: 現在F値={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲=[0.05, 0.25] (F値1-5に相当)")
+            logger.info(f"DiCE実行: 現在F値(予測値)={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲=[0.05, 0.25] (F値1-5に相当)")
 
-            # DiCEで反実仮想例を生成
+            # DiCEで反実仮想例を生成（既に定義したquery_featuresを使用）
             dice_exp = exp.generate_counterfactuals(
-                query_instances=query_instance,
+                query_instances=query_features,
                 total_CFs=5,
                 desired_range=[0.05, 0.25],  # 固定範囲: F値1-5を目標
                 features_to_vary=activity_cols  # 活動カテゴリのみ変更
