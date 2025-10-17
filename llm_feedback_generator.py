@@ -1,6 +1,7 @@
 """
 LLMによる自然言語フィードバック生成機能
 過去24時間のDiCE結果を考慮して自然言語でフィードバックを生成
+Google Cloud Secret Managerを使用してAPIキーを安全に管理
 """
 
 import pandas as pd
@@ -19,8 +20,55 @@ logger = logging.getLogger(__name__)
 class LLMFeedbackGenerator:
     def __init__(self):
         self.config = Config()
-        self.llm_api_key = os.environ.get('OPENAI_API_KEY', '')
+        self.llm_api_key = self._get_api_key_from_secret_manager()
         self.llm_api_base = "https://api.openai.com/v1"
+
+    def _get_api_key_from_secret_manager(self) -> str:
+        """
+        Google Cloud Secret ManagerからOpenAI APIキーを取得
+        ローカル環境では環境変数から取得
+        """
+        try:
+            # Cloud Run環境の場合はSecret Managerから取得
+            if self.config.IS_CLOUD_RUN:
+                try:
+                    from google.cloud import secretmanager
+
+                    # Secret Managerクライアントを作成
+                    client = secretmanager.SecretManagerServiceClient()
+
+                    # プロジェクトIDを環境変数から取得
+                    project_id = os.environ.get('GCP_PROJECT_ID', os.environ.get('GOOGLE_CLOUD_PROJECT', ''))
+
+                    if not project_id:
+                        logger.warning("GCP_PROJECT_IDが設定されていません。環境変数からAPIキーを取得します。")
+                        return os.environ.get('OPENAI_API_KEY', '')
+
+                    # Secret名
+                    secret_name = f"projects/{project_id}/secrets/openai-api-key/versions/latest"
+
+                    # Secretを取得
+                    response = client.access_secret_version(request={"name": secret_name})
+                    api_key = response.payload.data.decode('UTF-8')
+
+                    logger.info("✅ OpenAI APIキーをSecret Managerから取得しました")
+                    return api_key
+
+                except Exception as e:
+                    logger.warning(f"Secret Manager取得エラー: {e}。環境変数から取得を試みます。")
+                    return os.environ.get('OPENAI_API_KEY', '')
+            else:
+                # ローカル環境では環境変数から取得
+                api_key = os.environ.get('OPENAI_API_KEY', '')
+                if api_key:
+                    logger.info("✅ OpenAI APIキーを環境変数から取得しました")
+                else:
+                    logger.warning("⚠️ OPENAI_API_KEY環境変数が設定されていません")
+                return api_key
+
+        except Exception as e:
+            logger.error(f"APIキー取得エラー: {e}")
+            return ''
         
     def generate_comprehensive_feedback(self, 
                                       dice_results: List[Dict],
@@ -513,5 +561,299 @@ class LLMFeedbackGenerator:
             'main_feedback': "今日もお疲れさまでした。ゆっくり休んで、明日に備えてください。",
             'achievements': ["今日も一日お疲れさまでした"],
             'tomorrow_recommendations': ["明日も健康的な一日を過ごしてください"],
+            'confidence': 0.3
+        }
+
+    def generate_daily_dice_feedback(self,
+                                    daily_dice_result: Dict,
+                                    timeline_data: List[Dict] = None) -> Dict:
+        """
+        1日の終わりにDiCE結果に基づいた日次フィードバックを生成
+        タイムライン全体を考慮した包括的なアドバイスを提供
+
+        Args:
+            daily_dice_result: 1日分のDiCE分析結果
+            timeline_data: 1日のタイムラインデータ（オプション）
+
+        Returns:
+            日次フィードバック辞書
+        """
+        try:
+            if not daily_dice_result:
+                return self._get_fallback_daily_feedback()
+
+            # DiCE結果から重要な情報を抽出
+            hourly_schedule = daily_dice_result.get('hourly_schedule', [])
+            total_improvement = daily_dice_result.get('total_improvement', 0)
+            date = daily_dice_result.get('date', datetime.now().strftime('%Y-%m-%d'))
+
+            # タイムラインデータから統計情報を計算
+            timeline_stats = self._analyze_timeline_data(timeline_data) if timeline_data else {}
+
+            # プロンプトを構築
+            prompt = self._build_daily_dice_feedback_prompt(
+                hourly_schedule,
+                total_improvement,
+                date,
+                timeline_stats
+            )
+
+            # LLMでフィードバック生成
+            if self.llm_api_key:
+                feedback_content = self._generate_with_llm(prompt)
+            else:
+                feedback_content = self._generate_rule_based_daily_feedback(
+                    hourly_schedule,
+                    total_improvement,
+                    timeline_stats
+                )
+
+            # 明日へのアクションプランを生成
+            action_plan = self._generate_tomorrow_action_plan(hourly_schedule, timeline_stats)
+
+            return {
+                'type': 'daily_dice_feedback',
+                'date': date,
+                'generated_at': datetime.now().isoformat(),
+                'main_feedback': feedback_content,
+                'total_improvement_potential': total_improvement,
+                'num_suggestions': len(hourly_schedule),
+                'action_plan': action_plan,
+                'timeline_stats': timeline_stats,
+                'confidence': 0.85 if self.llm_api_key else 0.65
+            }
+
+        except Exception as e:
+            logger.error(f"日次DiCEフィードバック生成エラー: {e}")
+            return self._get_fallback_daily_feedback()
+
+    def _analyze_timeline_data(self, timeline_data: List[Dict]) -> Dict:
+        """
+        タイムラインデータを分析して統計情報を生成
+        """
+        try:
+            if not timeline_data:
+                return {}
+
+            frustration_values = [item.get('frustration_value', 10) for item in timeline_data]
+            activities = [item.get('activity', '不明') for item in timeline_data]
+
+            # 活動別の平均フラストレーション値
+            activity_frustration = {}
+            for item in timeline_data:
+                activity = item.get('activity', '不明')
+                frustration = item.get('frustration_value', 10)
+                if activity not in activity_frustration:
+                    activity_frustration[activity] = []
+                activity_frustration[activity].append(frustration)
+
+            # 平均値を計算
+            activity_avg = {
+                activity: sum(values) / len(values)
+                for activity, values in activity_frustration.items()
+            }
+
+            # 最もストレスが高かった活動と低かった活動
+            sorted_activities = sorted(activity_avg.items(), key=lambda x: x[1], reverse=True)
+
+            return {
+                'avg_frustration': sum(frustration_values) / len(frustration_values) if frustration_values else 10,
+                'min_frustration': min(frustration_values) if frustration_values else 0,
+                'max_frustration': max(frustration_values) if frustration_values else 20,
+                'total_activities': len(timeline_data),
+                'highest_stress_activity': sorted_activities[0] if sorted_activities else ('不明', 10),
+                'lowest_stress_activity': sorted_activities[-1] if sorted_activities else ('不明', 10),
+                'activity_distribution': activity_avg
+            }
+
+        except Exception as e:
+            logger.error(f"タイムラインデータ分析エラー: {e}")
+            return {}
+
+    def _build_daily_dice_feedback_prompt(self,
+                                         hourly_schedule: List[Dict],
+                                         total_improvement: float,
+                                         date: str,
+                                         timeline_stats: Dict) -> str:
+        """
+        日次DiCEフィードバック用のプロンプトを構築
+        """
+        try:
+            # 改善提案をテキスト化
+            suggestions_text = []
+            for suggestion in hourly_schedule[:5]:  # 上位5件
+                time_range = suggestion.get('time_range', '不明')
+                original = suggestion.get('original_activity', '不明')
+                suggested = suggestion.get('suggested_activity', '不明')
+                improvement = suggestion.get('improvement', 0)
+
+                suggestions_text.append(
+                    f"- {time_range}: 「{original}」→「{suggested}」(改善: {improvement:.1f}点)"
+                )
+
+            # タイムライン統計
+            avg_frustration = timeline_stats.get('avg_frustration', 10)
+            highest_stress = timeline_stats.get('highest_stress_activity', ('不明', 10))
+            lowest_stress = timeline_stats.get('lowest_stress_activity', ('不明', 10))
+
+            prompt = f"""
+あなたはストレス管理の専門家です。今日1日の活動データとDiCE分析結果をもとに、ユーザーに寄り添った温かみのあるフィードバックを生成してください。
+
+## 今日の日付
+{date}
+
+## 今日の統計
+- 平均フラストレーション値: {avg_frustration:.1f}点 (1-20スケール)
+- 最大: {timeline_stats.get('max_frustration', 20):.1f}点、最小: {timeline_stats.get('min_frustration', 0):.1f}点
+- 活動数: {timeline_stats.get('total_activities', 0)}件
+- 最もストレスが高かった活動: {highest_stress[0]} ({highest_stress[1]:.1f}点)
+- 最もリラックスできた活動: {lowest_stress[0]} ({lowest_stress[1]:.1f}点)
+
+## DiCE分析による改善提案
+総改善ポテンシャル: {total_improvement:.1f}点
+提案数: {len(hourly_schedule)}件
+
+### 主な改善提案
+{chr(10).join(suggestions_text[:5]) if suggestions_text else '改善提案なし'}
+
+## フィードバック生成の指針
+1. **今日1日の振り返り**から始めてください（ポジティブな点を強調）
+2. **数値を自然に織り交ぜて**具体性を持たせてください
+3. **DiCE提案を実践的なアドバイス**に変換してください
+4. **明日への行動提案**を3つ程度含めてください
+5. **励ましと前向きなメッセージ**で締めくくってください
+
+フィードバックは300-400文字程度で、4-5つのパラグラフに分けて生成してください。
+親しみやすく、実践しやすい言葉遣いで書いてください。
+"""
+
+            return prompt
+
+        except Exception as e:
+            logger.error(f"日次DiCEプロンプト構築エラー: {e}")
+            return "今日もお疲れさまでした。明日はより良い一日になりますように。"
+
+    def _generate_rule_based_daily_feedback(self,
+                                           hourly_schedule: List[Dict],
+                                           total_improvement: float,
+                                           timeline_stats: Dict) -> str:
+        """
+        ルールベースで日次フィードバックを生成
+        """
+        try:
+            feedback_parts = []
+
+            # 挨拶と今日の振り返り
+            avg_frustration = timeline_stats.get('avg_frustration', 10)
+
+            feedback_parts.append("今日もお疲れさまでした！")
+
+            # 全体的な評価
+            if avg_frustration <= 8:
+                feedback_parts.append(
+                    f"今日は全体的にリラックスして過ごせた一日でしたね。"
+                    f"平均フラストレーション値は{avg_frustration:.1f}点と良好でした。"
+                )
+            elif avg_frustration <= 13:
+                feedback_parts.append(
+                    f"今日はバランスの取れた一日でした。"
+                    f"平均フラストレーション値は{avg_frustration:.1f}点でした。"
+                )
+            else:
+                feedback_parts.append(
+                    f"今日は少しお疲れの様子ですね。"
+                    f"平均フラストレーション値は{avg_frustration:.1f}点と高めでした。"
+                )
+
+            # DiCE提案に基づくアドバイス
+            if total_improvement > 10 and hourly_schedule:
+                num_suggestions = len(hourly_schedule)
+                feedback_parts.append(
+                    f"分析の結果、{num_suggestions}個の改善機会が見つかり、"
+                    f"合計{total_improvement:.1f}点のストレス軽減が期待できそうです。"
+                )
+
+                # 具体的な提案（上位2件）
+                top_suggestions = sorted(hourly_schedule, key=lambda x: x.get('improvement', 0), reverse=True)[:2]
+                if top_suggestions:
+                    first_suggestion = top_suggestions[0]
+                    time_range = first_suggestion.get('time_range', '不明')
+                    suggested = first_suggestion.get('suggested_activity', '不明')
+
+                    feedback_parts.append(
+                        f"特に{time_range}の時間帯に「{suggested}」を取り入れると、"
+                        f"ストレスがさらに軽減できるかもしれません。"
+                    )
+            else:
+                feedback_parts.append("今日の行動パターンは良好です。このペースを維持していきましょう。")
+
+            # 明日へのメッセージ
+            highest_stress = timeline_stats.get('highest_stress_activity', ('不明', 10))
+            if highest_stress[1] > 15:
+                feedback_parts.append(
+                    f"「{highest_stress[0]}」の際はストレスが高めでした。"
+                    f"明日は休憩を増やすか、リラックスできる工夫を試してみてください。"
+                )
+
+            feedback_parts.append("明日も無理せず、自分のペースで過ごしてくださいね。")
+
+            return " ".join(feedback_parts)
+
+        except Exception as e:
+            logger.error(f"ルールベース日次フィードバック生成エラー: {e}")
+            return "今日もお疲れさまでした。ゆっくり休んで、明日に備えてください。"
+
+    def _generate_tomorrow_action_plan(self,
+                                      hourly_schedule: List[Dict],
+                                      timeline_stats: Dict) -> List[str]:
+        """
+        明日のアクションプランを生成
+        """
+        try:
+            action_plan = []
+
+            # 改善効果が高い上位3件の提案を抽出
+            top_suggestions = sorted(
+                hourly_schedule,
+                key=lambda x: x.get('improvement', 0),
+                reverse=True
+            )[:3]
+
+            for suggestion in top_suggestions:
+                time_range = suggestion.get('time_range', '不明')
+                suggested = suggestion.get('suggested_activity', '不明')
+                improvement = suggestion.get('improvement', 0)
+
+                if improvement > 2:  # 2点以上の改善効果がある場合のみ
+                    action_plan.append(
+                        f"{time_range}頃に「{suggested}」を試してみる (期待効果: {improvement:.1f}点)"
+                    )
+
+            # 一般的なアドバイスを追加
+            highest_stress = timeline_stats.get('highest_stress_activity', ('不明', 10))
+            if highest_stress[1] > 15:
+                action_plan.append(f"「{highest_stress[0]}」の前後に休憩時間を設ける")
+
+            if not action_plan:
+                action_plan.append("現在の良好な生活リズムを維持する")
+                action_plan.append("定期的な休憩とリラックスタイムを確保する")
+
+            return action_plan
+
+        except Exception as e:
+            logger.error(f"明日のアクションプラン生成エラー: {e}")
+            return ["十分な睡眠と休息を取る", "無理のないペースで活動する"]
+
+    def _get_fallback_daily_feedback(self) -> Dict:
+        """フォールバック用日次フィードバック"""
+        return {
+            'type': 'daily_dice_feedback',
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'generated_at': datetime.now().isoformat(),
+            'main_feedback': "今日もお疲れさまでした。ゆっくり休んで、明日も健康的な一日を過ごしてください。",
+            'total_improvement_potential': 0,
+            'num_suggestions': 0,
+            'action_plan': ["十分な休息を取る", "明日も無理をしない"],
+            'timeline_stats': {},
             'confidence': 0.3
         }

@@ -81,11 +81,32 @@ class ActivityCounterfactualExplainer:
             # クエリインスタンスを準備
             query_features = df_enhanced.iloc[[activity_idx]][predictor.feature_columns]
 
+            # デバッグ: query_featuresの内容を確認
+            logger.info(f"DiCE query_features shape: {query_features.shape}")
+            logger.info(f"DiCE query_features columns: {query_features.columns.tolist()}")
+
+            # 重要な生体情報カラムのNaNチェック
+            critical_cols = ['SDNN_scaled', 'Lorenz_Area_scaled']
+            for col in critical_cols:
+                if col in query_features.columns:
+                    val = query_features[col].iloc[0]
+                    if pd.isna(val):
+                        logger.warning(f"DiCE: {col}がNaNです。履歴データの平均値で補完します")
+                        # 履歴データの平均値で補完
+                        mean_val = df_enhanced[col].dropna().mean()
+                        if pd.notna(mean_val):
+                            query_features.loc[query_features.index[0], col] = mean_val
+                            logger.info(f"DiCE: {col}を平均値 {mean_val:.4f} で補完しました")
+                        else:
+                            logger.error(f"DiCE: {col}の平均値も計算できません")
+                            return None
+
             # モデルで予測（スケーリング後の値: 0-1）
             current_frustration_scaled = predictor.model.predict(query_features)[0]
 
             if np.isnan(current_frustration_scaled) or np.isinf(current_frustration_scaled):
                 logger.warning(f"予測値が不正です (NaN/Inf): {current_frustration_scaled}")
+                logger.warning(f"query_features値: {query_features.iloc[0].to_dict()}")
                 return None
 
             # スケール戻し（0-1 → 1-20）

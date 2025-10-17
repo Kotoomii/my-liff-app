@@ -82,7 +82,8 @@ class Config:
         return list(cls.USER_CONFIGURATIONS.values())
     
     # 機械学習モデル設定
-    MODEL_TYPE = 'RandomForest'
+    # MODEL_TYPE: 'RandomForest' または 'Linear' を指定
+    MODEL_TYPE = 'Linear'  # 'RandomForest' か 'Linear' に変更可能
     N_ESTIMATORS = 100
     MAX_DEPTH = 10
     RANDOM_STATE = 42

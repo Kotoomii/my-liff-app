@@ -8,6 +8,7 @@ import numpy as np
 import logging
 from datetime import datetime, timedelta
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import joblib
@@ -35,6 +36,22 @@ class FrustrationPredictor:
         self.target_variable = 'NASA_F_scaled'
         self.config = Config()
         self.activity_columns = []  # 活動カテゴリのOne-Hot列名
+
+    def _create_model(self):
+        """
+        config.MODEL_TYPEに基づいてモデルを作成
+        """
+        if self.config.MODEL_TYPE == 'Linear':
+            logger.info("LinearRegressionモデルを使用します")
+            return LinearRegression(n_jobs=-1)
+        else:  # デフォルトはRandomForest
+            logger.info("RandomForestRegressorモデルを使用します")
+            return RandomForestRegressor(
+                n_estimators=self.config.N_ESTIMATORS,
+                max_depth=self.config.MAX_DEPTH,
+                random_state=self.config.RANDOM_STATE,
+                n_jobs=-1
+            )
 
     def preprocess_activity_data(self, activity_data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -250,13 +267,8 @@ class FrustrationPredictor:
             # 訓練/テストデータに分割
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=self.config.RANDOM_STATE)
 
-            # RandomForestモデルを訓練
-            self.model = RandomForestRegressor(
-                n_estimators=100,
-                max_depth=10,
-                random_state=self.config.RANDOM_STATE,
-                n_jobs=-1
-            )
+            # モデルを作成して訓練
+            self.model = self._create_model()
             self.model.fit(X_train, y_train)
 
             # 評価
@@ -277,8 +289,15 @@ class FrustrationPredictor:
                 'test_samples': len(X_test),
                 'feature_count': len(self.feature_columns),
                 'data_quality': data_quality,
-                'feature_importance': dict(zip(self.feature_columns, self.model.feature_importances_))
+                'model_type': self.config.MODEL_TYPE
             }
+
+            # feature_importanceはRandomForestのみ
+            if hasattr(self.model, 'feature_importances_'):
+                results['feature_importance'] = dict(zip(self.feature_columns, self.model.feature_importances_))
+            elif hasattr(self.model, 'coef_'):
+                # LinearRegressionの場合は係数を記録
+                results['feature_coefficients'] = dict(zip(self.feature_columns, self.model.coef_))
 
             if self.config.LOG_MODEL_TRAINING:
                 logger.info(f"モデル訓練完了 - Train RMSE: {train_rmse:.4f}, Test RMSE: {test_rmse:.4f}, Train R²: {train_r2:.3f}, Test R²: {test_r2:.3f}")
@@ -335,12 +354,7 @@ class FrustrationPredictor:
                 y_train = train_data['NASA_F_scaled']
 
                 # モデル訓練
-                model = RandomForestRegressor(
-                    n_estimators=100,
-                    max_depth=10,
-                    random_state=self.config.RANDOM_STATE,
-                    n_jobs=-1
-                )
+                model = self._create_model()
                 model.fit(X_train, y_train)
 
                 # 現在(i番目)のデータで予測
@@ -360,12 +374,7 @@ class FrustrationPredictor:
             X_all = df_clean[self.feature_columns]
             y_all = df_clean['NASA_F_scaled']
 
-            self.model = RandomForestRegressor(
-                n_estimators=100,
-                max_depth=10,
-                random_state=self.config.RANDOM_STATE,
-                n_jobs=-1
-            )
+            self.model = self._create_model()
             self.model.fit(X_all, y_all)
 
             # 評価メトリクス
@@ -388,13 +397,20 @@ class FrustrationPredictor:
                 'training_samples': len(df_clean),
                 'feature_count': len(self.feature_columns),
                 'data_quality': data_quality,
-                'feature_importance': dict(zip(self.feature_columns, self.model.feature_importances_)),
+                'model_type': self.config.MODEL_TYPE,
                 'prediction_diversity': {
                     'std': float(prediction_std),
                     'unique_values': int(prediction_unique),
                     'is_diverse': prediction_std > 0.05 and prediction_unique > 3
                 }
             }
+
+            # feature_importanceはRandomForestのみ
+            if hasattr(self.model, 'feature_importances_'):
+                results['feature_importance'] = dict(zip(self.feature_columns, self.model.feature_importances_))
+            elif hasattr(self.model, 'coef_'):
+                # LinearRegressionの場合は係数を記録
+                results['feature_coefficients'] = dict(zip(self.feature_columns, self.model.coef_))
 
             if self.config.LOG_MODEL_TRAINING:
                 logger.info(f"Walk Forward Validation完了 - RMSE: {rmse:.4f}, MAE: {mae:.4f}, R²: {r2:.3f}, 予測数: {len(predictions)}")
