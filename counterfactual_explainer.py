@@ -251,6 +251,15 @@ class ActivityCounterfactualExplainer:
                 logger.warning("DiCEが反実仮想例を生成できませんでした")
                 return None
 
+            # デバッグ: cf_dfの列を確認
+            logger.warning(f"🔍 DiCE cf_df の列: {cf_df.columns.tolist()}")
+            logger.warning(f"🔍 DiCE cf_df の行数: {len(cf_df)}")
+            if 'NASA_F_scaled' in cf_df.columns:
+                logger.warning(f"✅ NASA_F_scaled列が存在します: {cf_df['NASA_F_scaled'].tolist()}")
+            else:
+                logger.warning(f"❌ NASA_F_scaled列が存在しません！")
+                logger.warning(f"   利用可能な列: {[c for c in cf_df.columns if not c.startswith('activity_')][:10]}")
+
             # 元の活動カテゴリを特定
             original_activity_name = activity.get('CatSub', 'unknown')
 
