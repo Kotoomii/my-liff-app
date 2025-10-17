@@ -468,24 +468,35 @@ def predict_activity_frustration():
         predicted_frustration = prediction_result['predicted_frustration']
         confidence = prediction_result['confidence']
 
+        # NaN/Infバリデーション
+        import numpy as np
+        if np.isnan(predicted_frustration) or np.isinf(predicted_frustration):
+            return jsonify({
+                'status': 'error',
+                'message': '予測値の計算に失敗しました (NaN/Inf)',
+                'user_id': user_id,
+                'activity': activity_category,
+                'data_quality': data_quality
+            }), 400
+
         # データ品質に基づいて信頼度を調整
         if not data_quality['is_sufficient']:
             confidence = min(confidence, 0.3)  # データ不足時は信頼度を下げる
         elif data_quality['quality_level'] == 'minimal':
             confidence = min(confidence, 0.5)
-        
+
         # 予測結果をスプレッドシートに記録
         prediction_data = {
             'timestamp': timestamp.isoformat(),
             'user_id': user_id,
             'activity': activity_category,
             'duration': duration,
-            'predicted_frustration': predicted_frustration,
-            'confidence': confidence,
+            'predicted_frustration': float(predicted_frustration),  # 明示的にfloat変換
+            'confidence': float(confidence),  # 明示的にfloat変換
             'source': 'manual_api',  # 手動API予測であることを明記
             'notes': f'Subcategory: {activity_subcategory}'
         }
-        
+
         # 手動予測の場合のみスプレッドシートに保存（自動監視との重複を避けるため）
         # データ監視ループによる自動予測結果は data_monitor_loop で保存される
         try:
@@ -495,15 +506,15 @@ def predict_activity_frustration():
         except Exception as save_error:
             logger.error(f"予測結果保存エラー: {save_error}")
             # 保存エラーがあってもAPIレスポンスには影響しない
-        
+
         response = {
             'status': 'success',
             'user_id': user_id,
-            'predicted_frustration': round(predicted_frustration, 2),
+            'predicted_frustration': round(float(predicted_frustration), 2),
             'activity': activity_category,
             'subcategory': activity_subcategory,
             'duration': duration,
-            'confidence': round(confidence, 3),
+            'confidence': round(float(confidence), 3),
             'timestamp': timestamp.isoformat(),
             'logged_to_sheets': True,
             'data_quality': data_quality
@@ -1910,24 +1921,33 @@ def data_monitor_loop():
 
                         # 予測結果をスプレッドシートに保存（重複チェック付き）
                         activity_timestamp = latest_activity.get('Timestamp')
+                        predicted_frust = prediction_result.get('predicted_frustration', 0)
+                        predicted_conf = prediction_result.get('confidence', 0)
+
+                        # NaN/Infバリデーション
+                        import numpy as np
+                        if np.isnan(predicted_frust) or np.isinf(predicted_frust):
+                            logger.warning(f"予測値が不正です (NaN/Inf) - ユーザー: {user_name}, 保存をスキップ")
+                            continue
+
                         prediction_data = {
                             'timestamp': datetime.now().isoformat(),
                             'user_id': user_id,
                             'activity': latest_activity.get('CatSub', 'unknown'),
                             'duration': latest_activity.get('Duration', 0),
-                            'predicted_frustration': prediction_result.get('predicted_frustration', 0),
-                            'confidence': prediction_result.get('confidence', 0),
+                            'predicted_frustration': float(predicted_frust),  # 明示的にfloat変換
+                            'confidence': float(predicted_conf),  # 明示的にfloat変換
                             'actual_frustration': latest_activity.get('NASA_F', None),
                             'source': 'auto_monitoring',  # 自動監視による予測であることを明記
                             'activity_timestamp': activity_timestamp  # 重複チェック用の活動タイムスタンプ
                         }
-                        
+
                         try:
                             # 重複チェック：同じactivity_timestampの予測データが既に存在するかチェック
                             if not sheets_connector.is_prediction_duplicate(user_id, activity_timestamp):
                                 sheets_connector.save_prediction_data(prediction_data)
                                 if config.LOG_PREDICTIONS:
-                                    logger.info(f"自動予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {prediction_result.get('predicted_frustration', 0):.2f}")
+                                    logger.info(f"自動予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {predicted_frust:.2f}")
                             else:
                                 if config.ENABLE_DEBUG_LOGS:
                                     logger.debug(f"重複する予測データをスキップ: {user_name}, {latest_activity.get('CatSub', 'unknown')}")

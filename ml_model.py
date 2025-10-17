@@ -66,7 +66,7 @@ class FrustrationPredictor:
 
             # 曜日特徴量
             df['weekday_str'] = df['Timestamp'].dt.strftime('%a')
-            df = pd.get_dummies(df, columns=['weekday_str'], prefix='weekday')
+            df = pd.get_dummies(df, columns=['weekday_str'], prefix='weekday', dtype=int)  # int型に指定
 
             # NASA_Fのスケーリング (0-20 → 0-1)
             df['NASA_F_scaled'] = df['NASA_F'] / 20.0
@@ -517,21 +517,61 @@ class FrustrationPredictor:
             # 生体情報: 履歴データの平均値を使用
             if 'SDNN_scaled' in historical_data.columns:
                 sdnn_mean = historical_data['SDNN_scaled'].dropna().mean()
-                features['SDNN_scaled'] = sdnn_mean if not pd.isna(sdnn_mean) else 0.5
+                if pd.isna(sdnn_mean):
+                    logger.error("SDNN_scaledの有効なデータがありません")
+                    return {
+                        'predicted_frustration': np.nan,
+                        'confidence': 0.0,
+                        'error': 'SDNN_scaledの有効なデータがありません',
+                        'activity_category': activity_category,
+                        'duration': duration,
+                        'timestamp': current_time,
+                        'used_historical_data': False
+                    }
+                features['SDNN_scaled'] = sdnn_mean
             else:
-                features['SDNN_scaled'] = 0.5
+                logger.error("SDNN_scaled列が見つかりません")
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': 'SDNN_scaled列が見つかりません',
+                    'activity_category': activity_category,
+                    'duration': duration,
+                    'timestamp': current_time,
+                    'used_historical_data': False
+                }
 
             if 'Lorenz_Area_scaled' in historical_data.columns:
                 lorenz_mean = historical_data['Lorenz_Area_scaled'].dropna().mean()
-                features['Lorenz_Area_scaled'] = lorenz_mean if not pd.isna(lorenz_mean) else 0.5
+                if pd.isna(lorenz_mean):
+                    logger.error("Lorenz_Area_scaledの有効なデータがありません")
+                    return {
+                        'predicted_frustration': np.nan,
+                        'confidence': 0.0,
+                        'error': 'Lorenz_Area_scaledの有効なデータがありません',
+                        'activity_category': activity_category,
+                        'duration': duration,
+                        'timestamp': current_time,
+                        'used_historical_data': False
+                    }
+                features['Lorenz_Area_scaled'] = lorenz_mean
             else:
-                features['Lorenz_Area_scaled'] = 0.5
+                logger.error("Lorenz_Area_scaled列が見つかりません")
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': 'Lorenz_Area_scaled列が見つかりません',
+                    'activity_category': activity_category,
+                    'duration': duration,
+                    'timestamp': current_time,
+                    'used_historical_data': False
+                }
 
             # DataFrameに変換
             feature_df = pd.DataFrame([features])
             for col in self.feature_columns:
                 if col not in feature_df.columns:
-                    feature_df[col] = 0.0
+                    feature_df[col] = 0
             feature_df = feature_df[self.feature_columns]
 
             # 予測実行 (0-1スケール)
@@ -539,6 +579,19 @@ class FrustrationPredictor:
 
             # 元のスケール (0-20) に戻す
             prediction = prediction_scaled * 20.0
+
+            # NaN/Infのバリデーション
+            if np.isnan(prediction) or np.isinf(prediction):
+                logger.error(f"予測値が不正です (NaN/Inf): {prediction}")
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': '予測値の計算に失敗しました',
+                    'activity_category': activity_category,
+                    'duration': duration,
+                    'timestamp': current_time,
+                    'used_historical_data': True
+                }
 
             return {
                 'predicted_frustration': float(prediction),
@@ -571,7 +624,7 @@ class FrustrationPredictor:
 
         except Exception as e:
             logger.error(f"信頼度計算エラー: {e}")
-            return 0.5
+            return 0.0
 
     def save_model(self, filepath: str):
         """モデルを保存"""
