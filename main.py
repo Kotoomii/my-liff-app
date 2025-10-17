@@ -461,6 +461,7 @@ def predict_activity_frustration():
 
         # モデルが訓練されていない場合は自動訓練
         if predictor.model is None:
+            logger.warning(f"🔍 predictor.model is None - 訓練チェックに入ります")
             if len(df_enhanced) >= 10:
                 logger.warning(f"⚠️ モデル未訓練: user_id={user_id}, 自動訓練を開始します")
                 training_result = ensure_model_trained(user_id)
@@ -493,6 +494,9 @@ def predict_activity_frustration():
                         'recommendations': data_quality.get('recommendations', [])
                     }
                 }), 400
+        else:
+            # モデルが既に訓練済みの場合
+            logger.warning(f"✅ モデル既訓練済み: user_id={user_id}, predictor.modelが存在します")
 
         # 新しい活動のフラストレーション値予測（履歴データを使用）
         prediction_result = predictor.predict_with_history(
