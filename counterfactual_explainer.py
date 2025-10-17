@@ -262,13 +262,10 @@ class ActivityCounterfactualExplainer:
                     # 生体情報と時間は現在値±0.001の範囲に固定（実質変更不可）
                     permitted_range[col] = [val - 0.001, val + 0.001]
 
-            # 曜日も固定
-            weekday_cols = [col for col in query_features.columns if col.startswith('weekday_')]
-            for col in weekday_cols:
-                val = query_features[col].iloc[0]
-                permitted_range[col] = [val, val]  # 完全固定
+            # 曜日はpermitted_rangeで指定せず、features_to_varyに含めないことで固定
+            # （DiCEがint型の曜日列をカテゴリカルと誤認識する問題を回避）
 
-            logger.warning(f"🔧 DiCE: permitted_range設定 = 生体情報と時間を固定")
+            logger.warning(f"🔧 DiCE: permitted_range設定 = 生体情報と時間を固定（曜日はfeatures_to_varyで固定）")
 
             # DiCEで反実仮想例を生成（既に定義したquery_featuresを使用）
             dice_exp = exp.generate_counterfactuals(
