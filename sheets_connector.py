@@ -661,6 +661,10 @@ class SheetsConnector:
         """
         予測結果をスプレッドシートに保存（ユーザー別シート）
         タイムスタンプによる重複をチェックし、既存行があれば更新、なければ追加
+
+        新構造:
+        - Timestamp, Activity, Duration, ActualFrustration, PredictedFrustration,
+          PredictionError, Confidence, Notes
         """
         try:
             if not self.gc:
@@ -677,51 +681,43 @@ class SheetsConnector:
                 worksheet = self.spreadsheet.add_worksheet(
                     title=sheet_name,
                     rows="10000",
-                    cols="10"
+                    cols="8"
                 )
-                # ヘッダー行を追加
+                # ヘッダー行を追加（新構造）
                 headers = [
-                    'Timestamp', 'UserID', 'Activity', 'Duration',
-                    'PredictedFrustration', 'Confidence', 'ActualFrustration',
-                    'PredictionError', 'ModelVersion', 'Notes'
+                    'Timestamp', 'Activity', 'Duration', 'ActualFrustration',
+                    'PredictedFrustration', 'PredictionError', 'Confidence', 'Notes'
                 ]
-                worksheet.append_row(headers)
+                worksheet.update('A1:H1', [headers])  # update()を使用して確実にA1から書き込む
                 logger.info(f"PREDICTION_DATAシートを作成しました: {sheet_name}")
 
-            # データ行を準備
+            # データ行を準備（新構造）
             predicted_frustration = prediction_data.get('predicted_frustration', 0)
             actual_frustration = prediction_data.get('actual_frustration')
 
             # 予測誤差を計算（実測値がある場合のみ）
             prediction_error = None
-            if actual_frustration is not None:
+            if actual_frustration is not None and predicted_frustration is not None:
                 prediction_error = abs(predicted_frustration - actual_frustration)
 
-            # Notes欄を拡張して重複チェックに必要な情報を含める
-            original_notes = prediction_data.get('notes', '')
-            source = prediction_data.get('source', 'unknown')
-            activity_timestamp = prediction_data.get('activity_timestamp', '')
-
-            enhanced_notes = f"Source: {source}"
-            if activity_timestamp:
-                enhanced_notes += f", ActivityTimestamp: {activity_timestamp}"
-            if original_notes:
-                enhanced_notes += f", {original_notes}"
+            # Notes欄
+            notes = prediction_data.get('notes', '')
+            source = prediction_data.get('source', 'manual')
 
             # タイムスタンプを取得
             timestamp = prediction_data.get('timestamp', datetime.now().isoformat())
 
+            # 新構造のrow_data: Timestamp, Activity, Duration, ActualFrustration,
+            #                    PredictedFrustration, PredictionError, Confidence, Notes
             row_data = [
                 timestamp,
-                prediction_data.get('user_id', 'default'),
                 prediction_data.get('activity', 'unknown'),
                 prediction_data.get('duration', 0),
+                round(actual_frustration, 2) if actual_frustration is not None else '',
                 round(predicted_frustration, 2),
-                round(prediction_data.get('confidence', 0), 3),
-                actual_frustration if actual_frustration is not None else '',
                 round(prediction_error, 2) if prediction_error is not None else '',
-                'v1.0',  # モデルバージョン
-                enhanced_notes
+                round(prediction_data.get('confidence', 0), 3),
+                f"{source}: {notes}" if notes else source
             ]
 
             # 重複チェック: 既存のデータから同じタイムスタンプを探す
@@ -737,14 +733,14 @@ class SheetsConnector:
                         break
 
                 if existing_row_index:
-                    # 既存行を更新
-                    cell_range = f'A{existing_row_index}:J{existing_row_index}'
+                    # 既存行を更新（新構造: A-H列）
+                    cell_range = f'A{existing_row_index}:H{existing_row_index}'
                     worksheet.update(cell_range, [row_data])
-                    logger.info(f"予測データを更新しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f}, 行: {existing_row_index})")
+                    logger.info(f"予測データを更新しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f}, 実測値: {actual_frustration if actual_frustration else 'N/A'}, 行: {existing_row_index})")
                 else:
                     # 新規行を追加
                     worksheet.append_row(row_data)
-                    logger.info(f"予測データを保存しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f})")
+                    logger.info(f"予測データを保存しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f}, 実測値: {actual_frustration if actual_frustration else 'N/A'})")
 
             except Exception as duplicate_check_error:
                 # 重複チェックに失敗した場合は通常の追加処理を実行
@@ -784,7 +780,7 @@ class SheetsConnector:
                     'Date', 'AvgFrustration', 'MinFrustration', 'MaxFrustration',
                     'ActivityCount', 'TotalDuration', 'UniqueActivities', 'Notes'
                 ]
-                worksheet.append_row(headers)
+                worksheet.update('A1:H1', [headers])  # update()を使用して確実にA1から書き込む
                 logger.info(f"DAILY_SUMMARYシートを作成しました: {sheet_name}")
 
             # データ行を準備
@@ -955,6 +951,83 @@ class SheetsConnector:
             logger.error(f"負荷データ取得エラー: {e}")
             return pd.DataFrame()
     
+    def recreate_prediction_sheet(self, user_id: str = "default") -> bool:
+        """
+        PREDICTION_DATAシートを削除して再作成する
+        古いシートをバックアップしてから新しい構造で作り直す
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            sheet_name = f"PREDICTION_DATA_{user_id}"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if worksheet:
+                # 既存シートを削除
+                self.spreadsheet.del_worksheet(worksheet)
+                logger.info(f"既存のPREDICTION_DATAシートを削除しました: {sheet_name}")
+
+            # 新しいシートを作成
+            new_worksheet = self.spreadsheet.add_worksheet(
+                title=sheet_name,
+                rows="10000",
+                cols="8"
+            )
+
+            # ヘッダー行を追加
+            headers = [
+                'Timestamp', 'Activity', 'Duration', 'ActualFrustration',
+                'PredictedFrustration', 'PredictionError', 'Confidence', 'Notes'
+            ]
+            new_worksheet.update('A1:H1', [headers])
+            logger.info(f"新しいPREDICTION_DATAシートを作成しました: {sheet_name}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"PREDICTION_DATAシート再作成エラー: {e}")
+            return False
+
+    def recreate_daily_summary_sheet(self, user_id: str = "default") -> bool:
+        """
+        DAILY_SUMMARYシートを削除して再作成する
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            sheet_name = f"DAILY_SUMMARY_{user_id}"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if worksheet:
+                # 既存シートを削除
+                self.spreadsheet.del_worksheet(worksheet)
+                logger.info(f"既存のDAILY_SUMMARYシートを削除しました: {sheet_name}")
+
+            # 新しいシートを作成
+            new_worksheet = self.spreadsheet.add_worksheet(
+                title=sheet_name,
+                rows="1000",
+                cols="8"
+            )
+
+            # ヘッダー行を追加
+            headers = [
+                'Date', 'AvgFrustration', 'MinFrustration', 'MaxFrustration',
+                'ActivityCount', 'TotalDuration', 'UniqueActivities', 'Notes'
+            ]
+            new_worksheet.update('A1:H1', [headers])
+            logger.info(f"新しいDAILY_SUMMARYシートを作成しました: {sheet_name}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"DAILY_SUMMARYシート再作成エラー: {e}")
+            return False
+
     def test_connection(self) -> Dict:
         """接続テスト"""
         result = {

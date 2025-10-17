@@ -2147,6 +2147,74 @@ def initialize_application():
     except Exception as e:
         logger.error(f"アプリケーション初期化エラー: {e}")
 
+@app.route('/api/sheets/recreate-prediction', methods=['POST'])
+def recreate_prediction_sheet_endpoint():
+    """
+    PREDICTION_DATAシートを再作成するAPIエンドポイント
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id', 'default')
+
+        logger.info(f"PREDICTION_DATAシート再作成リクエスト: user_id={user_id}")
+
+        # シートを再作成
+        result = sheets_connector.recreate_prediction_sheet(user_id)
+
+        if result:
+            return jsonify({
+                'status': 'success',
+                'message': f'PREDICTION_DATA_{user_id}シートを再作成しました',
+                'user_id': user_id
+            }), 200
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'シート再作成に失敗しました',
+                'user_id': user_id
+            }), 500
+
+    except Exception as e:
+        logger.error(f"PREDICTION_DATAシート再作成エラー: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/sheets/recreate-daily-summary', methods=['POST'])
+def recreate_daily_summary_sheet_endpoint():
+    """
+    DAILY_SUMMARYシートを再作成するAPIエンドポイント
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id', 'default')
+
+        logger.info(f"DAILY_SUMMARYシート再作成リクエスト: user_id={user_id}")
+
+        # シートを再作成
+        result = sheets_connector.recreate_daily_summary_sheet(user_id)
+
+        if result:
+            return jsonify({
+                'status': 'success',
+                'message': f'DAILY_SUMMARY_{user_id}シートを再作成しました',
+                'user_id': user_id
+            }), 200
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'シート再作成に失敗しました',
+                'user_id': user_id
+            }), 500
+
+    except Exception as e:
+        logger.error(f"DAILY_SUMMARYシート再作成エラー: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 def cleanup_application():
     """アプリケーション終了処理"""
     global dice_scheduler_running, data_monitor_running
