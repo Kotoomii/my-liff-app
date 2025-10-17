@@ -179,12 +179,27 @@ class ActivityCounterfactualExplainer:
                 return None
 
             # 特徴量とターゲット
-            X_train = df_train[predictor.feature_columns]
+            X_train = df_train[predictor.feature_columns].copy()
             y_train = df_train['NASA_F_scaled']
+
+            # DiCEがカテゴリカルとして扱わないよう、活動列と曜日列をint型に変換
+            activity_cols = [col for col in predictor.feature_columns if col.startswith('activity_')]
+            weekday_cols = [col for col in predictor.feature_columns if col.startswith('weekday_')]
+
+            for col in activity_cols + weekday_cols:
+                if col in X_train.columns:
+                    X_train[col] = X_train[col].astype(int)
+
+            # query_featuresも同じように変換
+            query_features = query_features.copy()
+            for col in activity_cols + weekday_cols:
+                if col in query_features.columns:
+                    query_features[col] = query_features[col].astype(int)
+
+            logger.warning(f"🔧 DiCE: 活動列と曜日列をint型に変換しました")
 
             # DiCEデータオブジェクトを作成
             # 活動カテゴリ列のみを変更可能にする
-            activity_cols = [col for col in predictor.feature_columns if col.startswith('activity_')]
 
             # webhooktest.py形式: 生体情報と時間特徴量をcontinuousに指定
             # 曜日はcategoricalとして扱う（continuous_featuresに含めない）
