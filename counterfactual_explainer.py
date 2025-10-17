@@ -26,7 +26,8 @@ class ActivityCounterfactualExplainer:
                                           target_timestamp: datetime = None,
                                           lookback_hours: int = 24) -> Dict:
         """
-        DiCEライブラリを使用した反実仮想説明生成 (webhooktest.py形式)
+        DiCEライブラリを使用した反実仮想説明生成 (1日分のデータに対して実行)
+        21:00などの定時実行を想定し、その日1日の全活動に対してDiCE提案を生成
         """
         try:
             if target_timestamp is None:
@@ -40,29 +41,45 @@ class ActivityCounterfactualExplainer:
                 logger.warning("モデルが初期化されていません")
                 return self._get_error_explanation("モデルが初期化されていません")
 
-            # 最新のデータを取得
-            latest_idx = len(df_enhanced) - 1
-            latest_activity = df_enhanced.iloc[latest_idx]
+            # その日1日分のデータに対してDiCEを実行
+            target_date = target_timestamp.date()
+            logger.info(f"DiCE: {target_date}の1日分のデータに対してDiCE分析を実行します")
 
-            # DiCEで反実仮想例を生成
-            dice_result = self._generate_dice_counterfactual_simple(
-                df_enhanced, latest_idx, latest_activity, predictor
-            )
+            # generate_hourly_alternativesを使用して1日分のDiCE提案を生成
+            daily_result = self.generate_hourly_alternatives(df_enhanced, predictor, target_date)
 
-            if dice_result:
+            if daily_result.get('type') == 'hourly_dice_schedule' and daily_result.get('hourly_schedule'):
+                # 時間別の提案をフラットな形式に変換
+                timeline = []
+                for item in daily_result['hourly_schedule']:
+                    # 時刻情報を追加
+                    hour = item['hour']
+                    timestamp = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=hour)
+                    timeline.append({
+                        'hour': hour,
+                        'timestamp': timestamp.isoformat(),
+                        'original_timestamp': timestamp.isoformat(),
+                        'time_range': item['time_range'],
+                        'original_activity': item['original_activity'],
+                        'suggested_activity': item['suggested_activity'],
+                        'frustration_reduction': item['improvement'],
+                        'improvement': item['improvement'],
+                        'confidence': item['confidence']
+                    })
+
                 return {
-                    'type': 'activity_counterfactual',
-                    'original_activity': dice_result['original_activity'],
-                    'original_frustration': dice_result['original_frustration'],
-                    'suggested_activity': dice_result['suggested_activity'],
-                    'predicted_frustration': dice_result['predicted_frustration'],
-                    'improvement': dice_result['improvement'],
-                    'confidence': dice_result['confidence'],
-                    'timestamp': latest_activity['Timestamp'],
-                    'summary': f"「{dice_result['original_activity']}」を「{dice_result['suggested_activity']}」に変更すると、フラストレーション値が{dice_result['improvement']:.1f}点改善する可能性があります。"
+                    'type': 'daily_dice_analysis',
+                    'date': target_date.strftime('%Y-%m-%d'),
+                    'timeline': timeline,
+                    'total_improvement': daily_result['total_improvement'],
+                    'average_improvement': daily_result.get('average_improvement', 0),
+                    'schedule_items': len(timeline),
+                    'message': daily_result.get('message', ''),
+                    'summary': daily_result.get('summary', ''),
+                    'confidence': daily_result.get('confidence', 0.5)
                 }
             else:
-                return self._get_error_explanation("DiCE生成に失敗しました")
+                return self._get_error_explanation(daily_result.get('error_message', 'DiCE生成に失敗しました'))
 
         except Exception as e:
             logger.error(f"反実仮想説明生成エラー: {e}", exc_info=True)
@@ -188,16 +205,26 @@ class ActivityCounterfactualExplainer:
             exp = Dice(d, m)
 
             # F値は1-20の範囲 → スケーリング後は0.05-1.0
-            # desired_range=[0.05, 0.25]は固定値（F値1-5に相当する範囲）
-            # この範囲にフラストレーション値が改善されるような活動を提案
+            # desired_rangeを現在のF値に基づいて動的に設定
+            # 現在のF値から20-30%程度の改善を目標とする（より現実的な範囲）
 
-            logger.info(f"DiCE実行: 現在F値(予測値)={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲=[0.05, 0.25] (F値1-5に相当)")
+            # 改善目標を計算（現在値の20-40%改善）
+            improvement_low = max(0.05, current_frustration_scaled * 0.6)   # 40%改善（最小値は0.05）
+            improvement_high = max(0.05, current_frustration_scaled * 0.8)  # 20%改善
+
+            # 範囲が狭すぎる場合は最小幅を確保
+            if improvement_high - improvement_low < 0.1:
+                improvement_low = max(0.05, improvement_high - 0.1)
+
+            desired_range = [improvement_low, improvement_high]
+
+            logger.info(f"DiCE実行: 現在F値(予測値)={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲={desired_range} (F値{improvement_low*20:.1f}-{improvement_high*20:.1f}に相当)")
 
             # DiCEで反実仮想例を生成（既に定義したquery_featuresを使用）
             dice_exp = exp.generate_counterfactuals(
                 query_instances=query_features,
                 total_CFs=5,
-                desired_range=[0.05, 0.25],  # 固定範囲: F値1-5を目標
+                desired_range=desired_range,  # 動的範囲: 現在値から20-40%改善を目標
                 features_to_vary=activity_cols  # 活動カテゴリのみ変更
             )
 
@@ -237,8 +264,16 @@ class ActivityCounterfactualExplainer:
                 improvement = current_frustration - alternative_frustration
 
                 # 改善が見られ、かつ最良の結果の場合に採用
-                # 最低0.5点（スケールで0.025）の改善を要求
-                if improvement > 0.5 and improvement > best_improvement:
+                # 最低改善閾値を現在のF値に応じて調整（高F値ほど小さい改善でも許容）
+                # F値が高い(15以上)場合: 0.3点以上、中程度(8-15)の場合: 0.5点以上、低い場合(8未満): 1.0点以上
+                if current_frustration >= 15:
+                    min_improvement = 0.3
+                elif current_frustration >= 8:
+                    min_improvement = 0.5
+                else:
+                    min_improvement = 1.0
+
+                if improvement > min_improvement and improvement > best_improvement:
                     best_improvement = improvement
                     best_result = {
                         'original_activity': original_activity_name,
@@ -253,7 +288,24 @@ class ActivityCounterfactualExplainer:
                 logger.info(f"DiCE成功: {best_result['original_activity']} → {best_result['suggested_activity']} (改善: {best_improvement:.2f}点)")
                 return best_result
             else:
-                logger.warning(f"DiCE: 有意な改善案が見つかりませんでした（元の活動: {original_activity_name}, 現在F値: {current_frustration:.2f}）")
+                # より詳細なデバッグ情報を追加
+                logger.warning(f"DiCE: 有意な改善案が見つかりませんでした")
+                logger.warning(f"  - 元の活動: {original_activity_name}")
+                logger.warning(f"  - 現在F値(予測値): {current_frustration:.2f} (scaled={current_frustration_scaled:.3f})")
+                logger.warning(f"  - 目標範囲: {desired_range} (F値{desired_range[0]*20:.1f}-{desired_range[1]*20:.1f})")
+                if cf_df is not None and not cf_df.empty:
+                    logger.warning(f"  - DiCEが生成した候補数: {len(cf_df)}件")
+                    # 候補の詳細をログ出力
+                    for idx, cf_row in cf_df.iterrows():
+                        suggested_act = None
+                        for act_name in KNOWN_ACTIVITIES:
+                            if f'activity_{act_name}' in cf_row.index and cf_row[f'activity_{act_name}'] == 1:
+                                suggested_act = act_name
+                                break
+                        alt_f_scaled = cf_row.get('NASA_F_scaled', 0)
+                        alt_f = alt_f_scaled * 20.0
+                        imp = current_frustration - alt_f
+                        logger.warning(f"    候補{idx+1}: {suggested_act}, F値={alt_f:.2f}, 改善={imp:.2f}点")
                 return None
 
         except Exception as e:

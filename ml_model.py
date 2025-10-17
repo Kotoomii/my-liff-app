@@ -492,6 +492,115 @@ class FrustrationPredictor:
                 'error': str(e)
             }
 
+    def predict_from_row(self, row_data: pd.Series) -> dict:
+        """
+        データ行から直接予測（実測値の生体情報を使用）
+
+        Args:
+            row_data: preprocess_activity_dataとaggregate_fitbit_by_activityを経たデータ行
+
+        Returns:
+            予測結果
+        """
+        try:
+            if self.model is None:
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': 'モデルが訓練されていません'
+                }
+
+            # 特徴量を構築（行データから直接取得）
+            features = {}
+
+            # 時間特徴量（既に計算済み）
+            if 'hour_sin' in row_data.index and 'hour_cos' in row_data.index:
+                features['hour_sin'] = row_data['hour_sin']
+                features['hour_cos'] = row_data['hour_cos']
+            else:
+                # 計算されていない場合は再計算
+                timestamp = pd.to_datetime(row_data.get('Timestamp'))
+                hour_rad = 2 * np.pi * timestamp.hour / 24
+                features['hour_sin'] = np.sin(hour_rad)
+                features['hour_cos'] = np.cos(hour_rad)
+
+            # 曜日のOne-Hot（既に計算済み）
+            for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']:
+                weekday_col = f'weekday_{day}'
+                features[weekday_col] = row_data.get(weekday_col, 0)
+
+            # 活動カテゴリのOne-Hot（既に計算済み）
+            for activity in KNOWN_ACTIVITIES:
+                activity_col = f'activity_{activity}'
+                features[activity_col] = row_data.get(activity_col, 0)
+
+            # 生体情報（実測値を直接使用）
+            if 'SDNN_scaled' in row_data.index:
+                features['SDNN_scaled'] = row_data['SDNN_scaled']
+            else:
+                logger.error("SDNN_scaled列が見つかりません")
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': 'SDNN_scaled列が見つかりません'
+                }
+
+            if 'Lorenz_Area_scaled' in row_data.index:
+                features['Lorenz_Area_scaled'] = row_data['Lorenz_Area_scaled']
+            else:
+                logger.error("Lorenz_Area_scaled列が見つかりません")
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': 'Lorenz_Area_scaled列が見つかりません'
+                }
+
+            # NaNチェック
+            if pd.isna(features['SDNN_scaled']) or pd.isna(features['Lorenz_Area_scaled']):
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': '生体情報がNaNです'
+                }
+
+            # DataFrameに変換
+            feature_df = pd.DataFrame([features])
+            for col in self.feature_columns:
+                if col not in feature_df.columns:
+                    feature_df[col] = 0
+            feature_df = feature_df[self.feature_columns]
+
+            # 予測実行 (0-1スケール)
+            prediction_scaled = self.model.predict(feature_df)[0]
+
+            # 元のスケール (0-20) に戻す
+            prediction = prediction_scaled * 20.0
+
+            # NaN/Infのバリデーション
+            if np.isnan(prediction) or np.isinf(prediction):
+                logger.error(f"予測値が不正です (NaN/Inf): {prediction}")
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': '予測値の計算に失敗しました'
+                }
+
+            return {
+                'predicted_frustration': float(prediction),
+                'confidence': 0.8,  # 実測値使用のため高信頼度
+                'activity_category': row_data.get('CatSub', 'unknown'),
+                'timestamp': row_data.get('Timestamp'),
+                'used_actual_biodata': True
+            }
+
+        except Exception as e:
+            logger.error(f"行データからの予測エラー: {e}")
+            return {
+                'predicted_frustration': np.nan,
+                'confidence': 0.0,
+                'error': str(e)
+            }
+
     def predict_with_history(self, activity_category: str, duration: int, current_time: datetime, historical_data: pd.DataFrame) -> dict:
         """
         過去の履歴データを使用して予測 (webhooktest.py形式)

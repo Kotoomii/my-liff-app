@@ -914,19 +914,16 @@ def get_frustration_timeline():
 
             # Fitbitデータが利用可能な場合のみ予測を実行
             if has_fitbit_data:
-                # 各活動に対してモデル予測を実行
+                # 各活動に対してモデル予測を実行（実測値の生体情報を使用）
                 try:
-                    # 履歴データを使った予測（訓練時と同じ方法）
-                    prediction_result = predictor.predict_with_history(
-                        activity_category=row.get('CatSub', '不明'),
-                        duration=row.get('Duration', 60),
-                        current_time=pd.to_datetime(row.get('Timestamp')),
-                        historical_data=df_enhanced  # 全履歴データを渡す
-                    )
-                    
+                    # 行データから直接予測（DiCEと同じ方法）
+                    prediction_result = predictor.predict_from_row(row)
+
                     if prediction_result and 'predicted_frustration' in prediction_result:
                         predicted_frustration = prediction_result['predicted_frustration']
-                        
+                        if config.ENABLE_DEBUG_LOGS:
+                            logger.debug(f"Timeline予測: {row.get('CatSub')} at {row['Timestamp']}, F値={predicted_frustration:.2f} (実測値ベース)")
+
                 except Exception as e:
                     logger.warning(f"予測エラー: {e}")
                     predicted_frustration = None
