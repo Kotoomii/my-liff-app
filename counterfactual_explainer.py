@@ -191,13 +191,13 @@ class ActivityCounterfactualExplainer:
             continuous_features = ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
 
             # デバッグ: features_to_varyの内容を確認
-            logger.info(f"DiCE: predictor.feature_columns数 = {len(predictor.feature_columns)}")
-            logger.info(f"DiCE: activity_cols（変更可能な列）数 = {len(activity_cols)}")
-            logger.info(f"DiCE: continuous_features（固定列） = {continuous_features}")
+            logger.warning(f"🔧 DiCE: predictor.feature_columns数 = {len(predictor.feature_columns)}")
+            logger.warning(f"🔧 DiCE: activity_cols（変更可能な列）数 = {len(activity_cols)}")
+            logger.warning(f"🔧 DiCE: continuous_features（固定列） = {continuous_features}")
             if len(activity_cols) <= 10:
-                logger.info(f"DiCE: activity_cols（サンプル） = {activity_cols[:10] if len(activity_cols) > 10 else activity_cols}")
+                logger.warning(f"🔧 DiCE: activity_cols（全て） = {activity_cols}")
             else:
-                logger.info(f"DiCE: activity_cols数が多いため、最初の10個のみ表示 = {activity_cols[:10]}")
+                logger.warning(f"🔧 DiCE: activity_cols数が多いため、最初の10個のみ表示 = {activity_cols[:10]}")
 
             if len(activity_cols) == 0:
                 logger.error("DiCE: activity_colsが空です！活動カテゴリ列が見つかりません")
@@ -259,6 +259,12 @@ class ActivityCounterfactualExplainer:
             else:
                 logger.warning(f"❌ NASA_F_scaled列が存在しません！")
                 logger.warning(f"   利用可能な列: {[c for c in cf_df.columns if not c.startswith('activity_')][:10]}")
+
+            # デバッグ: 各候補の活動カテゴリを確認
+            logger.warning(f"🔍 DiCE cf_df の活動カテゴリ:")
+            for i, (idx, cf_row) in enumerate(cf_df.iterrows()):
+                active_activities = [col.replace('activity_', '') for col in activity_cols if cf_row[col] == 1]
+                logger.warning(f"   候補{i+1}: {active_activities}")
 
             # 元の活動カテゴリを特定
             original_activity_name = activity.get('CatSub', 'unknown')
