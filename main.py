@@ -1496,23 +1496,128 @@ def calculate_trend(activity_data):
     try:
         if len(activity_data) < 2:
             return 0
-        
+
         # 日付順にソート
         activity_data = activity_data.sort_values('Timestamp')
-        
+
         # 前半と後半に分けて平均値を比較
         mid_point = len(activity_data) // 2
         first_half_avg = activity_data.iloc[:mid_point]['NASA_F'].mean()
         second_half_avg = activity_data.iloc[mid_point:]['NASA_F'].mean()
-        
+
         # 改善度を計算（負の値が改善を意味する）
         trend = second_half_avg - first_half_avg
         return round(trend, 2)
-        
+
     except Exception:
         return 0
 
+def calculate_and_save_daily_summary(user_id: str, target_date=None):
+    """
+    指定ユーザーの日次サマリーを計算してスプレッドシートに保存
+
+    Args:
+        user_id: ユーザーID
+        target_date: 対象日付（デフォルトは昨日）
+
+    Returns:
+        保存成功: True, 失敗: False
+    """
+    try:
+        if target_date is None:
+            # デフォルトは昨日
+            target_date = (datetime.now() - timedelta(days=1)).date()
+        elif isinstance(target_date, str):
+            target_date = datetime.fromisoformat(target_date).date()
+
+        # データ取得
+        activity_data = sheets_connector.get_activity_data(user_id, use_cache=False)
+
+        if activity_data.empty:
+            logger.warning(f"日次サマリー計算: ユーザー {user_id} のデータがありません")
+            return False
+
+        # 対象日のデータをフィルタリング
+        activity_data['Date'] = pd.to_datetime(activity_data['Timestamp']).dt.date
+        daily_data = activity_data[activity_data['Date'] == target_date]
+
+        if daily_data.empty:
+            logger.info(f"日次サマリー計算: {target_date} のデータがありません (ユーザー: {user_id})")
+            return False
+
+        # フラストレーション値の統計を計算
+        frustration_values = daily_data['NASA_F'].dropna()
+
+        if frustration_values.empty:
+            logger.warning(f"日次サマリー計算: NASA_F値がありません (ユーザー: {user_id}, 日付: {target_date})")
+            return False
+
+        # サマリーデータを作成
+        summary_data = {
+            'avg_frustration': float(frustration_values.mean()),
+            'min_frustration': float(frustration_values.min()),
+            'max_frustration': float(frustration_values.max()),
+            'activity_count': int(len(daily_data)),
+            'total_duration': int(daily_data['Duration'].sum()),
+            'unique_activities': int(daily_data['CatSub'].nunique()),
+            'notes': f'Auto-generated from {len(daily_data)} activities'
+        }
+
+        # スプレッドシートに保存
+        success = sheets_connector.save_daily_summary(
+            user_id=user_id,
+            date=target_date.isoformat(),
+            summary_data=summary_data
+        )
+
+        if success and config.ENABLE_INFO_LOGS:
+            logger.info(f"日次サマリー保存完了: {user_id}, {target_date}, "
+                       f"平均: {summary_data['avg_frustration']:.2f}, "
+                       f"活動数: {summary_data['activity_count']}")
+
+        return success
+
+    except Exception as e:
+        logger.error(f"日次サマリー計算エラー: {e}")
+        return False
+
 # ===== DEBUG API ENDPOINTS =====
+
+@app.route('/api/frustration/daily-summary', methods=['POST'])
+def generate_daily_summary():
+    """
+    日次サマリー計算・保存API
+    指定日（デフォルトは昨日）のフラストレーション統計を計算してスプレッドシートに保存
+    """
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id', 'default')
+        target_date = data.get('date')
+
+        # 日次サマリーを計算・保存
+        success = calculate_and_save_daily_summary(user_id, target_date)
+
+        if success:
+            return jsonify({
+                'status': 'success',
+                'message': '日次サマリーを保存しました',
+                'user_id': user_id,
+                'date': target_date if target_date else (datetime.now() - timedelta(days=1)).date().isoformat(),
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '日次サマリーの保存に失敗しました。データが不足している可能性があります。',
+                'user_id': user_id
+            }), 400
+
+    except Exception as e:
+        logger.error(f"日次サマリー生成エラー: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 @app.route('/api/debug/dice-scheduler/status', methods=['GET'])
 def debug_dice_scheduler_status():
@@ -1779,44 +1884,60 @@ def get_user_config(user_id: str) -> Dict:
 def daily_dice_scheduler():
     """毎日21:00にDiCE改善提案を生成するスケジューラー"""
     global dice_scheduler_running, last_dice_result
-    
+
     while dice_scheduler_running:
         try:
             now = datetime.now()
             # 毎日21:00に実行
             target_time = now.replace(hour=21, minute=0, second=0, microsecond=0)
-            
+
             # 今日の21:00がまだ来ていない場合はそのまま、過ぎている場合は明日の21:00
             if now > target_time:
                 target_time += timedelta(days=1)
-            
+
             sleep_seconds = (target_time - now).total_seconds()
             if config.ENABLE_INFO_LOGS:
                 logger.info(f"次回DiCE実行予定: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({sleep_seconds:.0f}秒後)")
-            
+
             # 指定時刻まで待機
             time.sleep(sleep_seconds)
-            
+
             if dice_scheduler_running:  # スケジューラーが停止されていないか確認
                 if config.ENABLE_INFO_LOGS:
-                    logger.info("定時DiCE改善提案を実行中...")
+                    logger.info("定時DiCE改善提案と日次サマリーを実行中...")
 
-                # デフォルトユーザーでDiCE実行
-                user_id = 'default'
-                dice_result = run_daily_dice_for_user(user_id)
+                # 全ユーザーに対して実行
+                users_config = config.get_all_users()
 
-                if dice_result:
-                    last_dice_result = {
-                        'timestamp': datetime.now().isoformat(),
-                        'user_id': user_id,
-                        'result': dice_result,
-                        'execution_type': 'scheduled'
-                    }
-                    if config.ENABLE_INFO_LOGS:
-                        logger.info(f"定時DiCE実行完了: 改善ポイント {dice_result.get('total_improvement', 0):.1f}点")
-                else:
-                    logger.error("定時DiCE実行に失敗しました")
-                    
+                for user_config in users_config:
+                    user_id = user_config['user_id']
+                    user_name = user_config['name']
+
+                    # DiCE実行
+                    dice_result = run_daily_dice_for_user(user_id)
+
+                    if dice_result:
+                        last_dice_result = {
+                            'timestamp': datetime.now().isoformat(),
+                            'user_id': user_id,
+                            'user_name': user_name,
+                            'result': dice_result,
+                            'execution_type': 'scheduled'
+                        }
+                        if config.ENABLE_INFO_LOGS:
+                            logger.info(f"定時DiCE実行完了 ({user_name}): 改善ポイント {dice_result.get('total_improvement', 0):.1f}点")
+                    else:
+                        logger.error(f"定時DiCE実行に失敗しました: {user_name}")
+
+                    # 日次サマリー計算と保存（昨日のデータ）
+                    yesterday = (datetime.now() - timedelta(days=1)).date()
+                    summary_success = calculate_and_save_daily_summary(user_id, yesterday)
+
+                    if summary_success and config.ENABLE_INFO_LOGS:
+                        logger.info(f"日次サマリー保存完了 ({user_name}): {yesterday}")
+                    elif not summary_success:
+                        logger.warning(f"日次サマリー保存失敗 ({user_name}): {yesterday}")
+
         except Exception as e:
             logger.error(f"DiCEスケジューラーエラー: {e}")
             time.sleep(3600)  # エラー時は1時間待機

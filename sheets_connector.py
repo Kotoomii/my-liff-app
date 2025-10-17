@@ -660,6 +660,7 @@ class SheetsConnector:
     def save_prediction_data(self, prediction_data: Dict) -> bool:
         """
         予測結果をスプレッドシートに保存（ユーザー別シート）
+        タイムスタンプによる重複をチェックし、既存行があれば更新、なければ追加
         """
         try:
             if not self.gc:
@@ -700,15 +701,18 @@ class SheetsConnector:
             original_notes = prediction_data.get('notes', '')
             source = prediction_data.get('source', 'unknown')
             activity_timestamp = prediction_data.get('activity_timestamp', '')
-            
+
             enhanced_notes = f"Source: {source}"
             if activity_timestamp:
                 enhanced_notes += f", ActivityTimestamp: {activity_timestamp}"
             if original_notes:
                 enhanced_notes += f", {original_notes}"
 
+            # タイムスタンプを取得
+            timestamp = prediction_data.get('timestamp', datetime.now().isoformat())
+
             row_data = [
-                prediction_data.get('timestamp', datetime.now().isoformat()),
+                timestamp,
                 prediction_data.get('user_id', 'default'),
                 prediction_data.get('activity', 'unknown'),
                 prediction_data.get('duration', 0),
@@ -720,14 +724,121 @@ class SheetsConnector:
                 enhanced_notes
             ]
 
-            # 新規行を追加
-            worksheet.append_row(row_data)
-            logger.info(f"予測データを保存しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f})")
+            # 重複チェック: 既存のデータから同じタイムスタンプを探す
+            try:
+                existing_data = worksheet.get_all_values()
+                existing_row_index = None
+
+                # ヘッダー行をスキップして検索（1行目はヘッダー）
+                for i, row in enumerate(existing_data[1:], start=2):  # start=2 (行番号は1から始まり、ヘッダーが1行目)
+                    if len(row) > 0 and row[0] == timestamp:  # Timestamp列（0番目）で比較
+                        existing_row_index = i
+                        logger.info(f"重複するタイムスタンプを発見: {timestamp} (行: {i})")
+                        break
+
+                if existing_row_index:
+                    # 既存行を更新
+                    cell_range = f'A{existing_row_index}:J{existing_row_index}'
+                    worksheet.update(cell_range, [row_data])
+                    logger.info(f"予測データを更新しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f}, 行: {existing_row_index})")
+                else:
+                    # 新規行を追加
+                    worksheet.append_row(row_data)
+                    logger.info(f"予測データを保存しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f})")
+
+            except Exception as duplicate_check_error:
+                # 重複チェックに失敗した場合は通常の追加処理を実行
+                logger.warning(f"重複チェックに失敗、新規追加します: {duplicate_check_error}")
+                worksheet.append_row(row_data)
+                logger.info(f"予測データを保存しました: {prediction_data.get('activity')} (予測値: {predicted_frustration:.2f})")
 
             return True
 
         except Exception as e:
             logger.error(f"予測データ保存エラー: {e}")
+            return False
+
+    def save_daily_summary(self, user_id: str, date: str, summary_data: Dict) -> bool:
+        """
+        日次サマリーデータをスプレッドシートに保存
+        1日の平均フラストレーション値、最小値、最大値、活動数を記録
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            # ユーザー別のDAILY_SUMMARYシート名を生成
+            sheet_name = f"DAILY_SUMMARY_{user_id}"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if not worksheet:
+                # シートが存在しない場合は作成
+                worksheet = self.spreadsheet.add_worksheet(
+                    title=sheet_name,
+                    rows="1000",
+                    cols="8"
+                )
+                # ヘッダー行を追加
+                headers = [
+                    'Date', 'AvgFrustration', 'MinFrustration', 'MaxFrustration',
+                    'ActivityCount', 'TotalDuration', 'UniqueActivities', 'Notes'
+                ]
+                worksheet.append_row(headers)
+                logger.info(f"DAILY_SUMMARYシートを作成しました: {sheet_name}")
+
+            # データ行を準備
+            avg_frustration = summary_data.get('avg_frustration', 0)
+            min_frustration = summary_data.get('min_frustration', 0)
+            max_frustration = summary_data.get('max_frustration', 0)
+            activity_count = summary_data.get('activity_count', 0)
+            total_duration = summary_data.get('total_duration', 0)
+            unique_activities = summary_data.get('unique_activities', 0)
+            notes = summary_data.get('notes', '')
+
+            row_data = [
+                date,
+                round(avg_frustration, 2),
+                round(min_frustration, 2),
+                round(max_frustration, 2),
+                activity_count,
+                total_duration,
+                unique_activities,
+                notes
+            ]
+
+            # 重複チェック: 同じ日付のデータが既に存在するかチェック
+            try:
+                existing_data = worksheet.get_all_values()
+                existing_row_index = None
+
+                # ヘッダー行をスキップして検索
+                for i, row in enumerate(existing_data[1:], start=2):
+                    if len(row) > 0 and row[0] == date:  # Date列（0番目）で比較
+                        existing_row_index = i
+                        logger.info(f"既存の日次サマリーを発見: {date} (行: {i})")
+                        break
+
+                if existing_row_index:
+                    # 既存行を更新
+                    cell_range = f'A{existing_row_index}:H{existing_row_index}'
+                    worksheet.update(cell_range, [row_data])
+                    logger.info(f"日次サマリーを更新しました: {user_id}, {date}, 平均: {avg_frustration:.2f}")
+                else:
+                    # 新規行を追加
+                    worksheet.append_row(row_data)
+                    logger.info(f"日次サマリーを保存しました: {user_id}, {date}, 平均: {avg_frustration:.2f}")
+
+            except Exception as duplicate_check_error:
+                # 重複チェックに失敗した場合は通常の追加処理を実行
+                logger.warning(f"重複チェックに失敗、新規追加します: {duplicate_check_error}")
+                worksheet.append_row(row_data)
+                logger.info(f"日次サマリーを保存しました: {user_id}, {date}, 平均: {avg_frustration:.2f}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"日次サマリー保存エラー: {e}")
             return False
 
     def save_workload_data(self, user_id: str, date: str, workload_data: Dict) -> bool:
