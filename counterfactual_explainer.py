@@ -123,32 +123,16 @@ class ActivityCounterfactualExplainer:
             query_instance = df_enhanced.iloc[[activity_idx]][predictor.feature_columns]
 
             # F値は1-20の範囲 → スケーリング後は0.05-1.0
-            # desired_rangeは現在値より低い範囲を目標とするが、実現可能性を考慮して範囲を設定
+            # desired_range=[0.05, 0.25]は固定値（F値1-5に相当する範囲）
+            # この範囲にフラストレーション値が改善されるような活動を提案
 
-            # 最小値は0.05（F値=1に相当）
-            min_frustration_scaled = 0.05
-
-            # 目標最大値: 現在値より少なくとも0.1低い値を目指す（F値で2点の改善）
-            # ただし、範囲が狭すぎると反実仮想例が見つからないため、適切な幅を確保
-            desired_max = max(min_frustration_scaled, current_frustration_scaled - 0.1)
-
-            # 現在値が既に低い場合（F値≦5、つまりscaled≦0.25）は範囲を調整
-            if current_frustration_scaled <= 0.25:
-                # 既に低い場合は、現在値の80%を目標最大値とする
-                desired_max = max(min_frustration_scaled, current_frustration_scaled * 0.8)
-                logger.info(f"DiCE: 現在のF値が低いため目標を調整 [{min_frustration_scaled:.3f}, {desired_max:.3f}] (元F値: {current_frustration:.2f})")
-
-            # 範囲の妥当性チェック
-            if desired_max <= min_frustration_scaled:
-                desired_max = min_frustration_scaled + 0.05  # 最低限の範囲を確保
-
-            logger.info(f"DiCE実行: 現在F値={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲=[{min_frustration_scaled:.3f}, {desired_max:.3f}]")
+            logger.info(f"DiCE実行: 現在F値={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲=[0.05, 0.25] (F値1-5に相当)")
 
             # DiCEで反実仮想例を生成
             dice_exp = exp.generate_counterfactuals(
                 query_instances=query_instance,
-                total_CFs=5,  # 複数の候補を生成
-                desired_range=[min_frustration_scaled, desired_max],  # 有効な範囲を指定
+                total_CFs=5,
+                desired_range=[0.05, 0.25],  # 固定範囲: F値1-5を目標
                 features_to_vary=activity_cols  # 活動カテゴリのみ変更
             )
 
