@@ -456,11 +456,14 @@ def predict_activity_frustration():
         # モデルが訓練されていない場合は自動訓練
         if predictor.model is None:
             if len(df_enhanced) >= 10:
-                logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
+                logger.warning(f"⚠️ モデル未訓練: user_id={user_id}, 自動訓練を開始します")
                 training_result = ensure_model_trained(user_id)
+
+                logger.warning(f"📊 訓練結果: {training_result.get('status')} - {training_result.get('message', '')}")
 
                 # 訓練が失敗した場合はエラーを返す
                 if training_result.get('status') != 'success':
+                    logger.error(f"❌ モデル訓練失敗: {training_result.get('message')}")
                     return jsonify({
                         'status': 'error',
                         'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
@@ -468,8 +471,11 @@ def predict_activity_frustration():
                         'data_quality': data_quality,
                         'training_result': training_result
                     }), 400
+                else:
+                    logger.warning(f"✅ モデル訓練成功: user_id={user_id}")
             else:
                 # データ不足の場合
+                logger.warning(f"❌ データ不足: {len(df_enhanced)}件 < 10件")
                 return jsonify({
                     'status': 'error',
                     'message': f'データ不足: {len(df_enhanced)}件 < 10件。モデルを訓練できません。',
