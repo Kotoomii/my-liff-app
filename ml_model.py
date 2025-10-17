@@ -1,6 +1,6 @@
 """
 NASA-TLXフラストレーション値予測機械学習モデル
-Walk Forward Validation対応、行動変更タイミングでの予測
+webhooktest.pyの成功パターンに基づくシンプルな実装
 """
 
 import pandas as pd
@@ -8,258 +8,166 @@ import numpy as np
 import logging
 from datetime import datetime, timedelta
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-from sklearn.preprocessing import LabelEncoder
 import joblib
 import os
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 
 from config import Config
 
 logger = logging.getLogger(__name__)
 
+# document_for_ai.mdに記載されている活動カテゴリリスト
+KNOWN_ACTIVITIES = [
+    '睡眠', '食事', '身のまわりの用事', '療養・静養', '仕事', '仕事のつきあい',
+    '授業・学内の活動', '学校外の学習', '炊事・掃除・洗濯', '買い物', '子どもの世話',
+    '家庭雑事', '通勤', '通学', '社会参加', '会話・交際', 'スポーツ', '行楽・散策',
+    '趣味・娯楽・教養(インターネット除く)', '趣味・娯楽・教養 のインターネット(動画除く)',
+    'インターネット動画', 'テレビ', '録画番組・DVD', 'ラジオ', '新聞',
+    '雑誌・漫画・本', '音楽', '休息', 'その他', '不明'
+]
+
 class FrustrationPredictor:
     def __init__(self):
         self.model = None
-        self.encoders = {}
         self.feature_columns = []
-        self.target_variable = 'NASA_F'  # フラストレーション値のみを予測
+        self.target_variable = 'NASA_F_scaled'
         self.config = Config()
-        self.walk_forward_history = []  # Walk Forward Validation用の履歴
-        
+        self.activity_columns = []  # 活動カテゴリのOne-Hot列名
+
     def preprocess_activity_data(self, activity_data: pd.DataFrame) -> pd.DataFrame:
         """
-        活動データを行動単位に前処理
-        最小区切り時間は15分
-        webhooktest.pyの特徴量エンジニアリングを統合
+        活動データを前処理 (webhooktest.py形式)
         """
         try:
             if activity_data.empty:
                 return pd.DataFrame()
 
-            # データ型変換
-            activity_data = activity_data.copy()
-            activity_data['Timestamp'] = pd.to_datetime(activity_data['Timestamp'])
+            df = activity_data.copy()
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
-            # フラストレーション値のチェック
-            if 'NASA_F' not in activity_data.columns:
+            if 'NASA_F' not in df.columns:
                 logger.error("NASA_F列が見つかりません")
                 return pd.DataFrame()
 
             # 数値変換
-            activity_data['NASA_F'] = pd.to_numeric(activity_data['NASA_F'], errors='coerce')
-            activity_data['Duration'] = pd.to_numeric(activity_data['Duration'], errors='coerce')
+            df['NASA_F'] = pd.to_numeric(df['NASA_F'], errors='coerce')
+            df['Duration'] = pd.to_numeric(df['Duration'], errors='coerce')
 
             # 15分未満の活動を除外
-            activity_data = activity_data[activity_data['Duration'] >= 15]
+            df = df[df['Duration'] >= 15]
 
-            # 行動変更タイミングの検出
-            activity_data = activity_data.sort_values('Timestamp')
-            activity_data['activity_change'] = (
-                activity_data['CatSub'] != activity_data['CatSub'].shift(1)
-            ).astype(int)
-
-            # 時間特徴量の追加（webhooktest.py形式）
-            activity_data['hour'] = activity_data['Timestamp'].dt.hour
-            activity_data['hour_rad'] = 2 * np.pi * activity_data['hour'] / 24
-            activity_data['hour_sin'] = np.sin(activity_data['hour_rad'])
-            activity_data['hour_cos'] = np.cos(activity_data['hour_rad'])
+            # 時間特徴量 (webhooktest.py形式)
+            df['hour'] = df['Timestamp'].dt.hour
+            df['hour_rad'] = 2 * np.pi * df['hour'] / 24
+            df['hour_sin'] = np.sin(df['hour_rad'])
+            df['hour_cos'] = np.cos(df['hour_rad'])
 
             # 曜日特徴量
-            activity_data['dayofweek'] = activity_data['Timestamp'].dt.dayofweek
-            activity_data['is_weekend'] = (activity_data['dayofweek'] >= 5).astype(int)
-            activity_data['weekday_str'] = activity_data['Timestamp'].dt.strftime('%a')
+            df['weekday_str'] = df['Timestamp'].dt.strftime('%a')
+            df = pd.get_dummies(df, columns=['weekday_str'], prefix='weekday')
 
-            # 曜日のOne-Hot Encoding
-            activity_data = pd.get_dummies(activity_data, columns=['weekday_str'], prefix='weekday')
+            # NASA_Fのスケーリング (0-20 → 0-1)
+            df['NASA_F_scaled'] = df['NASA_F'] / 20.0
 
-            # NASA_Fのスケーリング（0-20 → 0-1）
-            activity_data['NASA_F_scaled'] = activity_data['NASA_F'] / 20.0
+            # 活動カテゴリのOne-Hot化 (webhooktest.py形式)
+            # CatSubの値を取得し、既知の活動リストでOne-Hot化
+            for activity in KNOWN_ACTIVITIES:
+                df[f'activity_{activity}'] = (df['CatSub'] == activity).astype(int)
 
-            return activity_data
+            if self.config.LOG_DATA_OPERATIONS:
+                logger.info(f"活動データ前処理完了: {len(df)} 行")
+
+            return df
 
         except Exception as e:
             logger.error(f"活動データ前処理エラー: {e}")
             return pd.DataFrame()
-    
+
     def aggregate_fitbit_by_activity(self, activity_data: pd.DataFrame, fitbit_data: pd.DataFrame) -> pd.DataFrame:
         """
-        Fitbitデータを行動の長さごとに統計量化
-        webhooktest.py形式のスケーリングを追加
+        Fitbitデータを活動期間ごとに集計 (webhooktest.py形式のスケーリング)
         """
         try:
-            if activity_data.empty or fitbit_data.empty:
+            if activity_data.empty:
+                return activity_data
+
+            if fitbit_data.empty:
+                logger.warning("Fitbitデータが空です。生体情報なしで継続します")
+                # Fitbitデータがない場合、SDNN_scaled, Lorenz_Area_scaledをNaNで追加
+                activity_data['SDNN_scaled'] = np.nan
+                activity_data['Lorenz_Area_scaled'] = np.nan
                 return activity_data
 
             fitbit_data = fitbit_data.copy()
             fitbit_data['Timestamp'] = pd.to_datetime(fitbit_data['Timestamp'])
-            fitbit_data['Lorenz_Area'] = pd.to_numeric(fitbit_data['Lorenz_Area'], errors='coerce')
 
-            # Lorenz_Areaのスケーリング（webhooktest.py形式）
+            # SDNNとLorenz_Areaを数値化
+            if 'SDNN' in fitbit_data.columns:
+                fitbit_data['SDNN'] = pd.to_numeric(fitbit_data['SDNN'], errors='coerce')
+            else:
+                fitbit_data['SDNN'] = np.nan
+
+            if 'Lorenz_Area' in fitbit_data.columns:
+                fitbit_data['Lorenz_Area'] = pd.to_numeric(fitbit_data['Lorenz_Area'], errors='coerce')
+            else:
+                fitbit_data['Lorenz_Area'] = np.nan
+
+            # スケーリング (webhooktest.py形式)
+            sdnn_max = fitbit_data['SDNN'].max()
             lorenz_max = fitbit_data['Lorenz_Area'].max()
+
+            if sdnn_max > 0:
+                fitbit_data['SDNN_scaled'] = fitbit_data['SDNN'] / sdnn_max
+            else:
+                fitbit_data['SDNN_scaled'] = np.nan
+
             if lorenz_max > 0:
                 fitbit_data['Lorenz_Area_scaled'] = fitbit_data['Lorenz_Area'] / lorenz_max
             else:
-                fitbit_data['Lorenz_Area_scaled'] = fitbit_data['Lorenz_Area']
-            
-            # 各活動期間のFitbitデータ統計量を計算
+                fitbit_data['Lorenz_Area_scaled'] = np.nan
+
+            # 各活動期間のFitbit統計量を計算
             activity_with_fitbit = []
-            
+
             for idx, activity in activity_data.iterrows():
-                start_time = pd.to_datetime(activity['Timestamp'])
+                start_time = activity['Timestamp']
                 duration_minutes = activity['Duration']
                 end_time = start_time + timedelta(minutes=duration_minutes)
-                
+
                 # 該当期間のFitbitデータを取得
                 fitbit_period = fitbit_data[
-                    (fitbit_data['Timestamp'] >= start_time) & 
+                    (fitbit_data['Timestamp'] >= start_time) &
                     (fitbit_data['Timestamp'] <= end_time)
                 ]
-                
-                # Fitbit統計量を計算
+
+                # 統計量を計算 (webhooktest.pyはSDNN_scaled, Lorenz_Area_scaledの平均を使用)
+                activity_dict = activity.to_dict()
                 if not fitbit_period.empty:
-                    lorenz_stats = {
-                        'lorenz_mean': fitbit_period['Lorenz_Area'].mean(),
-                        'lorenz_std': fitbit_period['Lorenz_Area'].std(),
-                        'lorenz_min': fitbit_period['Lorenz_Area'].min(),
-                        'lorenz_max': fitbit_period['Lorenz_Area'].max(),
-                        'lorenz_median': fitbit_period['Lorenz_Area'].median(),
-                        'lorenz_q25': fitbit_period['Lorenz_Area'].quantile(0.25),
-                        'lorenz_q75': fitbit_period['Lorenz_Area'].quantile(0.75),
-                        'lorenz_count': len(fitbit_period)
-                    }
+                    activity_dict['SDNN_scaled'] = fitbit_period['SDNN_scaled'].mean()
+                    activity_dict['Lorenz_Area_scaled'] = fitbit_period['Lorenz_Area_scaled'].mean()
                 else:
-                    # データがない場合はデフォルト値
-                    lorenz_stats = {
-                        'lorenz_mean': 8000.0,
-                        'lorenz_std': 0.0,
-                        'lorenz_min': 8000.0,
-                        'lorenz_max': 8000.0,
-                        'lorenz_median': 8000.0,
-                        'lorenz_q25': 8000.0,
-                        'lorenz_q75': 8000.0,
-                        'lorenz_count': 0
-                    }
-                
-                # 活動データに統計量を追加
-                activity_enhanced = activity.to_dict()
-                activity_enhanced.update(lorenz_stats)
-                activity_with_fitbit.append(activity_enhanced)
-            
+                    activity_dict['SDNN_scaled'] = np.nan
+                    activity_dict['Lorenz_Area_scaled'] = np.nan
+
+                activity_with_fitbit.append(activity_dict)
+
             result_df = pd.DataFrame(activity_with_fitbit)
             if self.config.LOG_DATA_OPERATIONS:
                 logger.info(f"Fitbit統計量化完了: {len(result_df)} 行")
             return result_df
-            
+
         except Exception as e:
             logger.error(f"Fitbit統計量化エラー: {e}")
+            # エラー時もSSDN_scaled, Lorenz_Area_scaledをNaNで追加
+            activity_data['SDNN_scaled'] = np.nan
+            activity_data['Lorenz_Area_scaled'] = np.nan
             return activity_data
-    
-    def create_features_for_activity(self, df_with_fitbit: pd.DataFrame, current_idx: int, 
-                                   lookback_hours: int = 24) -> Optional[Dict]:
-        """
-        指定した行動変更タイミングの特徴量を作成
-        過去24時間の活動データから特徴量を生成
-        """
-        try:
-            if current_idx >= len(df_with_fitbit):
-                return None
-                
-            current_activity = df_with_fitbit.iloc[current_idx]
-            current_time = current_activity['Timestamp']
-            lookback_time = current_time - timedelta(hours=lookback_hours)
-            
-            # 過去24時間のデータを取得
-            historical_data = df_with_fitbit[
-                (df_with_fitbit['Timestamp'] >= lookback_time) & 
-                (df_with_fitbit['Timestamp'] < current_time)
-            ]
-            
-            if historical_data.empty:
-                return None
-            
-            # 特徴量を構築
-            features = {}
 
-            # 現在の活動の基本特徴量（webhooktest.py形式の時間特徴量を追加）
-            features['current_hour'] = current_activity['hour']
-            features['current_hour_sin'] = current_activity.get('hour_sin', np.sin(2 * np.pi * current_activity['hour'] / 24))
-            features['current_hour_cos'] = current_activity.get('hour_cos', np.cos(2 * np.pi * current_activity['hour'] / 24))
-            features['current_dayofweek'] = current_activity['dayofweek']
-            features['current_is_weekend'] = current_activity['is_weekend']
-            features['current_duration'] = current_activity['Duration']
-
-            # 曜日のOne-Hot特徴量を追加
-            weekday_cols = [col for col in df_with_fitbit.columns if col.startswith('weekday_')]
-            for col in weekday_cols:
-                features[f'current_{col}'] = current_activity.get(col, 0)
-            
-            # カテゴリ特徴量のエンコード
-            if 'CatSub' in current_activity and pd.notna(current_activity['CatSub']):
-                activity_name = str(current_activity['CatSub'])
-                if 'current_activity' not in self.encoders:
-                    self.encoders['current_activity'] = LabelEncoder()
-                    # 既知の活動カテゴリで初期化
-                    known_activities = ['睡眠', '食事', '身のまわりの用事', '療養・静養', '仕事', '仕事のつきあい', '授業・学内の活動', '学校外の学習', '炊事・掃除・洗濯', '買い物', '子どもの世話', '家庭雑事', '通勤', '通学', '社会参加', '会話・交際', 'スポーツ', '行楽・散策', '趣味・娯楽・教養(インターネット除く)', '趣味・娯楽・教養 のインターネット(動画除く)', 'インターネット動画', 'テレビ', '録画番組・DVD', 'ラジオ', '新聞', '雑誌・漫画・本', '音楽', '休息', 'その他', '不明']
-                    self.encoders['current_activity'].fit(known_activities)
-                
-                try:
-                    features['current_activity'] = self.encoders['current_activity'].transform([activity_name])[0]
-                except ValueError:
-                    # 未知のカテゴリは'その他'として扱う
-                    features['current_activity'] = self.encoders['current_activity'].transform(['その他'])[0]
-            else:
-                features['current_activity'] = self.encoders['current_activity'].transform(['その他'])[0] if 'current_activity' in self.encoders else 7
-            
-            # 過去24時間の統計特徴量
-            features['hist_avg_frustration'] = historical_data['NASA_F'].mean()
-            features['hist_std_frustration'] = historical_data['NASA_F'].std()
-            features['hist_max_frustration'] = historical_data['NASA_F'].max()
-            features['hist_min_frustration'] = historical_data['NASA_F'].min()
-            features['hist_total_duration'] = historical_data['Duration'].sum()
-            features['hist_avg_duration'] = historical_data['Duration'].mean()
-            features['hist_activity_changes'] = historical_data['activity_change'].sum()
-            
-            # Fitbit統計特徴量（過去24時間の平均）
-            fitbit_cols = ['lorenz_mean', 'lorenz_std', 'lorenz_min', 'lorenz_max', 
-                          'lorenz_median', 'lorenz_q25', 'lorenz_q75']
-            for col in fitbit_cols:
-                if col in historical_data.columns:
-                    features[f'hist_{col}'] = historical_data[col].mean()
-                else:
-                    features[f'hist_{col}'] = 8000.0
-            
-            # 時間帯別特徴量（過去24時間）
-            for start_hour, end_hour, label in [(0, 6, 'night'), (6, 12, 'morning'), 
-                                              (12, 18, 'afternoon'), (18, 24, 'evening')]:
-                hour_data = historical_data[
-                    (historical_data['hour'] >= start_hour) & 
-                    (historical_data['hour'] < end_hour)
-                ]
-                features[f'hist_{label}_avg_frustration'] = hour_data['NASA_F'].mean() if not hour_data.empty else 10.0
-                features[f'hist_{label}_duration'] = hour_data['Duration'].sum()
-            
-            # NaN値を適切なデフォルト値で置換
-            for key, value in features.items():
-                if pd.isna(value):
-                    if 'frustration' in key:
-                        features[key] = 10.0
-                    elif 'duration' in key:
-                        features[key] = 0.0
-                    elif 'lorenz' in key:
-                        features[key] = 8000.0
-                    else:
-                        features[key] = 0.0
-            
-            return features
-            
-        except Exception as e:
-            logger.error(f"特徴量作成エラー: {e}")
-            return None
-    
     def check_data_quality(self, df_enhanced: pd.DataFrame) -> Dict:
         """
-        学習データの品質と十分性をチェック
+        学習データの品質をチェック
         """
         try:
             data_quality = {
@@ -270,10 +178,9 @@ class FrustrationPredictor:
                 'recommendations': []
             }
 
-            # データ数の評価
             if len(df_enhanced) < 10:
                 data_quality['warnings'].append(f"データ数が不足しています（{len(df_enhanced)}件/最低10件必要）")
-                data_quality['recommendations'].append("より多くの活動データを記録してください。最低10件以上が必要です。")
+                data_quality['recommendations'].append("より多くの活動データを記録してください。")
             elif len(df_enhanced) < 30:
                 data_quality['quality_level'] = 'minimal'
                 data_quality['is_sufficient'] = True
@@ -282,7 +189,6 @@ class FrustrationPredictor:
             elif len(df_enhanced) < 100:
                 data_quality['quality_level'] = 'moderate'
                 data_quality['is_sufficient'] = True
-                data_quality['warnings'].append("データ数は適切ですが、さらに増やすとより正確な予測が可能です。")
             else:
                 data_quality['quality_level'] = 'good'
                 data_quality['is_sufficient'] = True
@@ -290,22 +196,9 @@ class FrustrationPredictor:
             # フラストレーション値の分散チェック
             if 'NASA_F' in df_enhanced.columns:
                 frustration_std = df_enhanced['NASA_F'].std()
-                frustration_unique = df_enhanced['NASA_F'].nunique()
-
                 if frustration_std < 1.0:
-                    data_quality['warnings'].append(f"フラストレーション値のバラつきが小さく、モデルが同じ値を予測する可能性があります（標準偏差: {frustration_std:.2f}）")
+                    data_quality['warnings'].append(f"フラストレーション値のバラつきが小さいです（標準偏差: {frustration_std:.2f}）")
                     data_quality['recommendations'].append("様々な状況での活動データを記録してください。")
-
-                if frustration_unique < 3:
-                    data_quality['warnings'].append(f"フラストレーション値の種類が少なすぎます（{frustration_unique}種類）")
-                    data_quality['recommendations'].append("異なるフラストレーション値を持つデータを追加してください。")
-
-            # 活動の多様性チェック
-            if 'CatSub' in df_enhanced.columns:
-                activity_unique = df_enhanced['CatSub'].nunique()
-                if activity_unique < 3:
-                    data_quality['warnings'].append(f"活動の種類が少なすぎます（{activity_unique}種類）")
-                    data_quality['recommendations'].append("様々な種類の活動データを記録してください。")
 
             return data_quality
 
@@ -319,250 +212,389 @@ class FrustrationPredictor:
                 'recommendations': []
             }
 
-    def walk_forward_validation_train(self, df_enhanced: pd.DataFrame) -> Dict:
+    def train_model(self, df_enhanced: pd.DataFrame) -> Dict:
         """
-        Walk Forward Validationによる学習
-        各行動変更タイミングで、過去24時間のデータで学習し、現在のフラストレーション値を予測
+        モデルを訓練 (webhooktest.py形式のシンプルな実装)
         """
         try:
-            # データ品質チェック
             data_quality = self.check_data_quality(df_enhanced)
 
             if len(df_enhanced) < 10:
-                raise ValueError(f"Walk Forward Validationには最低10個のデータポイントが必要です（現在: {len(df_enhanced)}件）")
-            
-            predictions = []
-            actuals = []
-            training_results = []
-            
-            # 最初の数個のデータポイントはスキップ（履歴不足のため）
-            start_idx = max(5, len(df_enhanced) // 4)  # データの1/4は履歴として使用
-            
-            for i in range(start_idx, len(df_enhanced)):
-                current_activity = df_enhanced.iloc[i]
-                
-                # 行動変更タイミングでない場合はスキップ
-                if current_activity.get('activity_change', 0) == 0:
-                    continue
-                
-                # 訓練用の特徴量とターゲットを準備
-                train_features = []
-                train_targets = []
-                
-                # 過去のデータポイントから訓練データを作成
-                for j in range(max(0, i - 50), i):  # 最大過去50個の行動から学習
-                    features = self.create_features_for_activity(df_enhanced, j)
-                    if features is not None:
-                        train_features.append(features)
-                        train_targets.append(df_enhanced.iloc[j]['NASA_F'])
-                
-                if len(train_features) < 5:  # 最低5個の訓練データが必要
-                    continue
-                
-                # 特徴量データフレームを作成
-                train_df = pd.DataFrame(train_features)
-                train_targets = np.array(train_targets)
-                
-                # 特徴量列を記録
-                if not self.feature_columns:
-                    self.feature_columns = list(train_df.columns)
-                
-                # 不足している特徴量列を0で埋める
-                for col in self.feature_columns:
-                    if col not in train_df.columns:
-                        train_df[col] = 0.0
-                
-                train_df = train_df[self.feature_columns]
-                
-                # モデル学習
-                model = RandomForestRegressor(
-                    n_estimators=50,  # 高速化のため少なめ
-                    max_depth=10,
-                    random_state=self.config.RANDOM_STATE,
-                    n_jobs=1
-                )
-                model.fit(train_df, train_targets)
-                
-                # 現在の行動について予測
-                current_features = self.create_features_for_activity(df_enhanced, i)
-                if current_features is not None:
-                    pred_df = pd.DataFrame([current_features])
-                    
-                    # 不足している特徴量列を0で埋める
-                    for col in self.feature_columns:
-                        if col not in pred_df.columns:
-                            pred_df[col] = 0.0
-                    
-                    pred_df = pred_df[self.feature_columns]
-                    prediction = model.predict(pred_df)[0]
-                    actual = current_activity['NASA_F']
-                    
-                    predictions.append(prediction)
-                    actuals.append(actual)
-                    
-                    # 結果を記録
-                    training_results.append({
-                        'timestamp': current_activity['Timestamp'],
-                        'actual': actual,
-                        'predicted': prediction,
-                        'activity': current_activity.get('CatSub', 'unknown'),
-                        'training_size': len(train_features)
-                    })
-            
-            if len(predictions) == 0:
-                raise ValueError("有効な予測が生成されませんでした")
-            
-            # 最後のモデルを保存
-            self.model = model
-            
-            # 評価メトリクス計算
-            predictions = np.array(predictions)
-            actuals = np.array(actuals)
-            
-            rmse = np.sqrt(mean_squared_error(actuals, predictions))
-            mae = mean_absolute_error(actuals, predictions)
-            r2 = r2_score(actuals, predictions)
-            
-            self.walk_forward_history = training_results
-            
-            # 予測値の多様性チェック
-            prediction_std = np.std(predictions)
-            prediction_unique = len(np.unique(np.round(predictions, 1)))
+                raise ValueError(f"訓練には最低10個のデータが必要です（現在: {len(df_enhanced)}件）")
+
+            # NaN値を含む行を除外
+            required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled']
+            df_clean = df_enhanced.dropna(subset=required_cols)
+
+            if df_clean.empty:
+                raise ValueError("有効なデータがありません。SDNN, Lorenz_Area, NASA_Fがすべて必要です。")
+
+            # 活動カテゴリ列を取得
+            activity_cols = [col for col in df_clean.columns if col.startswith('activity_')]
+            self.activity_columns = activity_cols
+
+            # 曜日列を取得
+            weekday_cols = [col for col in df_clean.columns if col.startswith('weekday_')]
+
+            # 時間特徴量
+            time_features = ['hour_sin', 'hour_cos']
+
+            # 特徴量: webhooktest.py形式
+            feature_list = ['SDNN_scaled', 'Lorenz_Area_scaled'] + activity_cols + time_features + weekday_cols
+            self.feature_columns = feature_list
+
+            # 特徴量とターゲットを抽出
+            X = df_clean[self.feature_columns]
+            y = df_clean['NASA_F_scaled']
+
+            # 訓練/テストデータに分割
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=self.config.RANDOM_STATE)
+
+            # RandomForestモデルを訓練
+            self.model = RandomForestRegressor(
+                n_estimators=100,
+                max_depth=10,
+                random_state=self.config.RANDOM_STATE,
+                n_jobs=-1
+            )
+            self.model.fit(X_train, y_train)
+
+            # 評価
+            train_pred = self.model.predict(X_train)
+            test_pred = self.model.predict(X_test)
+
+            train_rmse = np.sqrt(mean_squared_error(y_train, train_pred))
+            test_rmse = np.sqrt(mean_squared_error(y_test, test_pred))
+            train_r2 = r2_score(y_train, train_pred)
+            test_r2 = r2_score(y_test, test_pred)
 
             results = {
-                'walk_forward_rmse': rmse,
-                'walk_forward_mae': mae,
-                'walk_forward_r2': r2,
-                'total_predictions': len(predictions),
-                'feature_importance': dict(zip(self.feature_columns, model.feature_importances_)),
-                'prediction_history': training_results[-10:],  # 最新10件のみ返す
+                'train_rmse': float(train_rmse),
+                'test_rmse': float(test_rmse),
+                'train_r2': float(train_r2),
+                'test_r2': float(test_r2),
+                'training_samples': len(X_train),
+                'test_samples': len(X_test),
+                'feature_count': len(self.feature_columns),
                 'data_quality': data_quality,
+                'feature_importance': dict(zip(self.feature_columns, self.model.feature_importances_))
+            }
+
+            if self.config.LOG_MODEL_TRAINING:
+                logger.info(f"モデル訓練完了 - Train RMSE: {train_rmse:.4f}, Test RMSE: {test_rmse:.4f}, Train R²: {train_r2:.3f}, Test R²: {test_r2:.3f}")
+
+            return results
+
+        except Exception as e:
+            logger.error(f"モデル訓練エラー: {e}")
+            return {'error': str(e)}
+
+    def walk_forward_validation_train(self, df_enhanced: pd.DataFrame) -> Dict:
+        """
+        Walk Forward Validationによる訓練 (webhooktest.py形式の特徴量)
+        過去のデータで訓練し、現在のデータで評価
+        """
+        try:
+            data_quality = self.check_data_quality(df_enhanced)
+
+            if len(df_enhanced) < 10:
+                raise ValueError(f"Walk Forward Validationには最低10個のデータが必要です（現在: {len(df_enhanced)}件）")
+
+            # NaN値を含む行を除外
+            required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled']
+            df_clean = df_enhanced.dropna(subset=required_cols).copy()
+
+            if df_clean.empty:
+                raise ValueError("有効なデータがありません。SDNN, Lorenz_Area, NASA_Fがすべて必要です。")
+
+            # 活動カテゴリ列を取得
+            activity_cols = [col for col in df_clean.columns if col.startswith('activity_')]
+            self.activity_columns = activity_cols
+
+            # 曜日列を取得
+            weekday_cols = [col for col in df_clean.columns if col.startswith('weekday_')]
+
+            # 時間特徴量
+            time_features = ['hour_sin', 'hour_cos']
+
+            # 特徴量リスト (webhooktest.py形式)
+            feature_list = ['SDNN_scaled', 'Lorenz_Area_scaled'] + activity_cols + time_features + weekday_cols
+            self.feature_columns = feature_list
+
+            # Walk Forward Validation: 過去のデータで訓練、現在を予測
+            predictions = []
+            actuals = []
+
+            # 最初の30%はウォームアップ期間として使用
+            start_idx = max(10, int(len(df_clean) * 0.3))
+
+            for i in range(start_idx, len(df_clean)):
+                # 過去のデータ(i以前)で訓練
+                train_data = df_clean.iloc[:i]
+                X_train = train_data[self.feature_columns]
+                y_train = train_data['NASA_F_scaled']
+
+                # モデル訓練
+                model = RandomForestRegressor(
+                    n_estimators=100,
+                    max_depth=10,
+                    random_state=self.config.RANDOM_STATE,
+                    n_jobs=-1
+                )
+                model.fit(X_train, y_train)
+
+                # 現在(i番目)のデータで予測
+                current_data = df_clean.iloc[i:i+1]
+                X_current = current_data[self.feature_columns]
+                y_current = current_data['NASA_F_scaled'].values[0]
+
+                prediction = model.predict(X_current)[0]
+
+                predictions.append(prediction)
+                actuals.append(y_current)
+
+            if len(predictions) == 0:
+                raise ValueError("有効な予測が生成されませんでした")
+
+            # 最終モデル: 全データで訓練
+            X_all = df_clean[self.feature_columns]
+            y_all = df_clean['NASA_F_scaled']
+
+            self.model = RandomForestRegressor(
+                n_estimators=100,
+                max_depth=10,
+                random_state=self.config.RANDOM_STATE,
+                n_jobs=-1
+            )
+            self.model.fit(X_all, y_all)
+
+            # 評価メトリクス
+            predictions_array = np.array(predictions)
+            actuals_array = np.array(actuals)
+
+            rmse = np.sqrt(mean_squared_error(actuals_array, predictions_array))
+            mae = mean_absolute_error(actuals_array, predictions_array)
+            r2 = r2_score(actuals_array, predictions_array)
+
+            # 予測値の多様性チェック
+            prediction_std = np.std(predictions_array)
+            prediction_unique = len(np.unique(np.round(predictions_array, 2)))
+
+            results = {
+                'walk_forward_rmse': float(rmse),
+                'walk_forward_mae': float(mae),
+                'walk_forward_r2': float(r2),
+                'total_predictions': len(predictions),
+                'training_samples': len(df_clean),
+                'feature_count': len(self.feature_columns),
+                'data_quality': data_quality,
+                'feature_importance': dict(zip(self.feature_columns, self.model.feature_importances_)),
                 'prediction_diversity': {
                     'std': float(prediction_std),
                     'unique_values': int(prediction_unique),
-                    'is_diverse': prediction_std > 1.0 and prediction_unique > 3
+                    'is_diverse': prediction_std > 0.05 and prediction_unique > 3
                 }
             }
 
-            # 予測値が単調な場合の警告
-            if prediction_std < 1.0:
-                logger.warning(f"⚠️ 予測値のバラつきが小さいです（標準偏差: {prediction_std:.2f}）。データ不足またはデータの偏りが原因の可能性があります。")
-
-            if prediction_unique < 3:
-                logger.warning(f"⚠️ 予測値の種類が少なすぎます（{prediction_unique}種類）。モデルが同じ値を繰り返し予測しています。")
-
             if self.config.LOG_MODEL_TRAINING:
-                logger.info(f"Walk Forward Validation完了 - RMSE: {rmse:.2f}, MAE: {mae:.2f}, R²: {r2:.3f}, データ品質: {data_quality['quality_level']}")
+                logger.info(f"Walk Forward Validation完了 - RMSE: {rmse:.4f}, MAE: {mae:.4f}, R²: {r2:.3f}, 予測数: {len(predictions)}")
+
             return results
-            
+
         except Exception as e:
-            logger.error(f"Walk Forward Validation学習エラー: {e}")
-            return {}
-    
-    def predict_frustration_at_activity_change(self, df_enhanced: pd.DataFrame, 
-                                             target_timestamp: datetime = None) -> Dict:
+            logger.error(f"Walk Forward Validation訓練エラー: {e}")
+            return {'error': str(e)}
+
+    def predict_single_activity(self, activity_category: str, duration: int = 60, current_time: datetime = None) -> dict:
         """
-        指定した時刻（行動変更タイミング）でのフラストレーション値を予測
+        単一の活動に対してフラストレーション値を予測 (webhooktest.py形式)
+
+        注意: 履歴データがないため、SDNN_scaled, Lorenz_Area_scaledに固定値を使用します。
+        predict_with_historyの使用を推奨します。
         """
         try:
             if self.model is None:
-                raise ValueError("モデルが学習されていません")
-            
-            if target_timestamp is None:
-                target_timestamp = datetime.now()
-            
-            # 最も近い行動変更タイミングを見つける
-            df_changes = df_enhanced[df_enhanced['activity_change'] == 1].copy()
-            
-            if df_changes.empty:
-                raise ValueError("行動変更タイミングが見つかりません")
-            
-            # 指定時刻に最も近い行動変更を選択
-            df_changes['time_diff'] = abs((df_changes['Timestamp'] - target_timestamp).dt.total_seconds())
-            closest_idx = df_changes['time_diff'].idxmin()
-            
-            # 特徴量を作成
-            original_idx = df_enhanced.index.get_loc(closest_idx)
-            features = self.create_features_for_activity(df_enhanced, original_idx)
-            
-            if features is None:
-                raise ValueError("特徴量の作成に失敗しました")
-            
-            # 予測実行
-            pred_df = pd.DataFrame([features])
-            
-            # 不足している特徴量列を0で埋める
+                return {
+                    'predicted_frustration': np.nan,
+                    'confidence': 0.0,
+                    'error': 'モデルが訓練されていません'
+                }
+
+            if current_time is None:
+                current_time = datetime.now()
+
+            # 特徴量を構築
+            features = {}
+
+            # 時間特徴量
+            hour_rad = 2 * np.pi * current_time.hour / 24
+            features['hour_sin'] = np.sin(hour_rad)
+            features['hour_cos'] = np.cos(hour_rad)
+
+            # 曜日のOne-Hot (現在の曜日のみ1、他は0)
+            weekday_str = current_time.strftime('%a')
+            for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']:
+                features[f'weekday_{day}'] = 1 if weekday_str == day else 0
+
+            # 活動カテゴリのOne-Hot (指定された活動のみ1、他は0)
+            for activity in KNOWN_ACTIVITIES:
+                features[f'activity_{activity}'] = 1 if activity_category == activity else 0
+
+            # 生体情報 (履歴データがないため、訓練データの平均値を使用)
+            # これは推奨されない方法です。predict_with_historyを使用してください。
+            features['SDNN_scaled'] = 0.5
+            features['Lorenz_Area_scaled'] = 0.5
+            logger.warning(f"生体情報に固定値を使用しています。predict_with_historyの使用を推奨します。")
+
+            # DataFrameに変換し、モデルの特徴量順に並べる
+            feature_df = pd.DataFrame([features])
             for col in self.feature_columns:
-                if col not in pred_df.columns:
-                    pred_df[col] = 0.0
-            
-            pred_df = pred_df[self.feature_columns]
-            prediction = self.model.predict(pred_df)[0]
-            
-            # 結果を返す
-            target_activity = df_enhanced.loc[closest_idx]
-            
+                if col not in feature_df.columns:
+                    feature_df[col] = 0.0
+            feature_df = feature_df[self.feature_columns]
+
+            # 予測実行 (0-1スケール)
+            prediction_scaled = self.model.predict(feature_df)[0]
+
+            # 元のスケール (0-20) に戻す
+            prediction = prediction_scaled * 20.0
+
             return {
                 'predicted_frustration': float(prediction),
-                'actual_frustration': float(target_activity['NASA_F']) if pd.notna(target_activity['NASA_F']) else None,
-                'activity': target_activity.get('CatSub', 'unknown'),
-                'timestamp': target_activity['Timestamp'],
-                'duration': target_activity.get('Duration', 0),
-                'confidence': min(0.9, 0.5 + 0.4 * (1 - abs(prediction - 50) / 50)),  # 信頼度の推定
-                'features_used': len(self.feature_columns)
+                'confidence': 0.3,  # 固定値使用のため低信頼度
+                'activity_category': activity_category,
+                'duration': duration,
+                'timestamp': current_time,
+                'used_historical_data': False
             }
-            
+
         except Exception as e:
-            logger.error(f"フラストレーション値予測エラー: {e}")
+            logger.error(f"単一活動予測エラー: {e}")
             return {
-                'predicted_frustration': 50.0,
-                'actual_frustration': None,
-                'activity': 'unknown',
-                'timestamp': target_timestamp,
+                'predicted_frustration': np.nan,
                 'confidence': 0.0,
                 'error': str(e)
             }
-    
-    def get_activity_change_timestamps(self, df_enhanced: pd.DataFrame, 
-                                     hours_back: int = 24) -> List[datetime]:
+
+    def predict_with_history(self, activity_category: str, duration: int, current_time: datetime, historical_data: pd.DataFrame) -> dict:
         """
-        過去指定時間内の行動変更タイミングを取得
+        過去の履歴データを使用して予測 (webhooktest.py形式)
+
+        Args:
+            activity_category: 活動カテゴリ
+            duration: 活動時間（分）
+            current_time: 現在時刻
+            historical_data: 過去のデータ (aggregate_fitbit_by_activityの出力)
+
+        Returns:
+            予測結果
         """
         try:
-            cutoff_time = datetime.now() - timedelta(hours=hours_back)
-            recent_data = df_enhanced[df_enhanced['Timestamp'] >= cutoff_time]
-            
-            change_points = recent_data[recent_data['activity_change'] == 1]['Timestamp'].tolist()
-            return sorted(change_points)
-            
+            if self.model is None:
+                return self.predict_single_activity(activity_category, duration, current_time)
+
+            if historical_data.empty:
+                logger.warning("履歴データが空のため、固定値を使用します")
+                return self.predict_single_activity(activity_category, duration, current_time)
+
+            # 特徴量を構築
+            features = {}
+
+            # 時間特徴量
+            hour_rad = 2 * np.pi * current_time.hour / 24
+            features['hour_sin'] = np.sin(hour_rad)
+            features['hour_cos'] = np.cos(hour_rad)
+
+            # 曜日のOne-Hot
+            weekday_str = current_time.strftime('%a')
+            for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']:
+                features[f'weekday_{day}'] = 1 if weekday_str == day else 0
+
+            # 活動カテゴリのOne-Hot
+            for activity in KNOWN_ACTIVITIES:
+                features[f'activity_{activity}'] = 1 if activity_category == activity else 0
+
+            # 生体情報: 履歴データの平均値を使用
+            if 'SDNN_scaled' in historical_data.columns:
+                sdnn_mean = historical_data['SDNN_scaled'].dropna().mean()
+                features['SDNN_scaled'] = sdnn_mean if not pd.isna(sdnn_mean) else 0.5
+            else:
+                features['SDNN_scaled'] = 0.5
+
+            if 'Lorenz_Area_scaled' in historical_data.columns:
+                lorenz_mean = historical_data['Lorenz_Area_scaled'].dropna().mean()
+                features['Lorenz_Area_scaled'] = lorenz_mean if not pd.isna(lorenz_mean) else 0.5
+            else:
+                features['Lorenz_Area_scaled'] = 0.5
+
+            # DataFrameに変換
+            feature_df = pd.DataFrame([features])
+            for col in self.feature_columns:
+                if col not in feature_df.columns:
+                    feature_df[col] = 0.0
+            feature_df = feature_df[self.feature_columns]
+
+            # 予測実行 (0-1スケール)
+            prediction_scaled = self.model.predict(feature_df)[0]
+
+            # 元のスケール (0-20) に戻す
+            prediction = prediction_scaled * 20.0
+
+            return {
+                'predicted_frustration': float(prediction),
+                'confidence': 0.7,
+                'activity_category': activity_category,
+                'duration': duration,
+                'timestamp': current_time,
+                'used_historical_data': True,
+                'historical_records': len(historical_data)
+            }
+
         except Exception as e:
-            logger.error(f"行動変更タイミング取得エラー: {e}")
-            return []
-    
+            logger.error(f"履歴データを使った予測エラー: {e}")
+            return self.predict_single_activity(activity_category, duration, current_time)
+
+    def get_prediction_confidence(self, prediction: float, features: dict) -> float:
+        """
+        予測の信頼度を計算
+        """
+        try:
+            # 基本信頼度
+            base_confidence = 0.7 if 1 <= prediction <= 20 else 0.3
+
+            # 特徴量の完全性
+            feature_completeness = len([v for v in features.values() if v != 0]) / len(features)
+            completeness_bonus = feature_completeness * 0.2
+
+            confidence = min(0.95, base_confidence + completeness_bonus)
+            return confidence
+
+        except Exception as e:
+            logger.error(f"信頼度計算エラー: {e}")
+            return 0.5
+
     def save_model(self, filepath: str):
-        """モデルと関連データを保存"""
+        """モデルを保存"""
         try:
             model_data = {
                 'model': self.model,
-                'encoders': self.encoders,
                 'feature_columns': self.feature_columns,
-                'walk_forward_history': self.walk_forward_history
+                'activity_columns': self.activity_columns
             }
             joblib.dump(model_data, filepath)
             if self.config.LOG_MODEL_TRAINING:
                 logger.info(f"モデルを保存しました: {filepath}")
         except Exception as e:
             logger.error(f"モデル保存エラー: {e}")
-    
+
     def load_model(self, filepath: str) -> bool:
-        """モデルと関連データを読み込み"""
+        """モデルを読み込み"""
         try:
             if os.path.exists(filepath):
                 model_data = joblib.load(filepath)
                 self.model = model_data['model']
-                self.encoders = model_data['encoders']
                 self.feature_columns = model_data['feature_columns']
-                self.walk_forward_history = model_data.get('walk_forward_history', [])
+                self.activity_columns = model_data.get('activity_columns', [])
                 if self.config.LOG_MODEL_TRAINING:
                     logger.info(f"モデルを読み込みました: {filepath}")
                 return True
@@ -572,354 +604,3 @@ class FrustrationPredictor:
         except Exception as e:
             logger.error(f"モデル読み込みエラー: {e}")
             return False
-    
-    def create_features_for_new_activity(self, activity_category: str, duration: int = 60,
-                                       current_time: datetime = None) -> dict:
-        """
-        新しい活動に対して特徴量を作成（リアルタイム予測用）
-
-        ⚠️ WARNING: この関数は訓練時と異なる特徴量を作成します
-        訓練時は過去24時間の統計を使用しますが、予測時は使用できません
-        そのため、予測値が偏る可能性があります
-        """
-        if current_time is None:
-            current_time = datetime.now()
-
-        # 基本的な時間特徴量
-        features = {
-            'current_duration': duration,
-            'current_hour': current_time.hour,
-            'current_dayofweek': current_time.weekday(),
-            'current_is_weekend': 1 if current_time.weekday() >= 5 else 0
-        }
-
-        # 活動カテゴリーのエンコーディング
-        if hasattr(self, 'encoders') and 'current_activity' in self.encoders:
-            try:
-                # 既知の活動カテゴリで変換を試みる
-                encoded_cat = self.encoders['current_activity'].transform([activity_category])[0]
-                features['current_activity'] = encoded_cat
-            except ValueError:
-                # 未知のカテゴリは'その他'として扱う
-                try:
-                    features['current_activity'] = self.encoders['current_activity'].transform(['その他'])[0]
-                except:
-                    features['current_activity'] = 0
-        else:
-            features['current_activity'] = 0
-
-        # 過去24時間の統計特徴量（デフォルト値）
-        # 注意: 実際の履歴データがないため、平均的な値を使用
-        # これが予測値が偏る主な原因です
-        features['hist_avg_frustration'] = 10.0  # NASA_Fの典型的な平均値
-        features['hist_std_frustration'] = 2.0   # 標準偏差
-        features['hist_max_frustration'] = 15.0
-        features['hist_min_frustration'] = 5.0
-        features['hist_total_duration'] = 600.0  # 10時間分
-        features['hist_avg_duration'] = 60.0
-        features['hist_activity_changes'] = 5
-
-        # Fitbit統計特徴量（過去24時間の平均）
-        # 注意: これらも固定値のため予測が偏ります
-        fitbit_features = {
-            'hist_lorenz_mean': 8000.0,
-            'hist_lorenz_std': 1000.0,
-            'hist_lorenz_min': 6000.0,
-            'hist_lorenz_max': 10000.0,
-            'hist_lorenz_median': 8000.0,
-            'hist_lorenz_q25': 7000.0,
-            'hist_lorenz_q75': 9000.0
-        }
-        features.update(fitbit_features)
-
-        # 時間帯別特徴量（過去24時間）
-        # これらも固定値
-        for period in ['night', 'morning', 'afternoon', 'evening']:
-            features[f'hist_{period}_avg_frustration'] = 10.0
-            features[f'hist_{period}_duration'] = 150.0
-
-        if activity_category:
-            logger.warning(f"⚠️ 予測に固定値の特徴量を使用しています。活動: {activity_category}")
-        else:
-            logger.warning("⚠️ 予測に固定値の特徴量を使用しています。活動: 不明（Noneまたは空）")
-
-        return features
-
-    def predict_with_history(self, activity_category: str, duration: int,
-                            current_time: datetime, historical_data: pd.DataFrame) -> dict:
-        """
-        過去の履歴データを使用して予測（訓練時と同じ方法）
-
-        Args:
-            activity_category: 活動カテゴリ
-            duration: 活動時間（分）
-            current_time: 現在時刻
-            historical_data: 過去のデータ（aggregate_fitbit_by_activityの出力）
-
-        Returns:
-            予測結果
-        """
-        try:
-            if self.model is None:
-                return self.predict_single_activity(activity_category, duration, current_time)
-
-            if historical_data.empty or len(historical_data) < 5:
-                logger.warning("履歴データが不足しているため、簡易予測を使用します")
-                return self.predict_single_activity(activity_category, duration, current_time)
-
-            # 過去24時間のデータを取得（現在時刻より前のデータのみ）
-            lookback_time = current_time - timedelta(hours=24)
-            recent_data = historical_data[
-                (historical_data['Timestamp'] >= lookback_time) &
-                (historical_data['Timestamp'] < current_time)  # 現在時刻より前のみ
-            ]
-
-            if recent_data.empty:
-                # 現在時刻より前の全履歴データを使用
-                recent_data = historical_data[historical_data['Timestamp'] < current_time]
-
-            if recent_data.empty:
-                # それでも空なら簡易予測にフォールバック
-                logger.warning(f"予測時刻 {current_time} より前のデータがありません")
-                return self.predict_single_activity(activity_category, duration, current_time)
-
-            # NASA_Fカラムが存在し、有効な値があるか確認
-            if 'NASA_F' not in recent_data.columns:
-                logger.error("履歴データにNASA_Fカラムがありません")
-                return self.predict_single_activity(activity_category, duration, current_time)
-
-            valid_frustration = recent_data['NASA_F'].dropna()
-            if valid_frustration.empty:
-                logger.warning("履歴データに有効なNASA_F値がありません")
-                return self.predict_single_activity(activity_category, duration, current_time)
-
-            # 特徴量を構築（訓練時と同じ方法、webhooktest.py形式）
-            features = {}
-
-            # 現在の活動の基本特徴量（時間の周期性を追加）
-            features['current_hour'] = current_time.hour
-            hour_rad = 2 * np.pi * current_time.hour / 24
-            features['current_hour_sin'] = np.sin(hour_rad)
-            features['current_hour_cos'] = np.cos(hour_rad)
-            features['current_dayofweek'] = current_time.weekday()
-            features['current_is_weekend'] = 1 if current_time.weekday() >= 5 else 0
-            features['current_duration'] = duration
-
-            # 曜日のOne-Hot特徴量を追加
-            weekday_str = current_time.strftime('%a')
-            weekday_cols = [col for col in historical_data.columns if col.startswith('weekday_')]
-            for col in weekday_cols:
-                # 現在の曜日に対応するカラムのみ1、それ以外は0
-                if f'weekday_{weekday_str}' == col:
-                    features[f'current_{col}'] = 1
-                else:
-                    features[f'current_{col}'] = 0
-
-            # 活動カテゴリのエンコード
-            if 'current_activity' in self.encoders:
-                try:
-                    features['current_activity'] = self.encoders['current_activity'].transform([activity_category])[0]
-                except ValueError:
-                    try:
-                        features['current_activity'] = self.encoders['current_activity'].transform(['その他'])[0]
-                    except:
-                        features['current_activity'] = 0
-            else:
-                features['current_activity'] = 0
-
-            # 過去24時間の統計特徴量（実データを使用）
-            features['hist_avg_frustration'] = float(recent_data['NASA_F'].mean())
-            features['hist_std_frustration'] = float(recent_data['NASA_F'].std()) if len(recent_data) > 1 else 0.0
-            features['hist_max_frustration'] = float(recent_data['NASA_F'].max())
-            features['hist_min_frustration'] = float(recent_data['NASA_F'].min())
-            features['hist_total_duration'] = float(recent_data['Duration'].sum())
-            features['hist_avg_duration'] = float(recent_data['Duration'].mean())
-            features['hist_activity_changes'] = int(recent_data['activity_change'].sum()) if 'activity_change' in recent_data.columns else 0
-
-            if self.config.ENABLE_DEBUG_LOGS:
-                logger.debug(f"予測時刻: {current_time}, 履歴データ数: {len(recent_data)}, "
-                           f"hist_avg_frustration: {features['hist_avg_frustration']:.2f}")
-
-            # Fitbit統計特徴量（実データを使用）
-            fitbit_cols = ['lorenz_mean', 'lorenz_std', 'lorenz_min', 'lorenz_max',
-                          'lorenz_median', 'lorenz_q25', 'lorenz_q75']
-            for col in fitbit_cols:
-                if col in recent_data.columns:
-                    features[f'hist_{col}'] = recent_data[col].mean()
-                else:
-                    features[f'hist_{col}'] = 8000.0
-
-            # 時間帯別特徴量（実データを使用）
-            for start_hour, end_hour, label in [(0, 6, 'night'), (6, 12, 'morning'),
-                                              (12, 18, 'afternoon'), (18, 24, 'evening')]:
-                hour_data = recent_data[
-                    (recent_data['hour'] >= start_hour) &
-                    (recent_data['hour'] < end_hour)
-                ] if 'hour' in recent_data.columns else pd.DataFrame()
-
-                features[f'hist_{label}_avg_frustration'] = hour_data['NASA_F'].mean() if not hour_data.empty else 10.0
-                features[f'hist_{label}_duration'] = hour_data['Duration'].sum() if not hour_data.empty else 0.0
-
-            # NaN値を置換
-            for key, value in features.items():
-                if pd.isna(value):
-                    if 'frustration' in key:
-                        features[key] = 10.0
-                    elif 'duration' in key:
-                        features[key] = 0.0
-                    elif 'lorenz' in key:
-                        features[key] = 8000.0
-                    else:
-                        features[key] = 0.0
-
-            # 予測実行
-            pred_df = pd.DataFrame([features])
-
-            # モデルの特徴量に合わせる
-            for col in self.feature_columns:
-                if col not in pred_df.columns:
-                    pred_df[col] = 0.0
-
-            pred_df = pred_df[self.feature_columns]
-            prediction = self.model.predict(pred_df)[0]
-            confidence = self.get_prediction_confidence(prediction, features)
-
-            return {
-                'predicted_frustration': float(prediction),
-                'confidence': float(confidence),
-                'activity_category': activity_category,
-                'duration': duration,
-                'timestamp': current_time,
-                'features_used': len(self.feature_columns),
-                'used_historical_data': True,
-                'historical_records': len(recent_data)
-            }
-
-        except Exception as e:
-            logger.error(f"履歴データを使った予測エラー: {e}")
-            return self.predict_single_activity(activity_category, duration, current_time)
-
-    def predict_single_activity(self, activity_category: str, duration: int = 60,
-                               current_time: datetime = None) -> dict:
-        """
-        単一の活動に対してフラストレーション値を予測
-        """
-        try:
-            if self.model is None:
-                logger.warning("⚠️ モデルが訓練されていません。デフォルト値を返します。")
-                return {
-                    'predicted_frustration': 10.0,
-                    'confidence': 0.0,
-                    'error': 'モデルが訓練されていません',
-                    'diagnosis': 'モデル未訓練: データが10件以上になると自動訓練されます'
-                }
-
-            # 特徴量作成
-            features = self.create_features_for_new_activity(activity_category, duration, current_time)
-
-            # DataFrameに変換
-            feature_df = pd.DataFrame([features])
-
-            # モデルで使用する特徴量に合わせる
-            for col in self.feature_columns:
-                if col not in feature_df.columns:
-                    feature_df[col] = 0.0
-
-            feature_df = feature_df[self.feature_columns]
-
-            # 予測実行
-            prediction = self.model.predict(feature_df)[0]
-            confidence = self.get_prediction_confidence(prediction, features)
-
-            # デバッグ情報: 予測値の多様性チェック
-            diagnosis = None
-            if hasattr(self, '_last_predictions'):
-                self._last_predictions.append(prediction)
-                if len(self._last_predictions) > 10:
-                    self._last_predictions = self._last_predictions[-10:]
-
-                # 直近10件の予測値の標準偏差をチェック
-                if len(self._last_predictions) >= 5:
-                    pred_std = np.std(self._last_predictions)
-                    if pred_std < 0.5:
-                        diagnosis = f"警告: 予測値の多様性が低い（標準偏差: {pred_std:.3f}）。データの分散不足またはモデルの問題の可能性"
-                        logger.warning(f"⚠️ {diagnosis}")
-            else:
-                self._last_predictions = [prediction]
-
-            result = {
-                'predicted_frustration': float(prediction),
-                'confidence': float(confidence),
-                'activity_category': activity_category,
-                'duration': duration,
-                'timestamp': current_time or datetime.now(),
-                'features_used': len(self.feature_columns)
-            }
-
-            if diagnosis:
-                result['diagnosis'] = diagnosis
-
-            return result
-            
-        except Exception as e:
-            logger.error(f"単一活動予測エラー: {e}")
-            return {
-                'predicted_frustration': 10.0,
-                'confidence': 0.0,
-                'error': str(e)
-            }
-    
-    def predict_frustration_batch(self, activities: List[dict]) -> List[dict]:
-        """
-        複数の活動に対してフラストレーション値をバッチ予測
-        
-        Args:
-            activities: 活動のリスト。各活動は{'sub_category': str, 'duration': int, 'timestamp': datetime}形式
-            
-        Returns:
-            予測結果のリスト
-        """
-        try:
-            if not activities:
-                return []
-                
-            results = []
-            for activity in activities:
-                # 各活動に対して予測実行
-                prediction_result = self.predict_single_activity(
-                    activity_category=activity.get('sub_category', '不明'),
-                    duration=activity.get('duration', 60),
-                    current_time=activity.get('timestamp')
-                )
-                results.append(prediction_result)
-                
-            return results
-            
-        except Exception as e:
-            logger.error(f"バッチ予測エラー: {e}")
-            return []
-    
-    def get_prediction_confidence(self, prediction: float, features: dict) -> float:
-        """
-        予測の信頼度を計算
-        """
-        try:
-            # 基本信頼度（予測値が妥当な範囲内かどうか）
-            base_confidence = 0.7 if 1 <= prediction <= 20 else 0.3
-            
-            # 特徴量の完全性による調整
-            feature_completeness = len([v for v in features.values() if v != 0]) / len(features)
-            completeness_bonus = feature_completeness * 0.2
-            
-            # 時間帯による調整（通常の活動時間帯は信頼度が高い）
-            hour = features.get('hour', 12)
-            time_bonus = 0.1 if 6 <= hour <= 22 else 0.0
-            
-            # 最終信頼度計算
-            confidence = min(0.95, base_confidence + completeness_bonus + time_bonus)
-            
-            return confidence
-            
-        except Exception as e:
-            logger.error(f"信頼度計算エラー: {e}")
-            return 0.5

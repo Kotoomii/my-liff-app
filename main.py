@@ -404,27 +404,15 @@ def predict_activity_frustration():
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
 
         if activity_data.empty:
-            # 初回利用時のデフォルト予測値を返す
-            default_frustration = 10.0  # 1-20スケールの中間値
+            # データ不足のため予測不可
             return jsonify({
-                'status': 'success',
+                'status': 'error',
+                'message': 'データがありません。活動データを記録してください。',
                 'user_id': user_id,
-                'predicted_frustration': default_frustration,
                 'activity': activity_category,
                 'duration': duration,
-                'confidence': 0.0,
-                'is_new_user': True,
-                'message': '初回利用のためデフォルト値を返しました',
-                'warning': {
-                    'message': '新規ユーザーです。データが蓄積されるまで予測精度は低くなります。',
-                    'recommendations': [
-                        '活動データを継続的に記録してください。',
-                        '最低10件以上のデータで予測が可能になります。',
-                        '30件以上のデータで精度が大幅に向上します。'
-                    ]
-                },
                 'timestamp': timestamp.isoformat()
-            })
+            }), 400
 
         # データ前処理とモデル学習
         activity_processed = predictor.preprocess_activity_data(activity_data)
@@ -616,8 +604,6 @@ def generate_daily_dice_schedule():
                     actual_activity = hour_activities.iloc[0]
                     actual_frustration = actual_activity.get('NASA_F', 10.0)
                     
-                    # シンプルな提案（デフォルト）
-                    suggested_activity = 'リラックス' if actual_activity['CatSub'] == '仕事' else '軽い運動'
                 
                 # その時間のスケジュール情報
                 hour_info = {
@@ -1755,45 +1741,22 @@ def get_tablet_data(user_id):
 # ===== HELPER FUNCTIONS =====
 
 def get_user_config(user_id: str) -> Dict:
-    """ユーザー設定を取得"""
-    # main.pyのusers配列と同じ設定を取得
-    users_config = [
-        {
-            'user_id': 'default', 
-            'name': 'デフォルトユーザー', 
-            'icon': '👤',
-            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d337f',
-            'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
-        },
-        {
-            'user_id': 'user1', 
-            'name': 'ユーザー1', 
-            'icon': '👨',
-            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33',
-            'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
-        },
-        {
-            'user_id': 'user2', 
-            'name': 'ユーザー2', 
-            'icon': '👩',
-            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33',
-            'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
-        },
-        {
-            'user_id': 'user3', 
-            'name': 'ユーザー3', 
-            'icon': '🧑',
-            'activity_sheet': 'Ua06e990fd6d5f4646615595d4e8d33',
-            'fitbit_sheet': 'kotoomi_Fitbit-data-kotomi'
-        },
-    ]
-    
-    for user in users_config:
+    """
+    ユーザー設定を取得
+    Config.pyから設定を取得するように変更
+    """
+    config = Config()
+    users = config.get_all_users()
+
+    for user in users:
         if user['user_id'] == user_id:
             return user
-    
-    # デフォルトを返す
-    return users_config[0]
+
+    # 見つからない場合は最初のユーザーを返す
+    if users:
+        return users[0]
+
+    return {'user_id': user_id, 'name': user_id}
 
 def daily_dice_scheduler():
     """毎日21:00にDiCE改善提案を生成するスケジューラー"""
@@ -1884,10 +1847,8 @@ def data_monitor_loop():
 
     check_interval = 600  # 600秒（10分）ごとにチェック
     
-    # 全ユーザーのリストを取得（デフォルトユーザーのみ利用可能）
-    users_config = [
-        {'user_id': 'default', 'name': 'デフォルトユーザー'},
-    ]
+    # 全ユーザーのリストをConfigから取得
+    users_config = config.get_all_users()
 
     while data_monitor_running:
         try:
