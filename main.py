@@ -85,6 +85,9 @@ scheduler = FeedbackScheduler()
 # ユーザーごとのモデル管理
 user_predictors = {}  # {user_id: FrustrationPredictor}
 
+# アプリケーション初期化フラグ
+_app_initialized = False
+
 def get_predictor(user_id: str) -> FrustrationPredictor:
     """
     ユーザーごとのpredictorを取得（存在しない場合は作成）
@@ -2120,12 +2123,15 @@ def data_monitor_loop():
             time.sleep(check_interval)
 
 def initialize_application():
-    """アプリケーション初期化"""
-    global dice_scheduler_thread, dice_scheduler_running, data_monitor_thread, data_monitor_running, user_predictors
+    """アプリケーション初期化（一度だけ実行）"""
+    global dice_scheduler_thread, dice_scheduler_running, data_monitor_thread, data_monitor_running, user_predictors, _app_initialized
+
+    # 既に初期化済みの場合はスキップ
+    if _app_initialized:
+        return
 
     try:
-        if config.ENABLE_INFO_LOGS:
-            logger.info("アプリケーションを初期化しています...")
+        logger.info("アプリケーションを初期化しています...")
 
         # 既存のモデルをクリア（KNOWN_ACTIVITIESの更新などに対応）
         if user_predictors:
@@ -2151,8 +2157,8 @@ def initialize_application():
         if config.ENABLE_INFO_LOGS:
             logger.info("データ更新監視スレッドを開始しました (10分ごとにチェック)")
 
-        if config.ENABLE_INFO_LOGS:
-            logger.info("アプリケーション初期化完了")
+        _app_initialized = True
+        logger.info("アプリケーション初期化完了")
     except Exception as e:
         logger.error(f"アプリケーション初期化エラー: {e}")
 
@@ -2244,15 +2250,16 @@ def cleanup_application():
     except Exception as e:
         logger.error(f"アプリケーション終了エラー: {e}")
 
+# Gunicorn/Cloud Run用: モジュールインポート時に初期化
+# __name__ == '__main__' の外で実行されるため、本番環境でも動作する
+initialize_application()
+
 if __name__ == '__main__':
     try:
-        # アプリケーション初期化
-        initialize_application()
-        
-        # 開発サーバー起動
+        # 開発サーバー起動（本番ではGunicornが使われるのでこのブロックは実行されない）
         port = int(os.environ.get('PORT', 8080))
         app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
-        
+
     except KeyboardInterrupt:
         if config.ENABLE_INFO_LOGS:
             logger.info("キーボード割り込みによる終了")
