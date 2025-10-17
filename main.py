@@ -2121,11 +2121,16 @@ def data_monitor_loop():
 
 def initialize_application():
     """アプリケーション初期化"""
-    global dice_scheduler_thread, dice_scheduler_running, data_monitor_thread, data_monitor_running
+    global dice_scheduler_thread, dice_scheduler_running, data_monitor_thread, data_monitor_running, user_predictors
 
     try:
         if config.ENABLE_INFO_LOGS:
             logger.info("アプリケーションを初期化しています...")
+
+        # 既存のモデルをクリア（KNOWN_ACTIVITIESの更新などに対応）
+        if user_predictors:
+            logger.info("既存のモデルをクリアしました。次回アクセス時に新しいKNOWN_ACTIVITIESで再訓練されます。")
+            user_predictors.clear()
 
         # スケジューラー開始
         scheduler.start_scheduler()
