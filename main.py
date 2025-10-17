@@ -2131,34 +2131,32 @@ def initialize_application():
         return
 
     try:
-        logger.info("アプリケーションを初期化しています...")
+        # 初期化開始ログ（常に出力）
+        logger.warning("🚀 アプリケーションを初期化しています...")
 
         # 既存のモデルをクリア（KNOWN_ACTIVITIESの更新などに対応）
         if user_predictors:
-            logger.info("既存のモデルをクリアしました。次回アクセス時に新しいKNOWN_ACTIVITIESで再訓練されます。")
+            logger.warning("🔄 既存のモデルをクリアしました。次回アクセス時に新しいKNOWN_ACTIVITIESで再訓練されます。")
             user_predictors.clear()
 
         # スケジューラー開始
         scheduler.start_scheduler()
-        if config.ENABLE_INFO_LOGS:
-            logger.info("定期フィードバックスケジューラーを開始しました")
+        logger.warning("✅ 定期フィードバックスケジューラーを開始しました")
 
         # DiCE daily scheduler開始
         dice_scheduler_running = True
         dice_scheduler_thread = threading.Thread(target=daily_dice_scheduler, daemon=True)
         dice_scheduler_thread.start()
-        if config.ENABLE_INFO_LOGS:
-            logger.info("DiCE日次スケジューラーを開始しました (毎日21:00実行)")
+        logger.warning("✅ DiCE日次スケジューラーを開始しました (毎日21:00実行)")
 
         # データ更新監視スレッド開始
         data_monitor_running = True
         data_monitor_thread = threading.Thread(target=data_monitor_loop, daemon=True)
         data_monitor_thread.start()
-        if config.ENABLE_INFO_LOGS:
-            logger.info("データ更新監視スレッドを開始しました (10分ごとにチェック)")
+        logger.warning("✅ データ更新監視スレッドを開始しました (10分ごとにチェック)")
 
         _app_initialized = True
-        logger.info("アプリケーション初期化完了")
+        logger.warning("🎉 アプリケーション初期化完了")
     except Exception as e:
         logger.error(f"アプリケーション初期化エラー: {e}")
 
