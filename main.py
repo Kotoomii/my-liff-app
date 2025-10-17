@@ -569,13 +569,20 @@ def generate_daily_dice_schedule():
         # データ前処理とモデル学習
         activity_processed = predictor.preprocess_activity_data(activity_data)
         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-        
-        if len(df_enhanced) > 5:
-            predictor.walk_forward_validation_train(df_enhanced)
-        
+
+        # モデルが訓練されていることを確認（DiCE実行前に必須）
+        training_result = ensure_model_trained(user_id)
+        if training_result.get('status') not in ['success', 'already_trained']:
+            return jsonify({
+                'status': 'error',
+                'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
+                'user_id': user_id,
+                'training_result': training_result
+            }), 400
+
         # 1時間ごとのスケジュール提案を生成（DiCE方式）
         dice_result = explainer.generate_hourly_alternatives(
-            activity_data, 
+            df_enhanced,  # 前処理済みデータを渡す
             predictor,
             target_date
         )
