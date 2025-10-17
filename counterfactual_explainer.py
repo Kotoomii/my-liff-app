@@ -154,6 +154,10 @@ class ActivityCounterfactualExplainer:
             if 'hour_cos' in train_data.columns:
                 time_features.append('hour_cos')
             weekday_cols = [col for col in train_data.columns if col.startswith('weekday_')]
+            # DiCEはint/float型のみ受け付けるため、bool型をint型に変換
+            for col in weekday_cols:
+                if train_data[col].dtype == bool:
+                    train_data[col] = train_data[col].astype(int)
             time_features.extend(weekday_cols)
 
             # フラストレーション値のスケーリング
@@ -213,6 +217,11 @@ class ActivityCounterfactualExplainer:
                         current_instance[col] = 1 if col == current_cat_sub else 0
                     else:
                         current_instance[col] = 0
+
+            # DiCEはint/float型のみ受け付けるため、bool型をint型に変換
+            for col in weekday_cols:
+                if col in current_instance.columns and current_instance[col].dtype == bool:
+                    current_instance[col] = current_instance[col].astype(int)
 
             query_instance = current_instance[feature_cols]
 
