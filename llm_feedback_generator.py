@@ -32,10 +32,10 @@ class LLMFeedbackGenerator:
             # Cloud Run環境の場合はSecret Managerから取得
             if self.config.IS_CLOUD_RUN:
                 try:
-                    from google.cloud import secretmanager
+                    from google.cloud.secretmanager import SecretManagerServiceClient
 
                     # Secret Managerクライアントを作成
-                    client = secretmanager.SecretManagerServiceClient()
+                    client = SecretManagerServiceClient()
 
                     # プロジェクトIDを環境変数から取得
                     project_id = os.environ.get('GCP_PROJECT_ID', os.environ.get('GOOGLE_CLOUD_PROJECT', ''))
