@@ -1,0 +1,15 @@
+{
+  "user_id": "default",
+  "type": "morning_feedback",
+  "generated_at": "2025-10-03T08:14:53.650539",
+  "briefing": {
+    "type": "morning_briefing",
+    "main_feedback": "おはようございます！今日も健康的で快適な一日を過ごしましょう。",
+    "key_recommendations": [
+      "規則正しい生活リズムを心がけましょう"
+    ],
+    "confidence": 0.3
+  },
+  "dice_analysis": [],
+  "fallback": true
+}

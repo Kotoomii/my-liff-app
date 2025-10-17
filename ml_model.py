@@ -531,8 +531,15 @@ class FrustrationPredictor:
                 features[f'activity_{activity}'] = 1 if activity_category == activity else 0
 
             # 生体情報: 履歴データの平均値を使用
+            logger.info(f"App予測: ===== predict_with_history開始 =====")
+            logger.info(f"App予測: activity_category = {activity_category}")
+            logger.info(f"App予測: duration = {duration}")
+            logger.info(f"App予測: current_time = {current_time}")
+            logger.info(f"App予測: historical_data.shape = {historical_data.shape}")
+
             if 'SDNN_scaled' in historical_data.columns:
                 sdnn_mean = historical_data['SDNN_scaled'].dropna().mean()
+                logger.info(f"App予測: SDNN_scaled平均値 = {sdnn_mean}")
                 if pd.isna(sdnn_mean):
                     logger.error("SDNN_scaledの有効なデータがありません")
                     return {
@@ -559,6 +566,7 @@ class FrustrationPredictor:
 
             if 'Lorenz_Area_scaled' in historical_data.columns:
                 lorenz_mean = historical_data['Lorenz_Area_scaled'].dropna().mean()
+                logger.info(f"App予測: Lorenz_Area_scaled平均値 = {lorenz_mean}")
                 if pd.isna(lorenz_mean):
                     logger.error("Lorenz_Area_scaledの有効なデータがありません")
                     return {
@@ -590,11 +598,25 @@ class FrustrationPredictor:
                     feature_df[col] = 0
             feature_df = feature_df[self.feature_columns]
 
+            logger.info(f"App予測: feature_df shape = {feature_df.shape}")
+            logger.info(f"App予測: feature_df の主要な値:")
+            for col in ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']:
+                if col in feature_df.columns:
+                    logger.info(f"  - {col} = {feature_df[col].iloc[0]}")
+
             # 予測実行 (0-1スケール)
+            logger.info("App予測: ===== モデル予測を実行します =====")
+            logger.info(f"App予測: self.model のタイプ = {type(self.model)}")
+
             prediction_scaled = self.model.predict(feature_df)[0]
+
+            logger.info(f"App予測: モデル予測結果（スケール済み 0-1）= {prediction_scaled}")
 
             # 元のスケール (0-20) に戻す
             prediction = prediction_scaled * 20.0
+
+            logger.info(f"App予測: スケール変換（×20）後のF値 = {prediction}")
+            logger.info(f"App予測: ===== モデル予測完了 =====")
 
             # NaN/Infのバリデーション
             if np.isnan(prediction) or np.isinf(prediction):

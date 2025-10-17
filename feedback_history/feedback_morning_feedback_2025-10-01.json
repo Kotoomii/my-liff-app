@@ -1,0 +1,37 @@
+{
+  "user_id": "default",
+  "type": "morning_feedback",
+  "generated_at": "2025-10-01T07:38:28.146564",
+  "date": "2025-09-30",
+  "briefing": {
+    "type": "morning_briefing",
+    "generated_at": "2025-10-01T07:38:28.146562",
+    "yesterday_summary": {
+      "total_improvement_potential": 0,
+      "total_opportunities": 0,
+      "average_improvement": 0.0,
+      "best_improvement_time_period": [
+        "朝",
+        0
+      ],
+      "time_period_breakdown": {
+        "朝": 0,
+        "午後": 0,
+        "夕方": 0,
+        "夜": 0
+      },
+      "top_problematic_activities": [],
+      "top_recommended_activities": [],
+      "activity_improvements": {},
+      "overall_stress_level": "low"
+    },
+    "main_feedback": "今日もお疲れ様でした。ストレス管理において、小さな変化の積み重ねが大きな違いを生み出します。十分な休息を取り、好きな活動でリラックスする時間を大切にしてください。明日はより快適な一日になることを願っています。",
+    "schedule_advice": [],
+    "key_recommendations": [
+      "今日も健康的な一日を過ごしましょう"
+    ],
+    "confidence": 0.3
+  },
+  "dice_analysis": [],
+  "model_performance": {}
+}

@@ -77,13 +77,46 @@ class ActivityCounterfactualExplainer:
         DiCEを使用して反実仮想例を生成 (webhooktest.py形式のシンプルな実装)
         """
         try:
+            # ===== デバッグ開始: 値の出所を追跡 =====
+            logger.info(f"DiCE: activity_idx = {activity_idx}")
+            logger.info(f"DiCE: 対象行のインデックス = {df_enhanced.index[activity_idx]}")
+
+            # 対象行の全データを確認
+            target_row = df_enhanced.iloc[activity_idx]
+            logger.info(f"DiCE: 対象行のCatSub = {target_row.get('CatSub', 'N/A')}")
+            logger.info(f"DiCE: 対象行のTimestamp = {target_row.get('Timestamp', 'N/A')}")
+
+            # NASA_F値が存在するか確認（実測値）
+            if 'NASA_F' in target_row.index:
+                logger.info(f"DiCE: 対象行のNASA_F（実測値）= {target_row['NASA_F']}")
+            else:
+                logger.info("DiCE: 対象行にNASA_F列は存在しません")
+
+            if 'NASA_F_scaled' in target_row.index:
+                logger.info(f"DiCE: 対象行のNASA_F_scaled（実測値スケール済み）= {target_row['NASA_F_scaled']}")
+            else:
+                logger.info("DiCE: 対象行にNASA_F_scaled列は存在しません")
+
             # 現在の活動のフラストレーション値をモデルで予測
             # クエリインスタンスを準備
             query_features = df_enhanced.iloc[[activity_idx]][predictor.feature_columns]
 
             # デバッグ: query_featuresの内容を確認
-            logger.info(f"DiCE query_features shape: {query_features.shape}")
-            logger.info(f"DiCE query_features columns: {query_features.columns.tolist()}")
+            logger.info(f"DiCE: query_features shape: {query_features.shape}")
+            logger.info(f"DiCE: query_features columns: {query_features.columns.tolist()}")
+            logger.info(f"DiCE: query_features の主要な値:")
+            for col in ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour', 'weekday']:
+                if col in query_features.columns:
+                    logger.info(f"  - {col} = {query_features[col].iloc[0]}")
+
+            # アクティビティカテゴリを確認
+            activity_cols = [col for col in query_features.columns if col.startswith('activity_')]
+            active_activity = None
+            for col in activity_cols:
+                if query_features[col].iloc[0] == 1:
+                    active_activity = col.replace('activity_', '')
+                    break
+            logger.info(f"DiCE: 選択されている活動カテゴリ = {active_activity if active_activity else 'なし'}")
 
             # 重要な生体情報カラムのNaNチェック
             critical_cols = ['SDNN_scaled', 'Lorenz_Area_scaled']
@@ -102,7 +135,12 @@ class ActivityCounterfactualExplainer:
                             return None
 
             # モデルで予測（スケーリング後の値: 0-1）
+            logger.info("DiCE: ===== モデル予測を実行します =====")
+            logger.info(f"DiCE: predictor.model のタイプ = {type(predictor.model)}")
+
             current_frustration_scaled = predictor.model.predict(query_features)[0]
+
+            logger.info(f"DiCE: モデル予測結果（スケール済み 0-1）= {current_frustration_scaled}")
 
             if np.isnan(current_frustration_scaled) or np.isinf(current_frustration_scaled):
                 logger.warning(f"予測値が不正です (NaN/Inf): {current_frustration_scaled}")
@@ -111,6 +149,9 @@ class ActivityCounterfactualExplainer:
 
             # スケール戻し（0-1 → 1-20）
             current_frustration = current_frustration_scaled * 20.0
+
+            logger.info(f"DiCE: スケール変換（×20）後のF値 = {current_frustration}")
+            logger.info(f"DiCE: ===== モデル予測完了 =====")
 
             # 訓練データを準備: NaN値を除外
             required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled']

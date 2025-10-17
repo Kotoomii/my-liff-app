@@ -1,0 +1,19 @@
+{
+  "user_id": "default",
+  "type": "evening_feedback",
+  "generated_at": "2025-10-14T22:09:47.181519",
+  "date": "2025-10-14",
+  "summary": {
+    "type": "evening_summary",
+    "main_feedback": "今日もお疲れさまでした。ゆっくり休んで、明日に備えてください。",
+    "achievements": [
+      "今日も一日お疲れさまでした"
+    ],
+    "tomorrow_recommendations": [
+      "明日も健康的な一日を過ごしてください"
+    ],
+    "confidence": 0.3
+  },
+  "dice_analysis": [],
+  "fallback": true
+}
