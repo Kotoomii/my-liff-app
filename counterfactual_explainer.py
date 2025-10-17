@@ -122,14 +122,33 @@ class ActivityCounterfactualExplainer:
             # クエリインスタンスを準備
             query_instance = df_enhanced.iloc[[activity_idx]][predictor.feature_columns]
 
-            # 現在のフラストレーション値より低い範囲を目標とする
-            desired_max = max(0.0, current_frustration_scaled - 0.05)
+            # F値は1-20の範囲 → スケーリング後は0.05-1.0
+            # desired_rangeは現在値より低い範囲を目標とするが、実現可能性を考慮して範囲を設定
+
+            # 最小値は0.05（F値=1に相当）
+            min_frustration_scaled = 0.05
+
+            # 目標最大値: 現在値より少なくとも0.1低い値を目指す（F値で2点の改善）
+            # ただし、範囲が狭すぎると反実仮想例が見つからないため、適切な幅を確保
+            desired_max = max(min_frustration_scaled, current_frustration_scaled - 0.1)
+
+            # 現在値が既に低い場合（F値≦5、つまりscaled≦0.25）は範囲を調整
+            if current_frustration_scaled <= 0.25:
+                # 既に低い場合は、現在値の80%を目標最大値とする
+                desired_max = max(min_frustration_scaled, current_frustration_scaled * 0.8)
+                logger.info(f"DiCE: 現在のF値が低いため目標を調整 [{min_frustration_scaled:.3f}, {desired_max:.3f}] (元F値: {current_frustration:.2f})")
+
+            # 範囲の妥当性チェック
+            if desired_max <= min_frustration_scaled:
+                desired_max = min_frustration_scaled + 0.05  # 最低限の範囲を確保
+
+            logger.info(f"DiCE実行: 現在F値={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲=[{min_frustration_scaled:.3f}, {desired_max:.3f}]")
 
             # DiCEで反実仮想例を生成
             dice_exp = exp.generate_counterfactuals(
                 query_instances=query_instance,
-                total_CFs=3,
-                desired_range=[0.0, desired_max],
+                total_CFs=5,  # 複数の候補を生成
+                desired_range=[min_frustration_scaled, desired_max],  # 有効な範囲を指定
                 features_to_vary=activity_cols  # 活動カテゴリのみ変更
             )
 
@@ -140,39 +159,53 @@ class ActivityCounterfactualExplainer:
                 logger.warning("DiCEが反実仮想例を生成できませんでした")
                 return None
 
-            # 最良の反実仮想例を選択
-            cf_row = cf_df.iloc[0]
-
-            # 変更された活動カテゴリを特定
+            # 元の活動カテゴリを特定
             original_activity_name = activity.get('CatSub', 'unknown')
 
-            # 反実仮想例の活動カテゴリを取得
-            suggested_activity_name = None
-            for activity_name in KNOWN_ACTIVITIES:
-                col_name = f'activity_{activity_name}'
-                if col_name in cf_row.index and cf_row[col_name] == 1:
-                    suggested_activity_name = activity_name
-                    break
+            # 全ての反実仮想例を評価し、最良の改善案を選択
+            best_result = None
+            best_improvement = 0
 
-            if suggested_activity_name is None:
-                suggested_activity_name = 'unknown'
+            for idx, cf_row in cf_df.iterrows():
+                # 反実仮想例の活動カテゴリを取得
+                suggested_activity_name = None
+                for activity_name in KNOWN_ACTIVITIES:
+                    col_name = f'activity_{activity_name}'
+                    if col_name in cf_row.index and cf_row[col_name] == 1:
+                        suggested_activity_name = activity_name
+                        break
 
-            # 改善効果を計算
-            alternative_frustration_scaled = cf_row.get('NASA_F_scaled', current_frustration_scaled)
-            alternative_frustration = alternative_frustration_scaled * 20.0
-            improvement = current_frustration - alternative_frustration
+                if suggested_activity_name is None:
+                    suggested_activity_name = 'unknown'
 
-            if improvement > 0 and suggested_activity_name != original_activity_name:
-                return {
-                    'original_activity': original_activity_name,
-                    'suggested_activity': suggested_activity_name,
-                    'original_frustration': current_frustration,
-                    'predicted_frustration': alternative_frustration,
-                    'improvement': improvement,
-                    'confidence': min(0.9, 0.6 + 0.3 * (improvement / 6))
-                }
+                # 活動が変わっていない場合はスキップ
+                if suggested_activity_name == original_activity_name:
+                    continue
 
-            return None
+                # 改善効果を計算
+                alternative_frustration_scaled = cf_row.get('NASA_F_scaled', current_frustration_scaled)
+                alternative_frustration = alternative_frustration_scaled * 20.0
+                improvement = current_frustration - alternative_frustration
+
+                # 改善が見られ、かつ最良の結果の場合に採用
+                # 最低0.5点（スケールで0.025）の改善を要求
+                if improvement > 0.5 and improvement > best_improvement:
+                    best_improvement = improvement
+                    best_result = {
+                        'original_activity': original_activity_name,
+                        'suggested_activity': suggested_activity_name,
+                        'original_frustration': current_frustration,
+                        'predicted_frustration': alternative_frustration,
+                        'improvement': improvement,
+                        'confidence': min(0.9, 0.6 + 0.3 * (improvement / 6))
+                    }
+
+            if best_result:
+                logger.info(f"DiCE成功: {best_result['original_activity']} → {best_result['suggested_activity']} (改善: {best_improvement:.2f}点)")
+                return best_result
+            else:
+                logger.warning(f"DiCE: 有意な改善案が見つかりませんでした（元の活動: {original_activity_name}, 現在F値: {current_frustration:.2f}）")
+                return None
 
         except Exception as e:
             logger.error(f"DiCE反実仮想例生成エラー: {e}", exc_info=True)
