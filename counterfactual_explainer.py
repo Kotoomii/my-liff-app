@@ -187,6 +187,19 @@ class ActivityCounterfactualExplainer:
             activity_cols = [col for col in predictor.feature_columns if col.startswith('activity_')]
             continuous_features = [col for col in predictor.feature_columns if col not in activity_cols]
 
+            # デバッグ: features_to_varyの内容を確認
+            logger.info(f"DiCE: predictor.feature_columns数 = {len(predictor.feature_columns)}")
+            logger.info(f"DiCE: activity_cols（変更可能な列）数 = {len(activity_cols)}")
+            logger.info(f"DiCE: continuous_features（固定列）数 = {len(continuous_features)}")
+            if len(activity_cols) <= 10:
+                logger.info(f"DiCE: activity_cols = {activity_cols}")
+            else:
+                logger.info(f"DiCE: activity_cols（最初の10個） = {activity_cols[:10]}")
+
+            if len(activity_cols) == 0:
+                logger.error("DiCE: activity_colsが空です！活動カテゴリ列が見つかりません")
+                return None
+
             dice_data = pd.concat([X_train, y_train], axis=1)
             d = dice_ml.Data(
                 dataframe=dice_data,
