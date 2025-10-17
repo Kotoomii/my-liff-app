@@ -42,7 +42,14 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(log_obj)
 
 # ログレベル設定
-log_level = getattr(logging, config.LOG_LEVEL.upper(), logging.WARNING)
+# デバッグ用：一時的にINFOレベルに設定（DiCEとApp予測の調査のため）
+log_level_str = os.environ.get('LOG_LEVEL', config.LOG_LEVEL)
+if log_level_str == 'WARNING' and not config.IS_CLOUD_RUN:
+    # ローカル環境では自動的にINFOレベルにしてデバッグログを表示
+    log_level = logging.INFO
+    print("⚠️ デバッグモード: ログレベルをINFOに設定しました")
+else:
+    log_level = getattr(logging, log_level_str.upper(), logging.WARNING)
 
 # Cloud Run環境では構造化ログを使用
 if config.IS_CLOUD_RUN:
