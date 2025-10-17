@@ -185,16 +185,19 @@ class ActivityCounterfactualExplainer:
             # DiCEデータオブジェクトを作成
             # 活動カテゴリ列のみを変更可能にする
             activity_cols = [col for col in predictor.feature_columns if col.startswith('activity_')]
-            continuous_features = [col for col in predictor.feature_columns if col not in activity_cols]
+
+            # webhooktest.py形式: 生体情報と時間特徴量をcontinuousに指定
+            # 曜日はcategoricalとして扱う（continuous_featuresに含めない）
+            continuous_features = ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
 
             # デバッグ: features_to_varyの内容を確認
             logger.info(f"DiCE: predictor.feature_columns数 = {len(predictor.feature_columns)}")
             logger.info(f"DiCE: activity_cols（変更可能な列）数 = {len(activity_cols)}")
-            logger.info(f"DiCE: continuous_features（固定列）数 = {len(continuous_features)}")
+            logger.info(f"DiCE: continuous_features（固定列） = {continuous_features}")
             if len(activity_cols) <= 10:
-                logger.info(f"DiCE: activity_cols = {activity_cols}")
+                logger.info(f"DiCE: activity_cols（サンプル） = {activity_cols[:10] if len(activity_cols) > 10 else activity_cols}")
             else:
-                logger.info(f"DiCE: activity_cols（最初の10個） = {activity_cols[:10]}")
+                logger.info(f"DiCE: activity_cols数が多いため、最初の10個のみ表示 = {activity_cols[:10]}")
 
             if len(activity_cols) == 0:
                 logger.error("DiCE: activity_colsが空です！活動カテゴリ列が見つかりません")
