@@ -138,8 +138,30 @@ def ensure_model_trained(user_id: str, force_retrain: bool = False) -> dict:
     # モデル訓練
     try:
         training_results = predictor.walk_forward_validation_train(df_enhanced)
+
+        # 訓練結果にエラーが含まれていないかチェック
+        if 'error' in training_results:
+            logger.error(f"モデル訓練失敗: user_id={user_id}, error={training_results['error']}")
+            return {
+                'status': 'error',
+                'message': f"訓練失敗: {training_results['error']}",
+                'user_id': user_id,
+                'data_quality': data_quality
+            }
+
+        # モデルが正常に初期化されたか最終確認
+        if predictor.model is None:
+            logger.error(f"モデル訓練後もmodelがNoneです: user_id={user_id}")
+            return {
+                'status': 'error',
+                'message': 'モデルの初期化に失敗しました',
+                'user_id': user_id,
+                'data_quality': data_quality
+            }
+
         logger.info(f"モデル訓練完了: user_id={user_id}, "
-                   f"RMSE={training_results.get('walk_forward_rmse', 0):.2f}")
+                   f"RMSE={training_results.get('walk_forward_rmse', 0):.4f}, "
+                   f"R²={training_results.get('walk_forward_r2', 0):.3f}")
         return {
             'status': 'success',
             'message': 'モデル訓練完了',
@@ -149,7 +171,7 @@ def ensure_model_trained(user_id: str, force_retrain: bool = False) -> dict:
             'data_quality': data_quality
         }
     except Exception as e:
-        logger.error(f"モデル訓練エラー: user_id={user_id}, error={e}")
+        logger.error(f"モデル訓練エラー: user_id={user_id}, error={e}", exc_info=True)
         return {
             'status': 'error',
             'message': f'訓練エラー: {str(e)}',
@@ -1948,7 +1970,19 @@ def run_daily_dice_for_user(user_id: str):
         # ユーザーごとのpredictorを取得
         predictor = get_predictor(user_id)
 
-        # モデルが訓練されていることを確認
+        # モデルが訓練されていることを確認（ensure_model_trainedを使用）
+        training_result = ensure_model_trained(user_id, force_retrain=True)
+
+        if training_result['status'] not in ['success', 'already_trained']:
+            logger.warning(f"ユーザー {user_id} のモデル訓練失敗: {training_result.get('message')}")
+            return None
+
+        # モデルが初期化されているか最終確認
+        if predictor.model is None:
+            logger.error(f"ユーザー {user_id} のモデルが初期化されていません")
+            return None
+
+        # データを再取得（訓練後の最新データ）
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
 
@@ -1956,17 +1990,10 @@ def run_daily_dice_for_user(user_id: str):
             logger.warning(f"ユーザー {user_id} の活動データが見つかりません")
             return None
 
-        # データ前処理とモデル訓練
+        # データ前処理
         enhanced_data = predictor.preprocess_activity_data(activity_data)
         if not enhanced_data.empty:
             enhanced_data = predictor.aggregate_fitbit_by_activity(enhanced_data, fitbit_data)
-
-            # 最新のモデルで訓練
-            if len(enhanced_data) >= 10:
-                predictor.walk_forward_validation_train(enhanced_data)
-            else:
-                logger.warning(f"ユーザー {user_id} のデータ不足: {len(enhanced_data)}件")
-                return None
 
         # 昨日のデータでDiCE実行
         yesterday = datetime.now() - timedelta(days=1)
@@ -1975,7 +2002,7 @@ def run_daily_dice_for_user(user_id: str):
         return dice_result
 
     except Exception as e:
-        logger.error(f"ユーザー {user_id} のDiCE実行エラー: {e}")
+        logger.error(f"ユーザー {user_id} のDiCE実行エラー: {e}", exc_info=True)
         return None
 
 def data_monitor_loop():
@@ -2008,15 +2035,21 @@ def data_monitor_loop():
                     fitbit_data = sheets_connector.get_fitbit_data(user_id, use_cache=False)
 
                     if not activity_data.empty:
+                        # モデル再訓練（ensure_model_trainedを使用）
+                        training_result = ensure_model_trained(user_id, force_retrain=True)
+
+                        if training_result['status'] not in ['success', 'already_trained']:
+                            logger.warning(f"モデル再訓練失敗 ({user_name}): {training_result.get('message')}")
+                            continue
+
+                        # モデルが初期化されているか確認
+                        if predictor.model is None:
+                            logger.error(f"モデルが初期化されていません ({user_name})")
+                            continue
+
                         # データ前処理
                         activity_processed = predictor.preprocess_activity_data(activity_data)
                         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-
-                        # モデル再訓練
-                        if len(df_enhanced) >= 10:
-                            training_results = predictor.walk_forward_validation_train(df_enhanced)
-                            if config.LOG_MODEL_TRAINING:
-                                logger.info(f"モデル再訓練完了 ({user_name}): {training_results}")
 
                         # 最新の活動に対するフラストレーション予測（履歴データを使用）
                         latest_activity = activity_processed.iloc[-1]
