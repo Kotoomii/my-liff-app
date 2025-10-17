@@ -431,6 +431,9 @@ def predict_activity_frustration():
         # ユーザーごとのpredictorを取得
         predictor = get_predictor(user_id)
 
+        # デバッグ: predictorの状態確認
+        logger.warning(f"🔍 predict-activity呼び出し: user_id={user_id}, predictor.model={'あり' if predictor.model else 'なし'}")
+
         # 過去データ取得・前処理
         activity_data = sheets_connector.get_activity_data(user_id)
         fitbit_data = sheets_connector.get_fitbit_data(user_id)
@@ -452,6 +455,9 @@ def predict_activity_frustration():
 
         # データ品質チェック
         data_quality = predictor.check_data_quality(df_enhanced)
+
+        # デバッグ: データサイズ確認
+        logger.warning(f"📊 データ確認: df_enhanced={len(df_enhanced)}件, predictor.model={'あり' if predictor.model else 'なし'}")
 
         # モデルが訓練されていない場合は自動訓練
         if predictor.model is None:
