@@ -331,7 +331,11 @@ class ActivityCounterfactualExplainer:
                 sdnn = cf_row.get('SDNN_scaled', 'N/A')
                 lorenz = cf_row.get('Lorenz_Area_scaled', 'N/A')
                 f_scaled = cf_row.get('NASA_F_scaled', 'N/A')
-                logger.warning(f"   候補{i+1}: {activity_name}, SDNN={sdnn:.4f if isinstance(sdnn, float) else sdnn}, Lorenz={lorenz:.4f if isinstance(lorenz, float) else lorenz}, F_scaled={f_scaled:.4f if isinstance(f_scaled, float) else f_scaled}")
+                # フォーマット指定子を条件式の外で適用
+                sdnn_str = f"{sdnn:.4f}" if isinstance(sdnn, float) else str(sdnn)
+                lorenz_str = f"{lorenz:.4f}" if isinstance(lorenz, float) else str(lorenz)
+                f_scaled_str = f"{f_scaled:.4f}" if isinstance(f_scaled, float) else str(f_scaled)
+                logger.warning(f"   候補{i+1}: {activity_name}, SDNN={sdnn_str}, Lorenz={lorenz_str}, F_scaled={f_scaled_str}")
 
             # 元の活動カテゴリを特定
             original_activity_name = activity.get('CatSub', 'unknown')
