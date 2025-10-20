@@ -170,66 +170,94 @@ class ActivityCounterfactualExplainer:
             logger.info(f"DiCE: スケール変換（×20）後のF値 = {current_frustration}")
             logger.info(f"DiCE: ===== モデル予測完了 =====")
 
-            # 訓練データを準備: NaN値を除外
-            required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled']
+            # 訓練データを準備: NaN値と'CatSub'が欠損している行を除外
+            required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled', 'CatSub']
             df_train = df_enhanced.dropna(subset=required_cols).copy()
 
             if len(df_train) < 20:
                 logger.warning(f"訓練データが不足（{len(df_train)}件）")
                 return None
 
-            # 特徴量とターゲット
-            X_train = df_train[predictor.feature_columns].copy()
-            y_train = df_train['NASA_F_scaled']
+            # DiCE用のデータフレームを作成: CatSub列と生体情報、時間特徴量のみを含む
+            # One-Hotエンコードされた活動列は含めない
+            dice_features = ['CatSub', 'SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
 
-            # 活動カテゴリ列のみを変更可能にする
-            activity_cols = [col for col in predictor.feature_columns if col.startswith('activity_')]
-            weekday_cols = [col for col in predictor.feature_columns if col.startswith('weekday_')]
+            # 曜日列を追加
+            weekday_cols = [col for col in df_train.columns if col.startswith('weekday_')]
+            dice_features.extend(weekday_cols)
 
-            # デバッグ: features_to_varyの内容を確認
-            logger.warning(f"🔧 DiCE: predictor.feature_columns数 = {len(predictor.feature_columns)}")
-            logger.warning(f"🔧 DiCE: activity_cols（変更可能な列）数 = {len(activity_cols)}")
+            # DiCE用のデータフレームを作成
+            df_dice_train = df_train[dice_features + ['NASA_F_scaled']].copy()
 
-            if len(activity_cols) == 0:
-                logger.error("DiCE: activity_colsが空です！活動カテゴリ列が見つかりません")
-                return None
+            # 'CatSub'をカテゴリカル型に変換
+            df_dice_train['CatSub'] = df_dice_train['CatSub'].astype('category')
 
-            # DiCEがカテゴリカルとして扱わないよう、活動列と曜日列をint型に変換
-            # これはdice_dataを作成する前に行う必要がある！
-            for col in activity_cols + weekday_cols:
-                if col in X_train.columns:
-                    X_train[col] = X_train[col].astype(int)
+            logger.warning(f"🔧 DiCE: CatSub列をカテゴリカル型に変換しました")
+            logger.warning(f"🔧 DiCE: CatSubのカテゴリ数 = {df_dice_train['CatSub'].nunique()}")
 
-            logger.warning(f"🔧 DiCE: X_trainの活動列と曜日列をint型に変換しました")
+            # クエリインスタンスの準備: CatSub列を含める
+            query_dict = {
+                'CatSub': [target_row.get('CatSub')],
+                'SDNN_scaled': [query_features['SDNN_scaled'].iloc[0]],
+                'Lorenz_Area_scaled': [query_features['Lorenz_Area_scaled'].iloc[0]],
+                'hour_sin': [query_features['hour_sin'].iloc[0]],
+                'hour_cos': [query_features['hour_cos'].iloc[0]]
+            }
 
-            # query_featuresも同じように変換
-            query_features = query_features.copy()
-            for col in activity_cols + weekday_cols:
-                if col in query_features.columns:
-                    query_features[col] = query_features[col].astype(int)
+            # 曜日列をクエリに追加
+            for col in weekday_cols:
+                query_dict[col] = [query_features[col].iloc[0]]
 
-            logger.warning(f"🔧 DiCE: query_featuresの活動列と曜日列をint型に変換しました")
+            query_dice = pd.DataFrame(query_dict)
+            query_dice['CatSub'] = query_dice['CatSub'].astype('category')
 
-            # DiCEデータオブジェクトを作成（変換後のX_trainを使用）
-            dice_data = pd.concat([X_train, y_train], axis=1)
+            logger.warning(f"🔧 DiCE: query_dice = {query_dice.to_dict('records')[0]}")
 
             # webhooktest.py形式: 生体情報と時間特徴量をcontinuousに指定
             continuous_features = ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
+            # 曜日列もcontinuousとして扱う（One-Hotエンコード済みのため）
+            continuous_features.extend(weekday_cols)
 
             logger.warning(f"🔧 DiCE: continuous_features = {continuous_features}")
-            if len(activity_cols) <= 10:
-                logger.warning(f"🔧 DiCE: activity_cols（全て） = {activity_cols}")
-            else:
-                logger.warning(f"🔧 DiCE: activity_cols数が多いため、最初の10個のみ表示 = {activity_cols[:10]}")
+            logger.warning(f"🔧 DiCE: CatSubをカテゴリカル変数として扱います")
+
+            # DiCEデータオブジェクトを作成
             d = dice_ml.Data(
-                dataframe=dice_data,
+                dataframe=df_dice_train,
                 continuous_features=continuous_features,
                 outcome_name='NASA_F_scaled'
             )
 
-            # DiCEモデルオブジェクトを作成
+            # モデルラッパークラスを作成
+            # CatSubをOne-Hotエンコーディングしてから元のモデルで予測する
+            class ModelWrapper:
+                def __init__(self, original_model, feature_columns, known_activities):
+                    self.original_model = original_model
+                    self.feature_columns = feature_columns
+                    self.known_activities = known_activities
+
+                def predict(self, X):
+                    """CatSubをOne-Hotエンコーディングしてから予測"""
+                    X_encoded = X.copy()
+
+                    # CatSubをOne-Hotエンコーディング
+                    if 'CatSub' in X_encoded.columns:
+                        for activity in self.known_activities:
+                            X_encoded[f'activity_{activity}'] = (X_encoded['CatSub'] == activity).astype(int)
+                        # CatSub列を削除
+                        X_encoded = X_encoded.drop('CatSub', axis=1)
+
+                    # 必要な列のみを選択（順序も元のfeature_columnsに合わせる）
+                    X_final = X_encoded[self.feature_columns]
+
+                    return self.original_model.predict(X_final)
+
+            # ラッパーモデルを作成
+            wrapped_model = ModelWrapper(predictor.model, predictor.feature_columns, KNOWN_ACTIVITIES)
+
+            # DiCEモデルオブジェクトを作成（ラッパーモデルを使用）
             m = dice_ml.Model(
-                model=predictor.model,
+                model=wrapped_model,
                 backend="sklearn",
                 model_type="regressor"
             )
@@ -256,24 +284,28 @@ class ActivityCounterfactualExplainer:
             # 生体情報と時間特徴を固定するためのpermitted_range設定
             # features_to_varyで指定されていない列は、元の値から変更されないように制約
             permitted_range = {}
-            for col in continuous_features:
-                if col in query_features.columns:
-                    val = query_features[col].iloc[0]
+            for col in ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']:
+                if col in query_dice.columns:
+                    val = query_dice[col].iloc[0]
                     # 生体情報と時間は現在値±0.001の範囲に固定（実質変更不可）
                     permitted_range[col] = [val - 0.001, val + 0.001]
 
-            # 曜日はpermitted_rangeで指定せず、features_to_varyに含めないことで固定
-            # （DiCEがint型の曜日列をカテゴリカルと誤認識する問題を回避）
+            # 曜日列も固定
+            for col in weekday_cols:
+                if col in query_dice.columns:
+                    val = query_dice[col].iloc[0]
+                    permitted_range[col] = [val - 0.001, val + 0.001]
 
-            logger.warning(f"🔧 DiCE: permitted_range設定 = 生体情報と時間を固定（曜日はfeatures_to_varyで固定）")
+            logger.warning(f"🔧 DiCE: permitted_range設定 = 生体情報、時間、曜日を固定")
+            logger.warning(f"🔧 DiCE: features_to_vary = ['CatSub'] のみ")
 
-            # DiCEで反実仮想例を生成（既に定義したquery_featuresを使用）
+            # DiCEで反実仮想例を生成（CatSub列を使用したquery_diceを使用）
             dice_exp = exp.generate_counterfactuals(
-                query_instances=query_features,
+                query_instances=query_dice,
                 total_CFs=5,
                 desired_range=desired_range,  # 動的範囲: 現在値から20-40%改善を目標
-                features_to_vary=activity_cols,  # 活動カテゴリのみ変更
-                permitted_range=permitted_range  # 生体情報・時間を固定
+                features_to_vary=['CatSub'],  # CatSubのみ変更
+                permitted_range=permitted_range  # 生体情報・時間・曜日を固定
             )
 
             # 結果を取得
@@ -290,13 +322,16 @@ class ActivityCounterfactualExplainer:
                 logger.warning(f"✅ NASA_F_scaled列が存在します: {cf_df['NASA_F_scaled'].tolist()}")
             else:
                 logger.warning(f"❌ NASA_F_scaled列が存在しません！")
-                logger.warning(f"   利用可能な列: {[c for c in cf_df.columns if not c.startswith('activity_')][:10]}")
+                logger.warning(f"   利用可能な列: {cf_df.columns.tolist()}")
 
-            # デバッグ: 各候補の活動カテゴリを確認
-            logger.warning(f"🔍 DiCE cf_df の活動カテゴリ:")
+            # デバッグ: 各候補の活動カテゴリと生体情報を確認
+            logger.warning(f"🔍 DiCE cf_df の活動カテゴリと生体情報:")
             for i, (idx, cf_row) in enumerate(cf_df.iterrows()):
-                active_activities = [col.replace('activity_', '') for col in activity_cols if cf_row[col] == 1]
-                logger.warning(f"   候補{i+1}: {active_activities}")
+                activity_name = cf_row.get('CatSub', 'N/A')
+                sdnn = cf_row.get('SDNN_scaled', 'N/A')
+                lorenz = cf_row.get('Lorenz_Area_scaled', 'N/A')
+                f_scaled = cf_row.get('NASA_F_scaled', 'N/A')
+                logger.warning(f"   候補{i+1}: {activity_name}, SDNN={sdnn:.4f if isinstance(sdnn, float) else sdnn}, Lorenz={lorenz:.4f if isinstance(lorenz, float) else lorenz}, F_scaled={f_scaled:.4f if isinstance(f_scaled, float) else f_scaled}")
 
             # 元の活動カテゴリを特定
             original_activity_name = activity.get('CatSub', 'unknown')
@@ -306,19 +341,12 @@ class ActivityCounterfactualExplainer:
             best_improvement = 0
 
             for idx, cf_row in cf_df.iterrows():
-                # 反実仮想例の活動カテゴリを取得
-                suggested_activity_name = None
-                for activity_name in KNOWN_ACTIVITIES:
-                    col_name = f'activity_{activity_name}'
-                    if col_name in cf_row.index and cf_row[col_name] == 1:
-                        suggested_activity_name = activity_name
-                        break
-
-                if suggested_activity_name is None:
-                    suggested_activity_name = 'unknown'
+                # 反実仮想例の活動カテゴリを取得（CatSub列から直接取得）
+                suggested_activity_name = cf_row.get('CatSub', 'unknown')
 
                 # 活動が変わっていない場合はスキップ
                 if suggested_activity_name == original_activity_name:
+                    logger.warning(f"   候補{idx}: 活動が元と同じ（{suggested_activity_name}）のでスキップ")
                     continue
 
                 # 改善効果を計算
@@ -359,16 +387,12 @@ class ActivityCounterfactualExplainer:
                 if cf_df is not None and not cf_df.empty:
                     logger.warning(f"  - DiCEが生成した候補数: {len(cf_df)}件")
                     # 候補の詳細をログ出力
-                    for idx, cf_row in cf_df.iterrows():
-                        suggested_act = None
-                        for act_name in KNOWN_ACTIVITIES:
-                            if f'activity_{act_name}' in cf_row.index and cf_row[f'activity_{act_name}'] == 1:
-                                suggested_act = act_name
-                                break
+                    for i, (idx, cf_row) in enumerate(cf_df.iterrows()):
+                        suggested_act = cf_row.get('CatSub', 'unknown')
                         alt_f_scaled = cf_row.get('NASA_F_scaled', 0)
                         alt_f = alt_f_scaled * 20.0
                         imp = current_frustration - alt_f
-                        logger.warning(f"    候補{idx+1}: {suggested_act}, F値={alt_f:.2f}, 改善={imp:.2f}点")
+                        logger.warning(f"    候補{i+1}: {suggested_act}, F値={alt_f:.2f}, 改善={imp:.2f}点")
                 return None
 
         except Exception as e:
