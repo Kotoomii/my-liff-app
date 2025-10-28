@@ -338,10 +338,25 @@ class ActivityCounterfactualExplainer:
             logger.warning(f"🔍 DiCE cf_df の列: {cf_df.columns.tolist()}")
             logger.warning(f"🔍 DiCE cf_df の行数: {len(cf_df)}")
             if 'NASA_F_scaled' in cf_df.columns:
-                logger.warning(f"✅ NASA_F_scaled列が存在します: {cf_df['NASA_F_scaled'].tolist()}")
+                logger.warning(f"⚠️  DiCEが返したNASA_F_scaled: {cf_df['NASA_F_scaled'].tolist()}")
             else:
                 logger.warning(f"❌ NASA_F_scaled列が存在しません！")
                 logger.warning(f"   利用可能な列: {cf_df.columns.tolist()}")
+
+            # DiCEが返したNASA_F_scaledは信頼できないため、ModelWrapperで明示的に予測し直す
+            logger.warning(f"🔧 ModelWrapperで明示的にNASA_F_scaledを予測し直します")
+
+            # cf_dfからNASA_F_scaled列を削除
+            cf_features_only = cf_df.drop('NASA_F_scaled', axis=1, errors='ignore').copy()
+
+            # ModelWrapperで予測
+            logger.warning(f"🔧 ModelWrapper.predict()を呼び出します...")
+            predicted_f_values = wrapped_model.predict(cf_features_only)
+            logger.warning(f"🔧 ModelWrapperの予測結果: {predicted_f_values.tolist()}")
+
+            # 予測結果で上書き
+            cf_df['NASA_F_scaled'] = predicted_f_values
+            logger.warning(f"✅ 上書き後のNASA_F_scaled: {cf_df['NASA_F_scaled'].tolist()}")
 
             # デバッグ: 各候補の活動カテゴリと生体情報を確認
             logger.warning(f"🔍 DiCE cf_df の活動カテゴリと生体情報:")
