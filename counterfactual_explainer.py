@@ -235,9 +235,15 @@ class ActivityCounterfactualExplainer:
                     self.original_model = original_model
                     self.feature_columns = feature_columns
                     self.known_activities = known_activities
+                    self.call_count = 0  # 呼び出し回数をカウント
 
                 def predict(self, X):
                     """CatSubをOne-Hotエンコーディングしてから予測"""
+                    self.call_count += 1
+                    logger.warning(f"🔧🔧🔧 ModelWrapper.predict() 呼び出し #{self.call_count}")
+                    logger.warning(f"🔧 入力データの形状: {X.shape}")
+                    logger.warning(f"🔧 入力データの列: {X.columns.tolist()}")
+
                     X_encoded = X.copy()
 
                     # CatSubをOne-Hotエンコーディング
@@ -245,7 +251,7 @@ class ActivityCounterfactualExplainer:
                         # カテゴリカル型をstr型に変換してから比較
                         catsub_values = X_encoded['CatSub'].astype(str)
 
-                        logger.info(f"🔧 ModelWrapper: CatSub値 = {catsub_values.tolist()}")
+                        logger.warning(f"🔧 ModelWrapper: CatSub値 = {catsub_values.tolist()}")
 
                         for activity in self.known_activities:
                             X_encoded[f'activity_{activity}'] = (catsub_values == activity).astype(int)
@@ -257,17 +263,26 @@ class ActivityCounterfactualExplainer:
                             row_activities = [col.replace('activity_', '') for col in activity_cols
                                             if col in X_encoded.columns and X_encoded[col].iloc[idx] == 1]
                             active_activities.append(row_activities)
-                        logger.info(f"🔧 ModelWrapper: One-Hot結果 = {active_activities}")
+                        logger.warning(f"🔧 ModelWrapper: One-Hot結果 = {active_activities}")
 
                         # CatSub列を削除
                         X_encoded = X_encoded.drop('CatSub', axis=1)
+                    else:
+                        logger.error(f"❌ ModelWrapper: CatSub列が見つかりません！列: {X_encoded.columns.tolist()}")
 
                     # 必要な列のみを選択（順序も元のfeature_columnsに合わせる）
-                    X_final = X_encoded[self.feature_columns]
+                    try:
+                        X_final = X_encoded[self.feature_columns]
+                    except KeyError as e:
+                        logger.error(f"❌ ModelWrapper: 列が不足しています: {e}")
+                        logger.error(f"   必要な列: {self.feature_columns}")
+                        logger.error(f"   実際の列: {X_encoded.columns.tolist()}")
+                        raise
 
                     # 予測を実行
                     predictions = self.original_model.predict(X_final)
-                    logger.info(f"🔧 ModelWrapper: 予測結果 = {predictions.tolist()}")
+                    logger.warning(f"🔧 ModelWrapper: 予測結果 = {predictions.tolist()}")
+                    logger.warning(f"🔧🔧🔧 ModelWrapper.predict() 完了 #{self.call_count}")
 
                     return predictions
 
@@ -319,6 +334,9 @@ class ActivityCounterfactualExplainer:
             logger.warning(f"🔧 DiCE: features_to_vary = ['CatSub'] のみ")
 
             # DiCEで反実仮想例を生成（CatSub列を使用したquery_diceを使用）
+            logger.warning(f"🚀🚀🚀 DiCE.generate_counterfactuals()を開始します...")
+            logger.warning(f"🚀 ModelWrapper呼び出し回数（開始前）: {wrapped_model.call_count}")
+
             dice_exp = exp.generate_counterfactuals(
                 query_instances=query_dice,
                 total_CFs=5,
@@ -326,6 +344,9 @@ class ActivityCounterfactualExplainer:
                 features_to_vary=['CatSub'],  # CatSubのみ変更
                 permitted_range=permitted_range  # 生体情報・時間・曜日を固定
             )
+
+            logger.warning(f"🚀🚀🚀 DiCE.generate_counterfactuals()が完了しました")
+            logger.warning(f"🚀 ModelWrapper呼び出し回数（完了後）: {wrapped_model.call_count}")
 
             # 結果を取得
             cf_df = dice_exp.cf_examples_list[0].final_cfs_df
