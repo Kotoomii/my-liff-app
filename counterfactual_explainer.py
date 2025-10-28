@@ -242,15 +242,34 @@ class ActivityCounterfactualExplainer:
 
                     # CatSubをOne-Hotエンコーディング
                     if 'CatSub' in X_encoded.columns:
+                        # カテゴリカル型をstr型に変換してから比較
+                        catsub_values = X_encoded['CatSub'].astype(str)
+
+                        logger.info(f"🔧 ModelWrapper: CatSub値 = {catsub_values.tolist()}")
+
                         for activity in self.known_activities:
-                            X_encoded[f'activity_{activity}'] = (X_encoded['CatSub'] == activity).astype(int)
+                            X_encoded[f'activity_{activity}'] = (catsub_values == activity).astype(int)
+
+                        # デバッグ: One-Hotエンコーディングの結果を確認
+                        activity_cols = [f'activity_{act}' for act in self.known_activities]
+                        active_activities = []
+                        for idx in range(len(X_encoded)):
+                            row_activities = [col.replace('activity_', '') for col in activity_cols
+                                            if col in X_encoded.columns and X_encoded[col].iloc[idx] == 1]
+                            active_activities.append(row_activities)
+                        logger.info(f"🔧 ModelWrapper: One-Hot結果 = {active_activities}")
+
                         # CatSub列を削除
                         X_encoded = X_encoded.drop('CatSub', axis=1)
 
                     # 必要な列のみを選択（順序も元のfeature_columnsに合わせる）
                     X_final = X_encoded[self.feature_columns]
 
-                    return self.original_model.predict(X_final)
+                    # 予測を実行
+                    predictions = self.original_model.predict(X_final)
+                    logger.info(f"🔧 ModelWrapper: 予測結果 = {predictions.tolist()}")
+
+                    return predictions
 
             # ラッパーモデルを作成
             wrapped_model = ModelWrapper(predictor.model, predictor.feature_columns, KNOWN_ACTIVITIES)
