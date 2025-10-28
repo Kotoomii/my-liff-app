@@ -237,6 +237,12 @@ class ActivityCounterfactualExplainer:
                     self.known_activities = known_activities
                     self.call_count = 0  # 呼び出し回数をカウント
 
+                    # 表記ゆれのマッピングテーブル
+                    self.activity_normalization_map = {
+                        '子供の世話': '子どもの世話',
+                        '子供': '子どもの世話',  # さらに短縮形も対応
+                    }
+
                 def predict(self, X):
                     """CatSubをOne-Hotエンコーディングしてから予測"""
                     self.call_count += 1
@@ -248,8 +254,18 @@ class ActivityCounterfactualExplainer:
 
                     # CatSubをOne-Hotエンコーディング
                     if 'CatSub' in X_encoded.columns:
-                        # カテゴリカル型をstr型に変換してから比較
+                        # カテゴリカル型をstr型に変換
                         catsub_values = X_encoded['CatSub'].astype(str)
+
+                        # 表記ゆれを正規化
+                        catsub_values = catsub_values.replace(self.activity_normalization_map)
+
+                        # 正規化後の値をログ出力（正規化されたかチェック）
+                        unique_before = X_encoded['CatSub'].astype(str).unique()
+                        unique_after = catsub_values.unique()
+                        if len(unique_before) > 0 and len(unique_after) > 0:
+                            if not all(before == after for before, after in zip(sorted(unique_before), sorted(unique_after))):
+                                logger.warning(f"🔧 CatSub正規化: {list(unique_before)} → {list(unique_after)}")
 
                         logger.warning(f"🔧 ModelWrapper: CatSub値 = {catsub_values.tolist()}")
 
