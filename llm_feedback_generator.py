@@ -19,18 +19,33 @@ logger = logging.getLogger(__name__)
 
 class LLMFeedbackGenerator:
     def __init__(self):
+        logger.info("=" * 60)
+        logger.info("🚀 LLMFeedbackGenerator 初期化開始")
+        logger.info("=" * 60)
+
         self.config = Config()
+        logger.info(f"📋 設定読み込み完了 (IS_CLOUD_RUN: {self.config.IS_CLOUD_RUN})")
+
         self.llm_api_key = self._get_api_key_from_secret_manager()
         self.llm_api_base = "https://api.openai.com/v1"
+
+        if self.llm_api_key:
+            logger.info(f"✅ LLMFeedbackGenerator 初期化完了 (APIキー: 設定済み)")
+        else:
+            logger.warning(f"⚠️ LLMFeedbackGenerator 初期化完了 (APIキー: 未設定)")
+        logger.info("=" * 60)
 
     def _get_api_key_from_secret_manager(self) -> str:
         """
         Google Cloud Secret ManagerからOpenAI APIキーを取得
         ローカル環境では環境変数から取得
         """
+        logger.info("🔑 OpenAI APIキー取得を開始...")
+
         try:
             # Cloud Run環境の場合はSecret Managerから取得
             if self.config.IS_CLOUD_RUN:
+                logger.info("☁️ Cloud Run環境を検出。Secret Managerから取得を試みます。")
                 try:
                     from google.cloud.secretmanager import SecretManagerServiceClient
 
@@ -59,13 +74,21 @@ class LLMFeedbackGenerator:
                     return os.environ.get('OPENAI_API_KEY', '')
             else:
                 # ローカル環境では環境変数から取得
+                logger.info("💻 ローカル環境を検出。環境変数から取得を試みます。")
+                logger.info("📍 環境変数 'OPENAI_API_KEY' を確認中...")
+
                 api_key = os.environ.get('OPENAI_API_KEY', '')
+
                 if api_key:
                     # セキュリティのため最初の7文字のみ表示
                     masked_key = api_key[:7] + "..." if len(api_key) > 7 else "***"
-                    logger.info(f"✅ OpenAI APIキーを環境変数から取得しました (key: {masked_key})")
+                    logger.info(f"✅ OpenAI APIキーを環境変数から取得しました")
+                    logger.info(f"🔐 APIキー (マスク表示): {masked_key}")
+                    logger.info(f"📏 APIキーの長さ: {len(api_key)}文字")
                 else:
-                    logger.warning("⚠️ OPENAI_API_KEY環境変数が設定されていません")
+                    logger.error("❌ OPENAI_API_KEY環境変数が設定されていません！")
+                    logger.error("💡 ヒント: ターミナルで 'export OPENAI_API_KEY=your-api-key' を実行してください")
+
                 return api_key
 
         except Exception as e:
