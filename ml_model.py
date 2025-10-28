@@ -30,6 +30,15 @@ KNOWN_ACTIVITIES = [
     '雑誌・漫画・本', '音楽', '休息', 'その他', '不明'
 ]
 
+# 活動名の表記ゆれを正規化するマッピング
+# スプレッドシートに記録されている様々な表記を標準形式（KNOWN_ACTIVITIES）に統一
+ACTIVITY_NORMALIZATION_MAP = {
+    '子供の世話': '子どもの世話',
+    '子供': '子どもの世話',
+    # 必要に応じて他の表記ゆれを追加
+    # 例: 'インタ一ネット動画': 'インターネット動画',
+}
+
 class FrustrationPredictor:
     def __init__(self):
         self.model = None
@@ -68,6 +77,20 @@ class FrustrationPredictor:
             if 'NASA_F' not in df.columns:
                 logger.error("NASA_F列が見つかりません")
                 return pd.DataFrame()
+
+            # CatSubの表記ゆれを正規化（データ読み込み直後に実行）
+            if 'CatSub' in df.columns:
+                original_unique = df['CatSub'].unique()
+                df['CatSub'] = df['CatSub'].replace(ACTIVITY_NORMALIZATION_MAP)
+                normalized_unique = df['CatSub'].unique()
+
+                # 正規化が行われた場合はログ出力
+                if len(original_unique) != len(normalized_unique) or not all(o in normalized_unique for o in original_unique):
+                    logger.info(f"CatSubの表記ゆれを正規化しました: {len(original_unique)}種類 → {len(normalized_unique)}種類")
+                    # 正規化されたが、まだKNOWN_ACTIVITIESにない値を警告
+                    unknown_activities = set(normalized_unique) - set(KNOWN_ACTIVITIES)
+                    if unknown_activities:
+                        logger.warning(f"未知の活動カテゴリが検出されました: {unknown_activities}")
 
             # 数値変換
             df['NASA_F'] = pd.to_numeric(df['NASA_F'], errors='coerce')
@@ -439,6 +462,9 @@ class FrustrationPredictor:
 
             if current_time is None:
                 current_time = datetime.now()
+
+            # 活動カテゴリの表記ゆれを正規化（外部から直接呼ばれる可能性があるため）
+            activity_category = ACTIVITY_NORMALIZATION_MAP.get(activity_category, activity_category)
 
             # 特徴量を構築
             features = {}
