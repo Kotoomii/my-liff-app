@@ -1637,9 +1637,9 @@
             const timeStr = timeObj.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
             
             suggestionInfo.innerHTML = `
-                <div class="activity-bar-name" style="font-size: 14px; margin-bottom: 3px;">${suggestion.suggested_activity || '改善提案'}</div>
+                <div class="activity-bar-name" style="font-size: 12px; margin-bottom: 2px;">${suggestion.suggested_activity || '改善提案'}</div>
                 <div class="activity-bar-time" style="font-size: 9px; opacity: 0.8;">${timeStr}</div>
-                <div class="activity-bar-duration" style="font-size: 7px; opacity: 0.7; margin-top: 2px;">${(suggestion.frustration_reduction || 0).toFixed(1)}点改善</div>
+                <div class="activity-bar-duration" style="font-size: 9px; opacity: 0.85; margin-top: 2px;">${(suggestion.frustration_reduction || 0).toFixed(1)}点改善</div>
             `;
             
             suggestionBar.appendChild(suggestionInfo);
