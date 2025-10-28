@@ -189,15 +189,29 @@ class ActivityCounterfactualExplainer:
             # DiCE用のデータフレームを作成
             df_dice_train = df_train[dice_features + ['NASA_F_scaled']].copy()
 
-            # 'CatSub'をカテゴリカル型に変換
-            df_dice_train['CatSub'] = df_dice_train['CatSub'].astype('category')
+            # 'CatSub'をカテゴリカル型に変換（訓練データに存在するカテゴリのみ）
+            # カテゴリ一覧を明示的に取得
+            train_categories = sorted(df_dice_train['CatSub'].unique().tolist())
+            logger.warning(f"🔧 DiCE: 訓練データに存在するCatSub = {train_categories}")
+
+            df_dice_train['CatSub'] = pd.Categorical(df_dice_train['CatSub'], categories=train_categories)
 
             logger.warning(f"🔧 DiCE: CatSub列をカテゴリカル型に変換しました")
             logger.warning(f"🔧 DiCE: CatSubのカテゴリ数 = {df_dice_train['CatSub'].nunique()}")
 
             # クエリインスタンスの準備: CatSub列を含める
+            query_catsub = target_row.get('CatSub')
+            logger.warning(f"🔧 DiCE: 元の活動 (query) = {query_catsub}")
+
+            # クエリのCatSubが訓練データに存在するか確認
+            if query_catsub not in train_categories:
+                logger.error(f"❌ DiCE: 元の活動 '{query_catsub}' が訓練データに存在しません！")
+                logger.error(f"   訓練データに存在するカテゴリ: {train_categories}")
+                logger.error(f"   この活動ではDiCE提案を生成できません")
+                return None
+
             query_dict = {
-                'CatSub': [target_row.get('CatSub')],
+                'CatSub': [query_catsub],
                 'SDNN_scaled': [query_features['SDNN_scaled'].iloc[0]],
                 'Lorenz_Area_scaled': [query_features['Lorenz_Area_scaled'].iloc[0]],
                 'hour_sin': [query_features['hour_sin'].iloc[0]],
@@ -209,9 +223,11 @@ class ActivityCounterfactualExplainer:
                 query_dict[col] = [query_features[col].iloc[0]]
 
             query_dice = pd.DataFrame(query_dict)
-            query_dice['CatSub'] = query_dice['CatSub'].astype('category')
+            # query_diceのCatSubも訓練データと同じカテゴリで設定
+            query_dice['CatSub'] = pd.Categorical(query_dice['CatSub'], categories=train_categories)
 
             logger.warning(f"🔧 DiCE: query_dice = {query_dice.to_dict('records')[0]}")
+            logger.warning(f"🔧 DiCE: query CatSubのカテゴリコード = {query_dice['CatSub'].cat.codes[0]}")
 
             # webhooktest.py形式: 生体情報と時間特徴量をcontinuousに指定
             continuous_features = ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
