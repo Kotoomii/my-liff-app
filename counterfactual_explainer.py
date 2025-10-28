@@ -205,9 +205,8 @@ class ActivityCounterfactualExplainer:
 
             # クエリのCatSubが訓練データに存在するか確認
             if query_catsub not in train_categories:
-                logger.error(f"❌ DiCE: 元の活動 '{query_catsub}' が訓練データに存在しません！")
-                logger.error(f"   訓練データに存在するカテゴリ: {train_categories}")
-                logger.error(f"   この活動ではDiCE提案を生成できません")
+                logger.info(f"ℹ️ DiCE: 元の活動 '{query_catsub}' が訓練データに存在しないため、DiCE提案をスキップします")
+                logger.debug(f"   訓練データに存在するカテゴリ: {train_categories}")
                 return None
 
             query_dict = {
