@@ -61,7 +61,9 @@ class LLMFeedbackGenerator:
                 # ローカル環境では環境変数から取得
                 api_key = os.environ.get('OPENAI_API_KEY', '')
                 if api_key:
-                    logger.info("✅ OpenAI APIキーを環境変数から取得しました")
+                    # セキュリティのため最初の7文字のみ表示
+                    masked_key = api_key[:7] + "..." if len(api_key) > 7 else "***"
+                    logger.info(f"✅ OpenAI APIキーを環境変数から取得しました (key: {masked_key})")
                 else:
                     logger.warning("⚠️ OPENAI_API_KEY環境変数が設定されていません")
                 return api_key
@@ -98,8 +100,10 @@ class LLMFeedbackGenerator:
             
             # LLMからフィードバックを生成
             if self.llm_api_key:
+                logger.info("🔑 OpenAI APIキーが設定されています。ChatGPTでフィードバックを生成します。")
                 llm_feedback = self._generate_with_llm(prompt)
             else:
+                logger.warning("⚠️ OpenAI APIキーが設定されていません。フォールバックメッセージを使用します。")
                 llm_feedback = self._generate_rule_based_feedback(analysis_summary, feedback_type)
             
             return {
@@ -251,11 +255,14 @@ class LLMFeedbackGenerator:
         OpenAI API等のLLMを使用してフィードバックを生成
         """
         try:
+            logger.info("🤖 ChatGPT API (gpt-3.5-turbo) を呼び出し中...")
+            logger.debug(f"📤 送信するプロンプト: {prompt[:200]}...")  # 最初の200文字のみ
+
             headers = {
                 'Authorization': f'Bearer {self.llm_api_key}',
                 'Content-Type': 'application/json'
             }
-            
+
             data = {
                 'model': 'gpt-3.5-turbo',
                 'messages': [
@@ -271,7 +278,7 @@ class LLMFeedbackGenerator:
                 'max_tokens': 500,
                 'temperature': 0.7
             }
-            
+
             response = requests.post(
                 f"{self.llm_api_base}/chat/completions",
                 headers=headers,
@@ -281,9 +288,12 @@ class LLMFeedbackGenerator:
             
             if response.status_code == 200:
                 result = response.json()
-                return result['choices'][0]['message']['content'].strip()
+                generated_text = result['choices'][0]['message']['content'].strip()
+                logger.info(f"✅ ChatGPT APIからフィードバックを生成しました (文字数: {len(generated_text)})")
+                logger.info(f"📝 生成されたフィードバック: {generated_text}")
+                return generated_text
             else:
-                logger.warning(f"LLM API エラー: {response.status_code}")
+                logger.warning(f"❌ LLM API エラー: {response.status_code}, Response: {response.text}")
                 return self._generate_rule_based_feedback_simple()
                 
         except Exception as e:
@@ -541,8 +551,10 @@ class LLMFeedbackGenerator:
 
             # LLMでフィードバック生成
             if self.llm_api_key:
+                logger.info("🔑 OpenAI APIキーが設定されています。ChatGPTでフィードバックを生成します。")
                 feedback_content = self._generate_with_llm(prompt)
             else:
+                logger.warning("⚠️ OpenAI APIキーが設定されていません。フォールバックメッセージを使用します。")
                 feedback_content = self._generate_rule_based_daily_feedback(
                     hourly_schedule,
                     total_improvement,
