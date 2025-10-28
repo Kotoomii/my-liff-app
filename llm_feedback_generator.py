@@ -232,12 +232,12 @@ class LLMFeedbackGenerator:
 
 ## フィードバック生成の指針
 1. **温かく支援的な口調**で書いてください
-2. **具体的で実践可能な提案**を含めてください
+2. **具体的で実践可能な提案**を1-2つ含めてください
 3. **数値を自然に組み込んで**説得力を持たせてください
-4. **時間帯に応じた適切なアドバイス**を提供してください
-5. **前向きで励ましのメッセージ**で終わってください
+4. **励ましと前向きなメッセージ**で締めくくってください
+5. **最後に必ず「※ChatGPTによって生成されたアドバイスです。」という文言を追加**してください
 
-フィードバックは200-300文字程度で、3-4つのパラグラフに分けて生成してください。
+フィードバックは100文字程度で、簡潔で親しみやすい言葉遣いで書いてください。
 """
             
             return prompt
@@ -292,74 +292,15 @@ class LLMFeedbackGenerator:
     
     def _generate_rule_based_feedback(self, analysis_summary: Dict, feedback_type: str) -> str:
         """
-        ルールベースでフィードバックを生成（LLMが利用できない場合）
+        APIキーがない場合のシンプルなフォールバックメッセージ
         """
-        try:
-            total_improvement = analysis_summary.get('total_improvement_potential', 0)
-            opportunities = analysis_summary.get('total_opportunities', 0)
-            best_time = analysis_summary.get('best_improvement_time_period', ('不明', 0))
-            stress_level = analysis_summary.get('overall_stress_level', 'medium')
-            
-            feedback_parts = []
-            
-            # 時間帯に応じた挨拶
-            if feedback_type == "morning":
-                greeting = "おはようございます！"
-                context = "今日一日を快適に過ごすために、"
-            else:
-                greeting = "お疲れ様でした！"
-                context = "今日の行動を振り返って、"
-            
-            feedback_parts.append(greeting)
-            
-            # 全体的な評価
-            if stress_level == 'high' and total_improvement > 50:
-                assessment = f"{context}昨日は{opportunities}個の改善機会があり、{total_improvement:.1f}点のストレス軽減が期待できそうでした。"
-            elif stress_level == 'medium':
-                assessment = f"{context}バランスの取れた一日でしたが、{total_improvement:.1f}点程度の改善余地がありそうです。"
-            else:
-                assessment = f"{context}ストレス管理が上手にできていますね。"
-            
-            feedback_parts.append(assessment)
-            
-            # 具体的なアドバイス
-            if best_time[1] > 15:
-                advice = f"特に{best_time[0]}の時間帯に気をつけて、"
-                
-                time_specific_advice = {
-                    '朝': "朝の時間にゆとりを持ち、深呼吸や軽いストレッチを取り入れてみてください。",
-                    '午後': "午後は小まめに休憩を取り、水分補給を心がけましょう。",
-                    '夕方': "夕方は一日の疲れが溜まる時間です。軽い運動や好きな音楽でリフレッシュを。",
-                    '夜': "夜はリラックスタイムを大切に、入浴や読書で心を落ち着けましょう。"
-                }
-                
-                advice += time_specific_advice.get(best_time[0], "リラックスできる活動を取り入れてみてください。")
-            else:
-                advice = "現在のペースを維持しつつ、無理をしすぎないよう注意してくださいね。"
-            
-            feedback_parts.append(advice)
-            
-            # 励ましのメッセージ
-            if feedback_type == "morning":
-                encouragement = "今日も素敵な一日になりますように！"
-            else:
-                encouragement = "明日はもっと快適な一日になることを願っています。"
-            
-            feedback_parts.append(encouragement)
-            
-            return " ".join(feedback_parts)
-            
-        except Exception as e:
-            logger.error(f"ルールベースフィードバック生成エラー: {e}")
-            return self._generate_rule_based_feedback_simple()
+        return "フィードバックを生成するにはOpenAI APIキーが必要です。"
     
     def _generate_rule_based_feedback_simple(self) -> str:
         """
         シンプルなフォールバックフィードバック
         """
-        return ("今日もお疲れ様でした。ストレス管理において、小さな変化の積み重ねが大きな違いを生み出します。"
-                "十分な休息を取り、好きな活動でリラックスする時間を大切にしてください。"
-                "明日はより快適な一日になることを願っています。")
+        return "フィードバックを生成するにはOpenAI APIキーが必要です。"
     
     def generate_morning_briefing(self, 
                                 yesterday_dice_results: List[Dict],
@@ -719,12 +660,11 @@ class LLMFeedbackGenerator:
 ## フィードバック生成の指針
 1. **今日1日の振り返り**から始めてください（ポジティブな点を強調）
 2. **数値を自然に織り交ぜて**具体性を持たせてください
-3. **DiCE提案を実践的なアドバイス**に変換してください
-4. **明日への行動提案**を3つ程度含めてください
-5. **励ましと前向きなメッセージ**で締めくくってください
+3. **DiCE提案から1-2つの実践的なアドバイス**を含めてください
+4. **励ましと前向きなメッセージ**で締めくくってください
+5. **最後に必ず「※ChatGPTによって生成されたアドバイスです。」という文言を追加**してください
 
-フィードバックは300-400文字程度で、4-5つのパラグラフに分けて生成してください。
-親しみやすく、実践しやすい言葉遣いで書いてください。
+フィードバックは100文字程度で、簡潔で親しみやすい言葉遣いで書いてください。
 """
 
             return prompt
@@ -738,70 +678,9 @@ class LLMFeedbackGenerator:
                                            total_improvement: float,
                                            timeline_stats: Dict) -> str:
         """
-        ルールベースで日次フィードバックを生成
+        APIキーがない場合のシンプルなフォールバックメッセージ
         """
-        try:
-            feedback_parts = []
-
-            # 挨拶と今日の振り返り
-            avg_frustration = timeline_stats.get('avg_frustration', 10)
-
-            feedback_parts.append("今日もお疲れさまでした！")
-
-            # 全体的な評価
-            if avg_frustration <= 8:
-                feedback_parts.append(
-                    f"今日は全体的にリラックスして過ごせた一日でしたね。"
-                    f"平均フラストレーション値は{avg_frustration:.1f}点と良好でした。"
-                )
-            elif avg_frustration <= 13:
-                feedback_parts.append(
-                    f"今日はバランスの取れた一日でした。"
-                    f"平均フラストレーション値は{avg_frustration:.1f}点でした。"
-                )
-            else:
-                feedback_parts.append(
-                    f"今日は少しお疲れの様子ですね。"
-                    f"平均フラストレーション値は{avg_frustration:.1f}点と高めでした。"
-                )
-
-            # DiCE提案に基づくアドバイス
-            if total_improvement > 10 and hourly_schedule:
-                num_suggestions = len(hourly_schedule)
-                feedback_parts.append(
-                    f"分析の結果、{num_suggestions}個の改善機会が見つかり、"
-                    f"合計{total_improvement:.1f}点のストレス軽減が期待できそうです。"
-                )
-
-                # 具体的な提案（上位2件）
-                top_suggestions = sorted(hourly_schedule, key=lambda x: x.get('improvement', 0), reverse=True)[:2]
-                if top_suggestions:
-                    first_suggestion = top_suggestions[0]
-                    time_range = first_suggestion.get('time_range', '不明')
-                    suggested = first_suggestion.get('suggested_activity', '不明')
-
-                    feedback_parts.append(
-                        f"特に{time_range}の時間帯に「{suggested}」を取り入れると、"
-                        f"ストレスがさらに軽減できるかもしれません。"
-                    )
-            else:
-                feedback_parts.append("今日の行動パターンは良好です。このペースを維持していきましょう。")
-
-            # 明日へのメッセージ
-            highest_stress = timeline_stats.get('highest_stress_activity', ('不明', 10))
-            if highest_stress[1] > 15:
-                feedback_parts.append(
-                    f"「{highest_stress[0]}」の際はストレスが高めでした。"
-                    f"明日は休憩を増やすか、リラックスできる工夫を試してみてください。"
-                )
-
-            feedback_parts.append("明日も無理せず、自分のペースで過ごしてくださいね。")
-
-            return " ".join(feedback_parts)
-
-        except Exception as e:
-            logger.error(f"ルールベース日次フィードバック生成エラー: {e}")
-            return "今日もお疲れさまでした。ゆっくり休んで、明日に備えてください。"
+        return "今日もお疲れさまでした。フィードバックを生成するにはOpenAI APIキーが必要です。"
 
     def _generate_tomorrow_action_plan(self,
                                       hourly_schedule: List[Dict],
