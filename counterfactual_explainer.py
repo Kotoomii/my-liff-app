@@ -367,17 +367,40 @@ class ActivityCounterfactualExplainer:
             # DiCEが返したNASA_F_scaledは信頼できないため、ModelWrapperで明示的に予測し直す
             logger.warning(f"🔧 ModelWrapperで明示的にNASA_F_scaledを予測し直します")
 
+            # 🔍 DiCEが生成したCatSubの値を詳細に確認
+            logger.warning(f"🔍🔍🔍 DiCE生成後のCatSub詳細チェック開始")
+            logger.warning(f"🔍 cf_df['CatSub']のdtype: {cf_df['CatSub'].dtype}")
+            logger.warning(f"🔍 cf_df['CatSub']の値: {cf_df['CatSub'].tolist()}")
+            logger.warning(f"🔍 cf_df['CatSub']の型: {[type(x) for x in cf_df['CatSub'].tolist()]}")
+
+            # カテゴリカル型の場合、カテゴリ名に変換
+            if pd.api.types.is_categorical_dtype(cf_df['CatSub']):
+                logger.warning(f"🔍 CatSubがカテゴリカル型です！カテゴリ名に変換します")
+                logger.warning(f"🔍 カテゴリコード: {cf_df['CatSub'].cat.codes.tolist()}")
+                logger.warning(f"🔍 カテゴリ一覧: {cf_df['CatSub'].cat.categories.tolist()}")
+                # カテゴリコードをカテゴリ名に変換
+                cf_df['CatSub'] = cf_df['CatSub'].astype(str)
+                logger.warning(f"🔍 変換後のCatSub: {cf_df['CatSub'].tolist()}")
+
             # cf_dfからNASA_F_scaled列を削除
             cf_features_only = cf_df.drop('NASA_F_scaled', axis=1, errors='ignore').copy()
 
             # ModelWrapperで予測
             logger.warning(f"🔧 ModelWrapper.predict()を呼び出します...")
+            logger.warning(f"🔧 予測に使用するCatSub: {cf_features_only['CatSub'].tolist()}")
             predicted_f_values = wrapped_model.predict(cf_features_only)
             logger.warning(f"🔧 ModelWrapperの予測結果: {predicted_f_values.tolist()}")
 
             # 予測結果で上書き
             cf_df['NASA_F_scaled'] = predicted_f_values
             logger.warning(f"✅ 上書き後のNASA_F_scaled: {cf_df['NASA_F_scaled'].tolist()}")
+
+            # 🔍 各候補のCatSubとF値の対応を確認
+            logger.warning(f"🔍🔍🔍 各候補の活動とF値の対応確認:")
+            for i, (idx, cf_row) in enumerate(cf_df.iterrows()):
+                cf_activity = cf_row.get('CatSub')
+                cf_f = cf_row.get('NASA_F_scaled')
+                logger.warning(f"🔍   候補{i+1}: CatSub='{cf_activity}' → F_scaled={cf_f:.4f} (F値={cf_f*20:.2f})")
 
             # デバッグ: 各候補の活動カテゴリと生体情報を確認
             logger.warning(f"🔍 DiCE cf_df の活動カテゴリと生体情報:")
