@@ -333,6 +333,22 @@ class ActivityCounterfactualExplainer:
             logger.warning(f"🔧 DiCE: permitted_range設定 = 生体情報、時間、曜日を固定")
             logger.warning(f"🔧 DiCE: features_to_vary = ['CatSub'] のみ")
 
+            # 🔍 DiCE実行前の最終確認
+            logger.warning(f"🔍🔍🔍 DiCE実行前の最終確認")
+            logger.warning(f"🔍 訓練データ:")
+            logger.warning(f"   - 行数: {len(df_dice_train)}")
+            logger.warning(f"   - CatSubユニーク値数: {df_dice_train['CatSub'].nunique()}")
+            logger.warning(f"   - CatSubユニーク値: {df_dice_train['CatSub'].unique().tolist()}")
+            logger.warning(f"   - NASA_F_scaled 範囲: [{df_dice_train['NASA_F_scaled'].min():.3f}, {df_dice_train['NASA_F_scaled'].max():.3f}]")
+            logger.warning(f"   - NASA_F_scaled 平均: {df_dice_train['NASA_F_scaled'].mean():.3f}")
+            logger.warning(f"🔍 クエリ:")
+            logger.warning(f"   - CatSub: {query_dice['CatSub'].iloc[0]}")
+            logger.warning(f"   - 現在のF値(予測): {current_frustration:.2f} (scaled={current_frustration_scaled:.3f})")
+            logger.warning(f"🔍 目標:")
+            logger.warning(f"   - desired_range: {desired_range}")
+            logger.warning(f"   - F値換算: [{desired_range[0]*20:.2f}, {desired_range[1]*20:.2f}]")
+            logger.warning(f"   - 改善幅: {(current_frustration_scaled - desired_range[1])*20:.2f} 〜 {(current_frustration_scaled - desired_range[0])*20:.2f} 点")
+
             # DiCEで反実仮想例を生成（CatSub列を使用したquery_diceを使用）
             logger.warning(f"🚀🚀🚀 DiCE.generate_counterfactuals()を開始します...")
             logger.warning(f"🚀 ModelWrapper呼び出し回数（開始前）: {wrapped_model.call_count}")
@@ -349,10 +365,30 @@ class ActivityCounterfactualExplainer:
             logger.warning(f"🚀 ModelWrapper呼び出し回数（完了後）: {wrapped_model.call_count}")
 
             # 結果を取得
-            cf_df = dice_exp.cf_examples_list[0].final_cfs_df
+            logger.warning(f"🔍🔍🔍 DiCE生成結果を取得します")
+            logger.warning(f"🔍 dice_exp.cf_examples_list の長さ: {len(dice_exp.cf_examples_list)}")
 
-            if cf_df is None or cf_df.empty:
-                logger.warning("DiCEが反実仮想例を生成できませんでした")
+            if len(dice_exp.cf_examples_list) == 0:
+                logger.error("❌ DiCE: cf_examples_listが空です！反実仮想例が1つも生成されませんでした")
+                logger.error(f"   - 現在のF値: {current_frustration:.2f} (scaled={current_frustration_scaled:.3f})")
+                logger.error(f"   - 目標範囲: {desired_range}")
+                logger.error(f"   - 訓練データ数: {len(df_dice_train)}")
+                logger.error(f"   - CatSubユニーク数: {df_dice_train['CatSub'].nunique()}")
+                return None
+
+            cf_df = dice_exp.cf_examples_list[0].final_cfs_df
+            logger.warning(f"🔍 cf_df is None: {cf_df is None}")
+            logger.warning(f"🔍 cf_df is empty: {cf_df.empty if cf_df is not None else 'N/A'}")
+
+            if cf_df is None:
+                logger.error("❌ DiCE: final_cfs_dfがNoneです！")
+                return None
+
+            if cf_df.empty:
+                logger.error("❌ DiCE: final_cfs_dfが空です！反実仮想例を生成できませんでした")
+                logger.error(f"   - 現在のF値: {current_frustration:.2f} (scaled={current_frustration_scaled:.3f})")
+                logger.error(f"   - 目標範囲: {desired_range} (F値{desired_range[0]*20:.1f}-{desired_range[1]*20:.1f})")
+                logger.error(f"   - 制約条件が厳しすぎる可能性があります")
                 return None
 
             # デバッグ: cf_dfの列を確認
