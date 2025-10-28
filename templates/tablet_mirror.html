@@ -1639,8 +1639,7 @@
             suggestionInfo.innerHTML = `
                 <div class="activity-bar-name">${suggestion.suggested_activity || '改善提案'}</div>
                 <div class="activity-bar-time">${timeStr}</div>
-                <div class="activity-bar-duration">-${(suggestion.frustration_reduction || 0).toFixed(1)}点</div>
-                <div class="activity-bar-frustration">改善効果</div>
+                <div class="activity-bar-duration">${(suggestion.frustration_reduction || 0).toFixed(1)}点改善</div>
             `;
             
             suggestionBar.appendChild(suggestionInfo);
