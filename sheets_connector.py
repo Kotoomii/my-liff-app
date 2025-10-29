@@ -1069,6 +1069,54 @@ class SheetsConnector:
 
         return result
 
+    def get_hourly_log(self, user_id: str, date: str) -> pd.DataFrame:
+        """
+        指定日のHourly Logデータを取得（予測結果のキャッシュとして使用）
+
+        Args:
+            user_id: ユーザーID
+            date: 日付（YYYY-MM-DD形式）
+
+        Returns:
+            DataFrame: 日付, 時刻, 活動名, 実測NASA_F, 予測NASA_F, 誤差(MAE)
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return pd.DataFrame()
+
+            sheet_name = f"{user_id}_Hourly_Log"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if not worksheet:
+                logger.info(f"Hourly Logシートが存在しません: {sheet_name}")
+                return pd.DataFrame()
+
+            # シートの全データを取得
+            all_values = worksheet.get_all_values()
+
+            if len(all_values) <= 1:
+                # ヘッダーのみ or データなし
+                return pd.DataFrame()
+
+            # DataFrameに変換（1行目をヘッダーとして使用）
+            df = pd.DataFrame(all_values[1:], columns=all_values[0])
+
+            # 指定日のデータをフィルタリング
+            df_filtered = df[df['日付'] == date].copy()
+
+            # 数値列を変換
+            for col in ['実測NASA_F', '予測NASA_F', '誤差(MAE)']:
+                if col in df_filtered.columns:
+                    df_filtered[col] = pd.to_numeric(df_filtered[col], errors='coerce')
+
+            logger.info(f"Hourly Log取得: {user_id}, {date}, {len(df_filtered)}件")
+            return df_filtered
+
+        except Exception as e:
+            logger.error(f"Hourly Log取得エラー: {e}")
+            return pd.DataFrame()
+
     def save_hourly_log(self, user_id: str, hourly_data: Dict) -> bool:
         """
         時刻ごとの詳細データをスプレッドシートに保存

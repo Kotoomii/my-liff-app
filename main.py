@@ -599,28 +599,21 @@ def predict_activity_frustration():
         elif data_quality['quality_level'] == 'minimal':
             confidence = min(confidence, 0.5)
 
-        # 予測結果をスプレッドシートに記録
-        prediction_data = {
-            'timestamp': timestamp.isoformat(),
-            'user_id': user_id,
-            'activity': activity_category,
-            'duration': duration,
-            'predicted_frustration': float(predicted_frustration),  # 明示的にfloat変換
-            'confidence': float(confidence),  # 明示的にfloat変換
-            'source': 'manual_api',  # 手動API予測であることを明記
-            'notes': f'Subcategory: {activity_subcategory}'
-        }
-
-        # 手動予測の場合のみスプレッドシートに保存（自動監視との重複を避けるため）
-        # データ監視ループによる自動予測結果は data_monitor_loop で保存される
-        # PREDICTION_DATAシートへの保存を無効化（ユーザー要望により）
-        # try:
-        #     sheets_connector.save_prediction_data(prediction_data)
-        #     if config.LOG_PREDICTIONS:
-        #         logger.info(f"手動予測結果をスプレッドシートに記録: {user_id}, {activity_category}, 予測値: {predicted_frustration:.2f}")
-        # except Exception as save_error:
-        #     logger.error(f"予測結果保存エラー: {save_error}")
-        #     # 保存エラーがあってもAPIレスポンスには影響しない
+        # 予測結果をHourly Logに保存（キャッシュとして使用）
+        try:
+            hourly_data = {
+                'date': timestamp.strftime('%Y-%m-%d'),
+                'time': timestamp.strftime('%H:%M'),
+                'activity': activity_category,
+                'actual_frustration': None,  # 手動予測時は実測値なし
+                'predicted_frustration': float(predicted_frustration)
+            }
+            sheets_connector.save_hourly_log(user_id, hourly_data)
+            if config.LOG_PREDICTIONS:
+                logger.info(f"Hourly Logに保存: {user_id}, {activity_category} @{hourly_data['time']}, F値={predicted_frustration:.2f}")
+        except Exception as save_error:
+            logger.error(f"Hourly Log保存エラー: {save_error}")
+            # 保存エラーがあってもAPIレスポンスには影響しない
 
         response = {
             'status': 'success',
@@ -990,17 +983,39 @@ def get_frustration_timeline():
                 'status': 'already_trained'
             }
 
-        # タイムライン作成（モデル予測値を使用）
+        # Hourly Logから既存の予測結果を取得（キャッシュとして使用）
+        hourly_log = sheets_connector.get_hourly_log(user_id, date)
+        logger.info(f"Hourly Logキャッシュ: {len(hourly_log)}件取得")
+
+        # タイムライン作成（Hourly Logを優先、不足分のみ予測）
         timeline = []
         for idx, row in df_enhanced.iterrows():
             predicted_frustration = None
+            from_cache = False
 
             # Fitbitデータの有無をチェック
             has_fitbit_data = check_fitbit_data_availability(row)
 
-            # Fitbitデータが利用可能な場合のみ予測を実行
-            if has_fitbit_data:
-                # 各活動に対してモデル予測を実行（実測値の生体情報を使用）
+            # 時刻を取得（HH:MM形式）
+            timestamp = row['Timestamp']
+            time_str = timestamp.strftime('%H:%M') if hasattr(timestamp, 'strftime') else str(timestamp)
+            activity_name = row.get('CatSub', 'unknown')
+
+            # 1. まずHourly Logから予測結果を探す
+            if not hourly_log.empty:
+                cached = hourly_log[
+                    (hourly_log['時刻'] == time_str) &
+                    (hourly_log['活動名'] == activity_name)
+                ]
+                if not cached.empty:
+                    predicted_frustration = cached.iloc[0]['予測NASA_F']
+                    if pd.notna(predicted_frustration):
+                        from_cache = True
+                        if config.ENABLE_DEBUG_LOGS:
+                            logger.debug(f"Timeline: Hourly Logから取得 {activity_name} @{time_str}, F値={predicted_frustration:.2f}")
+
+            # 2. キャッシュになく、生体情報がある場合のみ予測を実行
+            if not from_cache and has_fitbit_data:
                 try:
                     # 行データから直接予測（DiCEと同じ方法）
                     prediction_result = predictor.predict_from_row(row)
@@ -1008,30 +1023,39 @@ def get_frustration_timeline():
                     if prediction_result and 'predicted_frustration' in prediction_result:
                         predicted_frustration = prediction_result['predicted_frustration']
                         if config.ENABLE_DEBUG_LOGS:
-                            logger.debug(f"Timeline予測: {row.get('CatSub')} at {row['Timestamp']}, F値={predicted_frustration:.2f} (実測値ベース)")
+                            logger.debug(f"Timeline: 新規予測 {activity_name} @{time_str}, F値={predicted_frustration:.2f}")
+
+                        # 3. 新しく予測した結果をHourly Logに保存
+                        hourly_data = {
+                            'date': date,
+                            'time': time_str,
+                            'activity': activity_name,
+                            'actual_frustration': row.get('NASA_F'),
+                            'predicted_frustration': predicted_frustration
+                        }
+                        try:
+                            sheets_connector.save_hourly_log(user_id, hourly_data)
+                        except Exception as save_error:
+                            logger.error(f"Hourly Log保存エラー: {save_error}")
 
                 except Exception as e:
                     logger.warning(f"予測エラー: {e}")
                     predicted_frustration = None
-            else:
+            elif not from_cache and not has_fitbit_data:
                 if config.ENABLE_DEBUG_LOGS:
-                    logger.debug(f"Fitbitデータ不足のため予測をスキップ: {row.get('Timestamp', 'unknown')}")
-                predicted_frustration = None
-            
+                    logger.debug(f"生体情報なし、活動名のみ表示: {activity_name} @{time_str}")
+
             # タイムラインに追加（予測値のみを使用、実測値は使わない）
             # F値がなくても活動名は必ず表示する
-            if predicted_frustration is None:
-                if config.ENABLE_DEBUG_LOGS:
-                    logger.debug(f"生体情報なし、活動名のみ表示: {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
-
             timeline.append({
                 'timestamp': row['Timestamp'].isoformat(),
                 'hour': row.get('hour', 0),
-                'activity': row.get('CatSub', 'unknown'),
+                'activity': activity_name,
                 'duration': row.get('Duration', 0),
-                'frustration_value': float(predicted_frustration) if predicted_frustration is not None else None,  # 予測値のみ（なければNone）
-                'is_predicted': predicted_frustration is not None,  # 予測値があるかどうか
-                'has_biodata': has_fitbit_data,  # 生体情報があるかどうか
+                'frustration_value': float(predicted_frustration) if predicted_frustration is not None else None,
+                'is_predicted': predicted_frustration is not None,
+                'has_biodata': has_fitbit_data,
+                'from_cache': from_cache,  # キャッシュから取得したかどうか
                 'activity_change': row.get('activity_change', 0) == 1,
                 'lorenz_stats': {
                     'mean': row.get('lorenz_mean', 0),
