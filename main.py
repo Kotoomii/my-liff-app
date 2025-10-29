@@ -613,13 +613,14 @@ def predict_activity_frustration():
 
         # 手動予測の場合のみスプレッドシートに保存（自動監視との重複を避けるため）
         # データ監視ループによる自動予測結果は data_monitor_loop で保存される
-        try:
-            sheets_connector.save_prediction_data(prediction_data)
-            if config.LOG_PREDICTIONS:
-                logger.info(f"手動予測結果をスプレッドシートに記録: {user_id}, {activity_category}, 予測値: {predicted_frustration:.2f}")
-        except Exception as save_error:
-            logger.error(f"予測結果保存エラー: {save_error}")
-            # 保存エラーがあってもAPIレスポンスには影響しない
+        # PREDICTION_DATAシートへの保存を無効化（ユーザー要望により）
+        # try:
+        #     sheets_connector.save_prediction_data(prediction_data)
+        #     if config.LOG_PREDICTIONS:
+        #         logger.info(f"手動予測結果をスプレッドシートに記録: {user_id}, {activity_category}, 予測値: {predicted_frustration:.2f}")
+        # except Exception as save_error:
+        #     logger.error(f"予測結果保存エラー: {save_error}")
+        #     # 保存エラーがあってもAPIレスポンスには影響しない
 
         response = {
             'status': 'success',
@@ -2280,17 +2281,18 @@ def data_monitor_loop():
                             'activity_timestamp': activity_timestamp  # 重複チェック用の活動タイムスタンプ
                         }
 
-                        try:
-                            # 重複チェック：同じactivity_timestampの予測データが既に存在するかチェック
-                            if not sheets_connector.is_prediction_duplicate(user_id, activity_timestamp):
-                                sheets_connector.save_prediction_data(prediction_data)
-                                if config.LOG_PREDICTIONS:
-                                    logger.info(f"自動予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {predicted_frust:.2f}")
-                            else:
-                                if config.ENABLE_DEBUG_LOGS:
-                                    logger.debug(f"重複する予測データをスキップ: {user_name}, {latest_activity.get('CatSub', 'unknown')}")
-                        except Exception as save_error:
-                            logger.error(f"予測結果保存エラー ({user_name}): {save_error}")
+                        # PREDICTION_DATAシートへの保存を無効化（ユーザー要望により）
+                        # try:
+                        #     # 重複チェック：同じactivity_timestampの予測データが既に存在するかチェック
+                        #     if not sheets_connector.is_prediction_duplicate(user_id, activity_timestamp):
+                        #         sheets_connector.save_prediction_data(prediction_data)
+                        #         if config.LOG_PREDICTIONS:
+                        #             logger.info(f"自動予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {predicted_frust:.2f}")
+                        #     else:
+                        #         if config.ENABLE_DEBUG_LOGS:
+                        #             logger.debug(f"重複する予測データをスキップ: {user_name}, {latest_activity.get('CatSub', 'unknown')}")
+                        # except Exception as save_error:
+                        #     logger.error(f"予測結果保存エラー ({user_name}): {save_error}")
 
             # 次のチェックまで待機
             time.sleep(check_interval)
