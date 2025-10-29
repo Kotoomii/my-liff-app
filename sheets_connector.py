@@ -1279,10 +1279,9 @@ class SheetsConnector:
                         break
 
                 if existing_row_index:
-                    # 既存行を更新
-                    cell_range = f'A{existing_row_index}:I{existing_row_index}'
-                    worksheet.update(cell_range, [row_data])
-                    logger.info(f"日次フィードバックサマリーを更新: {user_id}, {date}")
+                    # 既存行がある場合はスキップ（再生成しない）
+                    logger.info(f"日次サマリーが既に存在します: {date} (行{existing_row_index}) - スキップします")
+                    return True
                 else:
                     # 新規行を追加
                     worksheet.append_row(row_data)

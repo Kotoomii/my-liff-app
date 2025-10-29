@@ -2024,34 +2024,40 @@ def get_tablet_data(user_id):
         except Exception as timeline_error:
             logger.warning(f"タイムラインデータ取得警告: {timeline_error}")
         
-        # 2. DiCE分析データを取得
+        # 2. DiCE分析データとフィードバックデータをDaily Summaryから取得（キャッシュ）
+        # 毎回DiCE実行するのではなく、既に保存されたDaily Summaryを使用
         dice_data = {}
-        try:
-            with app.test_request_context(json={'user_id': user_id}):
-                dice_response = generate_dice_analysis()
-                if hasattr(dice_response, 'get_json'):
-                    dice_result = dice_response.get_json()
-                    if dice_result and dice_result.get('status') == 'success':
-                        dice_data = dice_result.get('dice_analysis', {})
-        except Exception as dice_error:
-            logger.warning(f"DiCE分析データ取得警告: {dice_error}")
-        
-        # 3. フィードバックデータを取得（DiCE結果を渡して重複計算を防ぐ）
         feedback_data = {}
+
         try:
-            # 既に取得したDiCE結果をフィードバック生成に渡す
-            with app.test_request_context(json={
-                'user_id': user_id,
-                'feedback_type': 'daily',
-                'dice_result': dice_data  # DiCE結果を渡す
-            }):
-                feedback_response = generate_feedback()
-                if hasattr(feedback_response, 'get_json'):
-                    feedback_result = feedback_response.get_json()
-                    if feedback_result and feedback_result.get('status') == 'success':
-                        feedback_data = feedback_result.get('feedback', {})
-        except Exception as feedback_error:
-            logger.warning(f"フィードバックデータ取得警告: {feedback_error}")
+            # Daily Summaryシートから今日のサマリーを取得
+            sheet_name = f"{user_id}_Daily_Summary"
+            worksheet = sheets_connector._find_worksheet_by_exact_name(sheet_name)
+
+            if worksheet:
+                all_values = worksheet.get_all_values()
+                for row in all_values[1:]:  # ヘッダーをスキップ
+                    if len(row) > 0 and row[0] == today:
+                        # 今日のサマリーが見つかった
+                        logger.info(f"Daily Summaryから取得: {today}")
+                        feedback_data = {
+                            'feedback': row[6] if len(row) > 6 else '',  # ChatGPTフィードバック
+                            'action_plan': json.loads(row[7]) if len(row) > 7 and row[7] else []  # アクションプラン
+                        }
+                        dice_data = {
+                            'improvement_potential': float(row[4]) if len(row) > 4 and row[4] else 0,  # DiCE改善ポテンシャル
+                            'suggestion_count': int(row[5]) if len(row) > 5 and row[5] else 0  # DiCE提案数
+                        }
+                        logger.info(f"キャッシュから取得: DiCE={dice_data.get('suggestion_count')}件, Feedback={'あり' if feedback_data.get('feedback') else 'なし'}")
+                        break
+
+            # Daily Summaryにデータがない場合のみ、DiCE分析とフィードバック生成を実行
+            if not dice_data and not feedback_data:
+                logger.info(f"Daily Summaryが存在しないため、DiCE分析とフィードバック生成をスキップします: {today}")
+                # スケジューラーが1日1回実行するため、ここでは空のデータを返す
+
+        except Exception as cache_error:
+            logger.warning(f"Daily Summaryキャッシュ取得エラー: {cache_error}")
         
         # 4. 今日の統計を計算
         daily_stats = {
