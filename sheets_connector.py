@@ -1166,13 +1166,11 @@ class SheetsConnector:
 
             # 重複チェック: 同じ日付・時刻の行を探す
             all_values = worksheet.get_all_values()
-            existing_row_index = None
 
             for idx, row in enumerate(all_values[1:], start=2):  # ヘッダーをスキップ、行番号は2から
                 if len(row) >= 3 and row[0] == date and row[1] == time:
-                    existing_row_index = idx
-                    logger.info(f"重複を検出: {date} {time} (行{idx}) - 更新します")
-                    break
+                    logger.info(f"重複を検出: {date} {time} (行{idx}) - スキップします（再予測しない）")
+                    return True  # 既に存在する場合は何もしない
 
             # 誤差を計算
             actual = hourly_data.get('actual_frustration')
@@ -1189,15 +1187,9 @@ class SheetsConnector:
                 round(mae, 2) if mae is not None else ''
             ]
 
-            if existing_row_index:
-                # 既存行を更新
-                range_name = f'A{existing_row_index}:F{existing_row_index}'
-                worksheet.update(range_name, [row_data])
-                logger.info(f"Hourly Log更新: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}")
-            else:
-                # 新規行を追加
-                worksheet.append_row(row_data)
-                logger.info(f"Hourly Log追加: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}")
+            # 新規行を追加（重複がない場合のみ）
+            worksheet.append_row(row_data)
+            logger.info(f"Hourly Log追加: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}")
 
             return True
 
