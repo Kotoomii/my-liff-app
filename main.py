@@ -999,7 +999,12 @@ def get_frustration_timeline():
             # 時刻を取得（HH:MM形式）
             timestamp = row['Timestamp']
             time_str = timestamp.strftime('%H:%M') if hasattr(timestamp, 'strftime') else str(timestamp)
-            activity_name = row.get('CatSub', 'unknown')
+
+            # 活動名を取得（バリデーション付き）
+            activity_name = row.get('CatSub', '')
+            if not activity_name or pd.isna(activity_name):
+                logger.warning(f"活動名が不正です (CatSub='{activity_name}') @{time_str} - スキップします")
+                continue
 
             # 1. まずHourly Logから予測結果を探す
             if not hourly_log.empty:

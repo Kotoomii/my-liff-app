@@ -1155,6 +1155,25 @@ class SheetsConnector:
                 worksheet.update('A1:F1', [headers])
                 logger.info(f"Hourly Logシートを作成しました: {sheet_name}")
 
+            # 活動名のバリデーション
+            activity = hourly_data.get('activity', '').strip()
+            if not activity or activity == 'unknown':
+                logger.warning(f"活動名が不正です: '{activity}' - 保存をスキップします")
+                return False
+
+            date = hourly_data.get('date', '')
+            time = hourly_data.get('time', '')
+
+            # 重複チェック: 同じ日付・時刻の行を探す
+            all_values = worksheet.get_all_values()
+            existing_row_index = None
+
+            for idx, row in enumerate(all_values[1:], start=2):  # ヘッダーをスキップ、行番号は2から
+                if len(row) >= 3 and row[0] == date and row[1] == time:
+                    existing_row_index = idx
+                    logger.info(f"重複を検出: {date} {time} (行{idx}) - 更新します")
+                    break
+
             # 誤差を計算
             actual = hourly_data.get('actual_frustration')
             predicted = hourly_data.get('predicted_frustration')
@@ -1162,17 +1181,23 @@ class SheetsConnector:
 
             # データ行を準備
             row_data = [
-                hourly_data.get('date', ''),
-                hourly_data.get('time', ''),
-                hourly_data.get('activity', '不明'),
+                date,
+                time,
+                activity,
                 round(actual, 2) if actual is not None else '',
                 round(predicted, 2) if predicted is not None else '',
                 round(mae, 2) if mae is not None else ''
             ]
 
-            # 新規行を追加
-            worksheet.append_row(row_data)
-            logger.info(f"Hourly Logを保存: {user_id}, {hourly_data.get('date')} {hourly_data.get('time')}, 実測={actual}, 予測={predicted}")
+            if existing_row_index:
+                # 既存行を更新
+                range_name = f'A{existing_row_index}:F{existing_row_index}'
+                worksheet.update(range_name, [row_data])
+                logger.info(f"Hourly Log更新: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}")
+            else:
+                # 新規行を追加
+                worksheet.append_row(row_data)
+                logger.info(f"Hourly Log追加: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}")
 
             return True
 
