@@ -160,6 +160,8 @@ class FrustrationPredictor:
             sdnn_max = fitbit_data['SDNN'].max()
             lorenz_max = fitbit_data['Lorenz_Area'].max()
 
+            logger.info(f"🔍 スケーリング: Fitbitデータ件数={len(fitbit_data)}, SDNN_max={sdnn_max}, Lorenz_max={lorenz_max}")
+
             if sdnn_max > 0:
                 fitbit_data['SDNN_scaled'] = fitbit_data['SDNN'] / sdnn_max
             else:
@@ -187,11 +189,15 @@ class FrustrationPredictor:
                 # 統計量を計算 (webhooktest.pyはSDNN_scaled, Lorenz_Area_scaledの平均を使用)
                 activity_dict = activity.to_dict()
                 if not fitbit_period.empty:
-                    activity_dict['SDNN_scaled'] = fitbit_period['SDNN_scaled'].mean()
-                    activity_dict['Lorenz_Area_scaled'] = fitbit_period['Lorenz_Area_scaled'].mean()
+                    sdnn_mean = fitbit_period['SDNN_scaled'].mean()
+                    lorenz_mean = fitbit_period['Lorenz_Area_scaled'].mean()
+                    activity_dict['SDNN_scaled'] = sdnn_mean
+                    activity_dict['Lorenz_Area_scaled'] = lorenz_mean
+                    logger.debug(f"  活動 {activity.get('CatSub', 'unknown')} @{start_time}: Fitbit={len(fitbit_period)}件, SDNN_scaled={sdnn_mean:.3f}, Lorenz_scaled={lorenz_mean:.3f}")
                 else:
                     activity_dict['SDNN_scaled'] = np.nan
                     activity_dict['Lorenz_Area_scaled'] = np.nan
+                    logger.debug(f"  活動 {activity.get('CatSub', 'unknown')} @{start_time}: Fitbitデータなし")
 
                 activity_with_fitbit.append(activity_dict)
 
@@ -598,11 +604,18 @@ class FrustrationPredictor:
                     feature_df[col] = 0
             feature_df = feature_df[self.feature_columns]
 
+            # デバッグ: 入力特徴量を確認
+            logger.info(f"🔍 predict_from_row: 活動={row_data.get('CatSub')}, SDNN={features['SDNN_scaled']:.3f}, Lorenz={features['Lorenz_Area_scaled']:.3f}")
+
             # 予測実行 (0-1スケール)
             prediction_scaled = self.model.predict(feature_df)[0]
 
+            logger.info(f"🔍 predict_from_row: 予測結果 scaled={prediction_scaled:.3f}")
+
             # 元のスケール (0-20) に戻す
             prediction = prediction_scaled * 20.0
+
+            logger.info(f"🔍 predict_from_row: 予測結果 F値={prediction:.2f}")
 
             # NaN/Infのバリデーション
             if np.isnan(prediction) or np.isinf(prediction):
