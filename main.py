@@ -1002,6 +1002,7 @@ def get_frustration_timeline():
 def generate_feedback():
     """
     LLMを使用した自然言語フィードバック生成API (日次フィードバックのみ)
+    既に計算されたDiCE結果を受け取ることで、重複計算を防ぐ
     """
     try:
         data = request.get_json()
@@ -1009,10 +1010,13 @@ def generate_feedback():
         # 'type'と'feedback_type'の両方に対応
         feedback_type = data.get('feedback_type', data.get('type', 'daily'))
 
+        # 既に計算されたDiCE結果を受け取る（オプション）
+        dice_result = data.get('dice_result')
+
         # 今日の日付を取得
         today = datetime.now().strftime('%Y-%m-%d')
 
-        logger.info(f"日次フィードバック生成開始: user_id={user_id}, date={today}")
+        logger.info(f"日次フィードバック生成開始: user_id={user_id}, date={today}, dice_result={'あり' if dice_result else 'なし'}")
 
         # ユーザーごとのpredictorを取得
         predictor = get_predictor(user_id)
@@ -1040,10 +1044,14 @@ def generate_feedback():
                 'user_id': user_id
             }), 400
 
-        # 今日のDiCE分析を実行
-        dice_result = explainer.generate_activity_based_explanation(
-            df_enhanced, predictor, None, 24
-        )
+        # DiCE結果が渡されていない場合は、DiCE分析を実行（後方互換性）
+        if not dice_result:
+            logger.info("DiCE結果が渡されていないため、DiCE分析を実行します")
+            dice_result = explainer.generate_activity_based_explanation(
+                df_enhanced, predictor, None, 24
+            )
+        else:
+            logger.info("既に計算されたDiCE結果を使用します")
 
         # 今日のタイムラインデータを取得（実測値と予測値を含む）
         timeline_data = []
@@ -1939,11 +1947,15 @@ def get_tablet_data(user_id):
         except Exception as dice_error:
             logger.warning(f"DiCE分析データ取得警告: {dice_error}")
         
-        # 3. フィードバックデータを取得
+        # 3. フィードバックデータを取得（DiCE結果を渡して重複計算を防ぐ）
         feedback_data = {}
         try:
-            # フィードバック生成リクエストをシミュレート
-            with app.test_request_context(json={'user_id': user_id, 'feedback_type': 'daily'}):
+            # 既に取得したDiCE結果をフィードバック生成に渡す
+            with app.test_request_context(json={
+                'user_id': user_id,
+                'feedback_type': 'daily',
+                'dice_result': dice_data  # DiCE結果を渡す
+            }):
                 feedback_response = generate_feedback()
                 if hasattr(feedback_response, 'get_json'):
                     feedback_result = feedback_response.get_json()

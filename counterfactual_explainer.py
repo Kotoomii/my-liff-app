@@ -62,6 +62,8 @@ class ActivityCounterfactualExplainer:
                         'time_range': item['time_range'],
                         'original_activity': item['original_activity'],
                         'suggested_activity': item['suggested_activity'],
+                        'original_frustration': item.get('original_frustration'),  # 現在のF値
+                        'predicted_frustration': item.get('predicted_frustration'),  # 改善後のF値
                         'frustration_reduction': item['improvement'],
                         'improvement': item['improvement'],
                         'confidence': item['confidence']
@@ -584,6 +586,8 @@ class ActivityCounterfactualExplainer:
                                 'time_range': f"{hour:02d}:00-{hour+1:02d}:00",
                                 'original_activity': result['original_activity'],
                                 'suggested_activity': result['suggested_activity'],
+                                'original_frustration': result['original_frustration'],  # 現在のF値（予測値）
+                                'predicted_frustration': result['predicted_frustration'],  # 改善後のF値
                                 'improvement': result['improvement'],
                                 'confidence': result['confidence']
                             })
