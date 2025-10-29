@@ -7,6 +7,7 @@ from flask import Flask, render_template, jsonify, request
 import os
 import logging
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict
 import threading
@@ -583,7 +584,6 @@ def predict_activity_frustration():
         confidence = prediction_result['confidence']
 
         # NaN/Infバリデーション
-        import numpy as np
         if np.isnan(predicted_frustration) or np.isinf(predicted_frustration):
             return jsonify({
                 'status': 'error',
