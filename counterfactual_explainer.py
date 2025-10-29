@@ -138,20 +138,17 @@ class ActivityCounterfactualExplainer:
             logger.info(f"DiCE: 選択されている活動カテゴリ = {active_activity if active_activity else 'なし'}")
 
             # 重要な生体情報カラムのNaNチェック
+            # 生体情報がない場合はスキップする（平均値で補完しない）
             critical_cols = ['SDNN_scaled', 'Lorenz_Area_scaled']
             for col in critical_cols:
                 if col in query_features.columns:
                     val = query_features[col].iloc[0]
                     if pd.isna(val):
-                        logger.warning(f"DiCE: {col}がNaNです。履歴データの平均値で補完します")
-                        # 履歴データの平均値で補完
-                        mean_val = df_enhanced[col].dropna().mean()
-                        if pd.notna(mean_val):
-                            query_features.loc[query_features.index[0], col] = mean_val
-                            logger.info(f"DiCE: {col}を平均値 {mean_val:.4f} で補完しました")
-                        else:
-                            logger.error(f"DiCE: {col}の平均値も計算できません")
-                            return None
+                        logger.info(f"DiCE: {col}がNaNです。生体情報がないためこの活動をスキップします")
+                        return None
+                else:
+                    logger.error(f"DiCE: {col}列が見つかりません")
+                    return None
 
             # モデルで予測（スケーリング後の値: 0-1）
             logger.info("DiCE: ===== モデル予測を実行します =====")

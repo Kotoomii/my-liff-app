@@ -498,13 +498,79 @@ def predict_activity_frustration():
             # モデルが既に訓練済みの場合
             logger.warning(f"✅ モデル既訓練済み: user_id={user_id}, predictor.modelが存在します")
 
-        # 新しい活動のフラストレーション値予測（履歴データを使用）
-        prediction_result = predictor.predict_with_history(
-            activity_category,
-            duration,
-            timestamp,
-            df_enhanced  # 履歴データを渡す
+        # 新しい活動のフラストレーション値予測（生体情報が揃っている場合のみ）
+        # 入力された時刻のFitbitデータを探す
+        logger.info(f"App予測: 入力時刻 {timestamp} のFitbitデータを検索中...")
+
+        # 新しい活動の仮データフレームを作成
+        new_activity_dict = {
+            'Timestamp': timestamp,
+            'CatSub': activity_category,
+            'Duration': duration,
+            'NASA_F': np.nan  # 実測値はまだない
+        }
+        new_activity_df = pd.DataFrame([new_activity_dict])
+
+        # 活動データを前処理（時間特徴量、One-Hot化）
+        new_activity_processed = predictor.preprocess_activity_data(new_activity_df)
+
+        if new_activity_processed.empty:
+            logger.error("App予測: 新しい活動データの前処理に失敗しました")
+            return jsonify({
+                'status': 'no_prediction',
+                'message': '生体情報が不足しているため、予測できません。',
+                'user_id': user_id,
+                'activity': activity_category,
+                'duration': duration,
+                'timestamp': timestamp.isoformat(),
+                'predicted_frustration': None,
+                'confidence': 0.0,
+                'data_quality': data_quality
+            }), 200
+
+        # その時刻のFitbitデータを集計
+        new_activity_with_fitbit = predictor.aggregate_fitbit_by_activity(
+            new_activity_processed, fitbit_data
         )
+
+        if new_activity_with_fitbit.empty:
+            logger.warning("App予測: 新しい活動にFitbitデータが紐づきませんでした")
+            return jsonify({
+                'status': 'no_prediction',
+                'message': '生体情報が不足しているため、予測できません。',
+                'user_id': user_id,
+                'activity': activity_category,
+                'duration': duration,
+                'timestamp': timestamp.isoformat(),
+                'predicted_frustration': None,
+                'confidence': 0.0,
+                'data_quality': data_quality
+            }), 200
+
+        # 生体情報が揃っているかチェック
+        row = new_activity_with_fitbit.iloc[0]
+        has_biodata = (
+            'SDNN_scaled' in row.index and pd.notna(row['SDNN_scaled']) and
+            'Lorenz_Area_scaled' in row.index and pd.notna(row['Lorenz_Area_scaled'])
+        )
+
+        if not has_biodata:
+            logger.warning(f"App予測: 生体情報が不足 (SDNN={row.get('SDNN_scaled')}, Lorenz={row.get('Lorenz_Area_scaled')})")
+            return jsonify({
+                'status': 'no_prediction',
+                'message': '生体情報が不足しているため、予測できません。',
+                'user_id': user_id,
+                'activity': activity_category,
+                'duration': duration,
+                'timestamp': timestamp.isoformat(),
+                'predicted_frustration': None,
+                'confidence': 0.0,
+                'data_quality': data_quality
+            }), 200
+
+        # 生体情報が揃っている場合のみ予測を実行
+        logger.info(f"App予測: 生体情報が揃っています。predict_from_rowで予測します")
+        prediction_result = predictor.predict_from_row(row)
 
         if 'error' in prediction_result:
             return jsonify({
@@ -951,33 +1017,26 @@ def get_frustration_timeline():
                     logger.debug(f"Fitbitデータ不足のため予測をスキップ: {row.get('Timestamp', 'unknown')}")
                 predicted_frustration = None
             
-            # タイムラインに追加（予測値がない場合は実測値を使用）
-            frustration_to_use = predicted_frustration
-            if frustration_to_use is None:
-                # 予測値がない場合は実測値（NASA_F）を使用
-                frustration_to_use = row.get('NASA_F')
+            # タイムラインに追加（予測値のみを使用、実測値は使わない）
+            # F値がなくても活動名は必ず表示する
+            if predicted_frustration is None:
                 if config.ENABLE_DEBUG_LOGS:
-                    logger.debug(f"予測値なし、実測値を使用: {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
+                    logger.debug(f"生体情報なし、活動名のみ表示: {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
 
-            # 予測値も実測値もない場合のみスキップ
-            if frustration_to_use is not None:
-                timeline.append({
-                    'timestamp': row['Timestamp'].isoformat(),
-                    'hour': row.get('hour', 0),
-                    'activity': row.get('CatSub', 'unknown'),
-                    'duration': row.get('Duration', 0),
-                    'frustration_value': float(frustration_to_use),  # 予測値または実測値
-                    'actual_frustration': row.get('NASA_F'),      # 実データも保持（比較用）
-                    'is_predicted': predicted_frustration is not None,  # 予測値かどうかのフラグ
-                    'activity_change': row.get('activity_change', 0) == 1,
-                    'lorenz_stats': {
-                        'mean': row.get('lorenz_mean', 0),
-                        'std': row.get('lorenz_std', 0)
-                    }
-                })
-            else:
-                if config.ENABLE_DEBUG_LOGS:
-                    logger.debug(f"活動をスキップ: 予測値も実測値もありません - {row.get('CatSub', 'unknown')} at {row['Timestamp']}")
+            timeline.append({
+                'timestamp': row['Timestamp'].isoformat(),
+                'hour': row.get('hour', 0),
+                'activity': row.get('CatSub', 'unknown'),
+                'duration': row.get('Duration', 0),
+                'frustration_value': float(predicted_frustration) if predicted_frustration is not None else None,  # 予測値のみ（なければNone）
+                'is_predicted': predicted_frustration is not None,  # 予測値があるかどうか
+                'has_biodata': has_fitbit_data,  # 生体情報があるかどうか
+                'activity_change': row.get('activity_change', 0) == 1,
+                'lorenz_stats': {
+                    'mean': row.get('lorenz_mean', 0),
+                    'std': row.get('lorenz_std', 0)
+                }
+            })
         
         # 時間順にソート
         timeline.sort(key=lambda x: x['timestamp'])
