@@ -37,59 +37,31 @@ class LLMFeedbackGenerator:
 
     def _get_api_key_from_secret_manager(self) -> str:
         """
-        Google Cloud Secret ManagerからOpenAI APIキーを取得
-        ローカル環境では環境変数から取得
+        環境変数からOpenAI APIキーを取得
+        Cloud Run環境ではSecret Managerのシークレットが環境変数としてマウントされます
         """
         logger.info("🔑 OpenAI APIキー取得を開始...")
+        logger.info("📍 環境変数 'OPENAI_API_KEY' を確認中...")
 
         try:
-            # Cloud Run環境の場合はSecret Managerから取得
-            if self.config.IS_CLOUD_RUN:
-                logger.info("☁️ Cloud Run環境を検出。Secret Managerから取得を試みます。")
-                try:
-                    from google.cloud.secretmanager import SecretManagerServiceClient
+            # OPENAI_API_KEY または OPEN_API_KEY から取得（両方に対応）
+            api_key = os.environ.get('OPENAI_API_KEY', os.environ.get('OPEN_API_KEY', ''))
 
-                    # Secret Managerクライアントを作成
-                    client = SecretManagerServiceClient()
-
-                    # プロジェクトIDを環境変数から取得
-                    project_id = os.environ.get('GCP_PROJECT_ID', os.environ.get('GOOGLE_CLOUD_PROJECT', ''))
-
-                    if not project_id:
-                        logger.warning("GCP_PROJECT_IDが設定されていません。環境変数からAPIキーを取得します。")
-                        return os.environ.get('OPENAI_API_KEY', '')
-
-                    # Secret名
-                    secret_name = f"projects/{project_id}/secrets/openai-api-key/versions/latest"
-
-                    # Secretを取得
-                    response = client.access_secret_version(request={"name": secret_name})
-                    api_key = response.payload.data.decode('UTF-8')
-
-                    logger.info("✅ OpenAI APIキーをSecret Managerから取得しました")
-                    return api_key
-
-                except Exception as e:
-                    logger.warning(f"Secret Manager取得エラー: {e}。環境変数から取得を試みます。")
-                    return os.environ.get('OPENAI_API_KEY', '')
+            if api_key:
+                # セキュリティのため最初の7文字のみ表示
+                masked_key = api_key[:7] + "..." if len(api_key) > 7 else "***"
+                logger.info(f"✅ OpenAI APIキーを環境変数から取得しました")
+                logger.info(f"🔐 APIキー (マスク表示): {masked_key}")
+                logger.info(f"📏 APIキーの長さ: {len(api_key)}文字")
             else:
-                # ローカル環境では環境変数から取得
-                logger.info("💻 ローカル環境を検出。環境変数から取得を試みます。")
-                logger.info("📍 環境変数 'OPENAI_API_KEY' を確認中...")
-
-                api_key = os.environ.get('OPENAI_API_KEY', '')
-
-                if api_key:
-                    # セキュリティのため最初の7文字のみ表示
-                    masked_key = api_key[:7] + "..." if len(api_key) > 7 else "***"
-                    logger.info(f"✅ OpenAI APIキーを環境変数から取得しました")
-                    logger.info(f"🔐 APIキー (マスク表示): {masked_key}")
-                    logger.info(f"📏 APIキーの長さ: {len(api_key)}文字")
+                logger.error("❌ OPENAI_API_KEY環境変数が設定されていません！")
+                if self.config.IS_CLOUD_RUN:
+                    logger.error("💡 Cloud Run環境: Secret Managerのシークレットを環境変数としてマウントしてください")
+                    logger.error("   例: gcloud run services update SERVICE_NAME --update-secrets=OPENAI_API_KEY=openai-api-key:latest")
                 else:
-                    logger.error("❌ OPENAI_API_KEY環境変数が設定されていません！")
-                    logger.error("💡 ヒント: ターミナルで 'export OPENAI_API_KEY=your-api-key' を実行してください")
+                    logger.error("💡 ローカル環境: ターミナルで 'export OPENAI_API_KEY=your-api-key' を実行してください")
 
-                return api_key
+            return api_key
 
         except Exception as e:
             logger.error(f"APIキー取得エラー: {e}")
