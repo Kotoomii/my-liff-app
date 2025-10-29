@@ -1016,8 +1016,7 @@ def get_frustration_timeline():
                     predicted_frustration = cached.iloc[0]['予測NASA_F']
                     if pd.notna(predicted_frustration):
                         from_cache = True
-                        if config.ENABLE_DEBUG_LOGS:
-                            logger.debug(f"Timeline: Hourly Logから取得 {activity_name} @{time_str}, F値={predicted_frustration:.2f}")
+                        logger.info(f"📋 キャッシュから取得: {activity_name} @{time_str}, F値={predicted_frustration} (type={type(predicted_frustration).__name__})")
 
             # 2. キャッシュになく、生体情報がある場合のみ予測を実行
             if not from_cache and has_fitbit_data:
@@ -1027,8 +1026,7 @@ def get_frustration_timeline():
 
                     if prediction_result and 'predicted_frustration' in prediction_result:
                         predicted_frustration = prediction_result['predicted_frustration']
-                        if config.ENABLE_DEBUG_LOGS:
-                            logger.debug(f"Timeline: 新規予測 {activity_name} @{time_str}, F値={predicted_frustration:.2f}")
+                        logger.info(f"✨ 新規予測: {activity_name} @{time_str}, F値={predicted_frustration} (type={type(predicted_frustration).__name__})")
 
                         # 3. 新しく予測した結果をHourly Logに保存
                         hourly_data = {
@@ -1038,8 +1036,10 @@ def get_frustration_timeline():
                             'actual_frustration': row.get('NASA_F'),
                             'predicted_frustration': predicted_frustration
                         }
+                        logger.info(f"💾 Hourly Log保存前: F値={predicted_frustration}")
                         try:
                             sheets_connector.save_hourly_log(user_id, hourly_data)
+                            logger.info(f"💾 Hourly Log保存完了: {activity_name} @{time_str}")
                         except Exception as save_error:
                             logger.error(f"Hourly Log保存エラー: {save_error}")
 
@@ -1052,12 +1052,15 @@ def get_frustration_timeline():
 
             # タイムラインに追加（予測値のみを使用、実測値は使わない）
             # F値がなくても活動名は必ず表示する
+            frustration_for_timeline = float(predicted_frustration) if predicted_frustration is not None else None
+            logger.info(f"📱 タイムライン追加: {activity_name} @{time_str}, F値={frustration_for_timeline} (from_cache={from_cache})")
+
             timeline.append({
                 'timestamp': row['Timestamp'].isoformat(),
                 'hour': row.get('hour', 0),
                 'activity': activity_name,
                 'duration': row.get('Duration', 0),
-                'frustration_value': float(predicted_frustration) if predicted_frustration is not None else None,
+                'frustration_value': frustration_for_timeline,
                 'is_predicted': predicted_frustration is not None,
                 'has_biodata': has_fitbit_data,
                 'from_cache': from_cache,  # キャッシュから取得したかどうか
