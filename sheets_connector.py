@@ -1061,10 +1061,176 @@ class SheetsConnector:
                 result['fitbit_sheet_name'] = fitbit_ws.title
                 
             logger.info("Google Sheets接続テスト完了")
-            
+
         except Exception as e:
             result['status'] = 'error'
             result['error'] = str(e)
             logger.error(f"接続テストエラー: {e}")
-        
+
         return result
+
+    def save_hourly_log(self, user_id: str, hourly_data: Dict) -> bool:
+        """
+        時刻ごとの詳細データをスプレッドシートに保存
+
+        シート構成: {user_id}_Hourly_Log
+        列: 日付, 時刻, 活動名, 実測NASA_F, 予測NASA_F, 誤差(MAE)
+
+        Args:
+            user_id: ユーザーID
+            hourly_data: {
+                'date': '2025-01-15',
+                'time': '10:00',
+                'activity': '授業',
+                'actual_frustration': 15,
+                'predicted_frustration': 14.2
+            }
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            # ユーザー別のHourly Logシート名を生成
+            sheet_name = f"{user_id}_Hourly_Log"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if not worksheet:
+                # シートが存在しない場合は作成
+                worksheet = self.spreadsheet.add_worksheet(
+                    title=sheet_name,
+                    rows="10000",
+                    cols="6"
+                )
+                # ヘッダー行を追加
+                headers = ['日付', '時刻', '活動名', '実測NASA_F', '予測NASA_F', '誤差(MAE)']
+                worksheet.update('A1:F1', [headers])
+                logger.info(f"Hourly Logシートを作成しました: {sheet_name}")
+
+            # 誤差を計算
+            actual = hourly_data.get('actual_frustration')
+            predicted = hourly_data.get('predicted_frustration')
+            mae = abs(actual - predicted) if actual is not None and predicted is not None else None
+
+            # データ行を準備
+            row_data = [
+                hourly_data.get('date', ''),
+                hourly_data.get('time', ''),
+                hourly_data.get('activity', '不明'),
+                round(actual, 2) if actual is not None else '',
+                round(predicted, 2) if predicted is not None else '',
+                round(mae, 2) if mae is not None else ''
+            ]
+
+            # 新規行を追加
+            worksheet.append_row(row_data)
+            logger.info(f"Hourly Logを保存: {user_id}, {hourly_data.get('date')} {hourly_data.get('time')}, 実測={actual}, 予測={predicted}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Hourly Log保存エラー: {e}")
+            return False
+
+    def save_daily_feedback_summary(self, user_id: str, summary_data: Dict) -> bool:
+        """
+        日次フィードバックサマリーをスプレッドシートに保存
+
+        シート構成: {user_id}_Daily_Summary
+        列: 日付, 日次平均実測, 日次平均予測, 日次MAE, DiCE改善ポテンシャル, DiCE提案数,
+            ChatGPTフィードバック, アクションプラン, 生成日時
+
+        Args:
+            user_id: ユーザーID
+            summary_data: {
+                'date': '2025-01-15',
+                'avg_actual': 12.3,
+                'avg_predicted': 11.8,
+                'dice_improvement': 5.2,
+                'dice_count': 3,
+                'chatgpt_feedback': 'フィードバック文章',
+                'action_plan': ['アクション1', 'アクション2'],
+                'generated_at': '2025-01-15 21:00:00'
+            }
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            # ユーザー別のDaily Summaryシート名を生成
+            sheet_name = f"{user_id}_Daily_Summary"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if not worksheet:
+                # シートが存在しない場合は作成
+                worksheet = self.spreadsheet.add_worksheet(
+                    title=sheet_name,
+                    rows="1000",
+                    cols="9"
+                )
+                # ヘッダー行を追加
+                headers = [
+                    '日付', '日次平均実測', '日次平均予測', '日次MAE',
+                    'DiCE改善ポテンシャル', 'DiCE提案数',
+                    'ChatGPTフィードバック', 'アクションプラン', '生成日時'
+                ]
+                worksheet.update('A1:I1', [headers])
+                logger.info(f"Daily Summaryシートを作成しました: {sheet_name}")
+
+            # 日次MAEを計算
+            avg_actual = summary_data.get('avg_actual')
+            avg_predicted = summary_data.get('avg_predicted')
+            daily_mae = abs(avg_actual - avg_predicted) if avg_actual is not None and avg_predicted is not None else None
+
+            # アクションプランをJSON文字列に変換
+            action_plan = summary_data.get('action_plan', [])
+            action_plan_str = json.dumps(action_plan, ensure_ascii=False) if action_plan else ''
+
+            # データ行を準備
+            row_data = [
+                summary_data.get('date', ''),
+                round(avg_actual, 2) if avg_actual is not None else '',
+                round(avg_predicted, 2) if avg_predicted is not None else '',
+                round(daily_mae, 2) if daily_mae is not None else '',
+                round(summary_data.get('dice_improvement', 0), 2),
+                summary_data.get('dice_count', 0),
+                summary_data.get('chatgpt_feedback', ''),
+                action_plan_str,
+                summary_data.get('generated_at', datetime.now().isoformat())
+            ]
+
+            # 重複チェック: 同じ日付のデータが既に存在するかチェック
+            date = summary_data.get('date', '')
+            try:
+                existing_data = worksheet.get_all_values()
+                existing_row_index = None
+
+                # ヘッダー行をスキップして検索
+                for i, row in enumerate(existing_data[1:], start=2):
+                    if len(row) > 0 and row[0] == date:
+                        existing_row_index = i
+                        logger.info(f"既存の日次サマリーを発見: {date} (行: {i})")
+                        break
+
+                if existing_row_index:
+                    # 既存行を更新
+                    cell_range = f'A{existing_row_index}:I{existing_row_index}'
+                    worksheet.update(cell_range, [row_data])
+                    logger.info(f"日次フィードバックサマリーを更新: {user_id}, {date}")
+                else:
+                    # 新規行を追加
+                    worksheet.append_row(row_data)
+                    logger.info(f"日次フィードバックサマリーを保存: {user_id}, {date}")
+
+            except Exception as duplicate_check_error:
+                # 重複チェックに失敗した場合は通常の追加処理を実行
+                logger.warning(f"重複チェックに失敗、新規追加します: {duplicate_check_error}")
+                worksheet.append_row(row_data)
+                logger.info(f"日次フィードバックサマリーを保存: {user_id}, {date}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"日次フィードバックサマリー保存エラー: {e}")
+            return False

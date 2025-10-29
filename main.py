@@ -1001,56 +1001,146 @@ def get_frustration_timeline():
 @app.route('/api/feedback/generate', methods=['POST'])
 def generate_feedback():
     """
-    LLMを使用した自然言語フィードバック生成API
+    LLMを使用した自然言語フィードバック生成API (日次フィードバックのみ)
     """
     try:
         data = request.get_json()
         user_id = data.get('user_id', 'default')
-        feedback_type = data.get('type', 'evening')  # 'morning' or 'evening'
+        # 'type'と'feedback_type'の両方に対応
+        feedback_type = data.get('feedback_type', data.get('type', 'daily'))
+
+        # 今日の日付を取得
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        logger.info(f"日次フィードバック生成開始: user_id={user_id}, date={today}")
 
         # ユーザーごとのpredictorを取得
         predictor = get_predictor(user_id)
 
-        # DiCE結果を取得（過去24時間）
-        dice_results = []
+        # データ取得
+        activity_data = sheets_connector.get_activity_data(user_id)
+        fitbit_data = sheets_connector.get_fitbit_data(user_id)
 
-        # 過去24時間のDiCE分析を実行
-        for hours_back in range(0, 24, 6):  # 6時間おきに分析
-            target_time = datetime.now() - timedelta(hours=hours_back)
+        if activity_data.empty:
+            return jsonify({
+                'status': 'error',
+                'message': '活動データが見つかりません'
+            }), 400
 
-            # データ取得
-            activity_data = sheets_connector.get_activity_data(user_id)
-            fitbit_data = sheets_connector.get_fitbit_data(user_id)
+        # データ前処理
+        activity_processed = predictor.preprocess_activity_data(activity_data)
+        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
 
-            if not activity_data.empty:
-                activity_processed = predictor.preprocess_activity_data(activity_data)
-                df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+        # モデルが訓練されていることを確認
+        training_result = ensure_model_trained(user_id)
+        if training_result.get('status') not in ['success', 'already_trained']:
+            return jsonify({
+                'status': 'error',
+                'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
+                'user_id': user_id
+            }), 400
 
-                if len(df_enhanced) > 5:
-                    dice_result = explainer.generate_activity_based_explanation(
-                        df_enhanced, predictor, target_time, 6
-                    )
-                    
-                    if dice_result.get('type') != 'fallback':
-                        dice_results.append(dice_result)
-        
-        # フィードバック生成
-        if feedback_type == 'morning':
-            feedback_result = feedback_generator.generate_morning_briefing(dice_results)
+        # 今日のDiCE分析を実行
+        dice_result = explainer.generate_activity_based_explanation(
+            df_enhanced, predictor, None, 24
+        )
+
+        # 今日のタイムラインデータを取得（実測値と予測値を含む）
+        timeline_data = []
+        target_date = datetime.strptime(today, '%Y-%m-%d').date()
+
+        if 'Timestamp' in activity_data.columns:
+            activity_data['date'] = pd.to_datetime(activity_data['Timestamp']).dt.date
+            daily_data = activity_data[activity_data['date'] == target_date]
+
+            if not daily_data.empty:
+                activity_processed_daily = predictor.preprocess_activity_data(daily_data)
+                df_enhanced_daily = predictor.aggregate_fitbit_by_activity(activity_processed_daily, fitbit_data)
+
+                # タイムラインデータを構築
+                for idx, row in df_enhanced_daily.iterrows():
+                    predicted_frustration = None
+
+                    # Fitbitデータがある場合のみ予測
+                    if check_fitbit_data_availability(row):
+                        try:
+                            prediction_result = predictor.predict_from_row(row)
+                            if prediction_result and 'predicted_frustration' in prediction_result:
+                                predicted_frustration = prediction_result['predicted_frustration']
+                        except Exception as e:
+                            logger.warning(f"予測エラー: {e}")
+
+                    # タイムラインに追加
+                    frustration_value = predicted_frustration if predicted_frustration is not None else row.get('NASA_F')
+                    if frustration_value is not None:
+                        timeline_data.append({
+                            'timestamp': row['Timestamp'].isoformat(),
+                            'hour': row.get('hour', 0),
+                            'activity': row.get('CatSub', 'unknown'),
+                            'duration': row.get('Duration', 0),
+                            'frustration_value': float(frustration_value),
+                            'actual_frustration': row.get('NASA_F'),
+                            'predicted_frustration': predicted_frustration,
+                            'is_predicted': predicted_frustration is not None
+                        })
+
+        # LLMで日次フィードバックを生成
+        feedback_result = feedback_generator.generate_daily_dice_feedback(
+            dice_result,
+            timeline_data
+        )
+
+        logger.info(f"日次フィードバック生成完了: user_id={user_id}, suggestions={len(dice_result.get('hourly_schedule', []))}")
+
+        # 日次平均を計算
+        avg_actual = None
+        avg_predicted = None
+
+        if timeline_data:
+            actual_values = [item['actual_frustration'] for item in timeline_data if item.get('actual_frustration') is not None]
+            predicted_values = [item['predicted_frustration'] for item in timeline_data if item.get('predicted_frustration') is not None]
+
+            if actual_values:
+                avg_actual = sum(actual_values) / len(actual_values)
+            if predicted_values:
+                avg_predicted = sum(predicted_values) / len(predicted_values)
+
+        # スプレッドシートに日次サマリーを保存
+        summary_data = {
+            'date': today,
+            'avg_actual': avg_actual,
+            'avg_predicted': avg_predicted,
+            'dice_improvement': feedback_result.get('total_improvement_potential', 0),
+            'dice_count': feedback_result.get('num_suggestions', 0),
+            'chatgpt_feedback': feedback_result.get('main_feedback', ''),
+            'action_plan': feedback_result.get('action_plan', []),
+            'generated_at': feedback_result.get('generated_at', datetime.now().isoformat())
+        }
+
+        save_success = sheets_connector.save_daily_feedback_summary(user_id, summary_data)
+        if save_success:
+            logger.info(f"日次フィードバックサマリーを保存しました: user_id={user_id}, date={today}")
         else:
-            feedback_result = feedback_generator.generate_evening_summary(dice_results)
-        
+            logger.warning(f"日次フィードバックサマリーの保存に失敗しました: user_id={user_id}")
+
         return jsonify({
             'status': 'success',
             'user_id': user_id,
-            'feedback_type': feedback_type,
+            'feedback_type': 'daily',
             'feedback': feedback_result,
-            'dice_results_count': len(dice_results),
+            'daily_stats': {
+                'avg_actual': round(avg_actual, 2) if avg_actual is not None else None,
+                'avg_predicted': round(avg_predicted, 2) if avg_predicted is not None else None,
+                'total_activities': len(timeline_data)
+            },
+            'saved_to_spreadsheet': save_success,
             'timestamp': datetime.now().isoformat()
         })
-        
+
     except Exception as e:
         logger.error(f"フィードバック生成エラー: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({
             'status': 'error',
             'message': str(e)
