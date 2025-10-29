@@ -160,20 +160,26 @@ class FrustrationPredictor:
             sdnn_max = fitbit_data['SDNN'].max()
             lorenz_max = fitbit_data['Lorenz_Area'].max()
 
-            logger.info(f"🔍 スケーリング: Fitbitデータ件数={len(fitbit_data)}, SDNN_max={sdnn_max}, Lorenz_max={lorenz_max}")
+            logger.warning(f"🔍 スケーリング: Fitbitデータ件数={len(fitbit_data)}, SDNN_max={sdnn_max}, Lorenz_max={lorenz_max}")
 
             if sdnn_max > 0:
                 fitbit_data['SDNN_scaled'] = fitbit_data['SDNN'] / sdnn_max
+                logger.warning(f"🔍 SDNN_scaled 計算完了: min={fitbit_data['SDNN_scaled'].min():.3f}, max={fitbit_data['SDNN_scaled'].max():.3f}")
             else:
                 fitbit_data['SDNN_scaled'] = np.nan
+                logger.warning(f"⚠️ SDNN_max が 0 以下のため、SDNN_scaled = NaN に設定")
 
             if lorenz_max > 0:
                 fitbit_data['Lorenz_Area_scaled'] = fitbit_data['Lorenz_Area'] / lorenz_max
+                logger.warning(f"🔍 Lorenz_Area_scaled 計算完了: min={fitbit_data['Lorenz_Area_scaled'].min():.3f}, max={fitbit_data['Lorenz_Area_scaled'].max():.3f}")
             else:
                 fitbit_data['Lorenz_Area_scaled'] = np.nan
+                logger.warning(f"⚠️ Lorenz_max が 0 以下のため、Lorenz_Area_scaled = NaN に設定")
 
             # 各活動期間のFitbit統計量を計算
             activity_with_fitbit = []
+
+            logger.warning(f"🔍 活動とFitbitデータのマッチング開始: 活動数={len(activity_data)}, Fitbitデータ時間範囲=[{fitbit_data['Timestamp'].min()} - {fitbit_data['Timestamp'].max()}]")
 
             for idx, activity in activity_data.iterrows():
                 start_time = activity['Timestamp']
@@ -193,11 +199,11 @@ class FrustrationPredictor:
                     lorenz_mean = fitbit_period['Lorenz_Area_scaled'].mean()
                     activity_dict['SDNN_scaled'] = sdnn_mean
                     activity_dict['Lorenz_Area_scaled'] = lorenz_mean
-                    logger.debug(f"  活動 {activity.get('CatSub', 'unknown')} @{start_time}: Fitbit={len(fitbit_period)}件, SDNN_scaled={sdnn_mean:.3f}, Lorenz_scaled={lorenz_mean:.3f}")
+                    logger.warning(f"✅ 活動 {activity.get('CatSub', 'unknown')} @{start_time}: Fitbit={len(fitbit_period)}件, SDNN_scaled={sdnn_mean:.3f}, Lorenz_scaled={lorenz_mean:.3f}")
                 else:
                     activity_dict['SDNN_scaled'] = np.nan
                     activity_dict['Lorenz_Area_scaled'] = np.nan
-                    logger.debug(f"  活動 {activity.get('CatSub', 'unknown')} @{start_time}: Fitbitデータなし")
+                    logger.warning(f"❌ 活動 {activity.get('CatSub', 'unknown')} @{start_time}: Fitbitデータなし (期間: {start_time} - {end_time})")
 
                 activity_with_fitbit.append(activity_dict)
 
@@ -605,17 +611,17 @@ class FrustrationPredictor:
             feature_df = feature_df[self.feature_columns]
 
             # デバッグ: 入力特徴量を確認
-            logger.info(f"🔍 predict_from_row: 活動={row_data.get('CatSub')}, SDNN={features['SDNN_scaled']:.3f}, Lorenz={features['Lorenz_Area_scaled']:.3f}")
+            logger.warning(f"🔍 predict_from_row: 活動={row_data.get('CatSub')}, SDNN={features['SDNN_scaled']:.3f}, Lorenz={features['Lorenz_Area_scaled']:.3f}")
 
             # 予測実行 (0-1スケール)
             prediction_scaled = self.model.predict(feature_df)[0]
 
-            logger.info(f"🔍 predict_from_row: 予測結果 scaled={prediction_scaled:.3f}")
+            logger.warning(f"🔍 predict_from_row: 予測結果 scaled={prediction_scaled:.3f}")
 
             # 元のスケール (0-20) に戻す
             prediction = prediction_scaled * 20.0
 
-            logger.info(f"🔍 predict_from_row: 予測結果 F値={prediction:.2f}")
+            logger.warning(f"🔍 predict_from_row: 予測結果 F値={prediction:.2f}")
 
             # NaN/Infのバリデーション
             if np.isnan(prediction) or np.isinf(prediction):
