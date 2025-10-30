@@ -29,7 +29,7 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    evening_time: str = "14:00"  # 毎夜14:00 UTC（日本時間23:00 JST）でDiCE実行 + フィードバック生成
+    evening_time: str = "14:20"  # 毎夜14:20 UTC（日本時間23:20 JST）でDiCE実行 + フィードバック生成
     enabled: bool = True
 
 class FeedbackScheduler:
