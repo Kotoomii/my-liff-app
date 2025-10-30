@@ -1887,17 +1887,20 @@ def data_monitor_loop():
 
     def get_next_run_time():
         """次の10分刻みの実行時刻を計算"""
+        from datetime import timedelta
+
         now = datetime.now()
         current_minute = now.minute
+
         # 次の10分刻みの分を計算（0, 10, 20, 30, 40, 50）
         next_minute = ((current_minute // 10) + 1) * 10
 
         if next_minute >= 60:
             # 次の時間の00分
-            next_time = now.replace(hour=(now.hour + 1) % 24, minute=0, second=0, microsecond=0)
-            if now.hour == 23:
-                next_time = next_time.replace(day=now.day + 1)
+            next_time = now + timedelta(hours=1)
+            next_time = next_time.replace(minute=0, second=0, microsecond=0)
         else:
+            # 今の時間の次の10分刻み
             next_time = now.replace(minute=next_minute, second=0, microsecond=0)
 
         return next_time
