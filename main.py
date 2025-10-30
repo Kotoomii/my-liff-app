@@ -206,39 +206,42 @@ last_prediction_result = {}  # 全ユーザーの予測結果を保存: {user_id
 def check_fitbit_data_availability(row):
     """
     Fitbitデータが利用可能かチェックする
-    主要な生体情報（心拍数、歩数、カロリー等）が存在するかを確認
+    予測モデルが使用するSDNN_scaledとLorenz_Area_scaledが存在するかを確認
     """
     try:
-        # 重要なFitbit統計量カラムをチェック
-        essential_fitbit_columns = [
-            'avg_Steps', 'avg_Calories', 'std_Steps', 'std_Calories',
-            'max_Steps', 'min_Steps', 'max_Calories', 'min_Calories'
-        ]
-        
-        # 少なくとも半分以上の重要データが有効値を持っている必要がある
-        valid_count = 0
-        total_count = len(essential_fitbit_columns)
-        
-        for col in essential_fitbit_columns:
-            value = row.get(col)
-            # None、NaN、空文字、0以外の有効な値をチェック
-            if value is not None and str(value).strip() != '' and pd.notna(value):
-                try:
-                    float_val = float(value)
-                    if float_val > 0:  # 0より大きい値のみ有効とする
-                        valid_count += 1
-                except (ValueError, TypeError):
-                    continue
-        
-        # 少なくとも60%以上の重要データが有効な場合、Fitbitデータありとする
-        availability_ratio = valid_count / total_count
-        is_available = availability_ratio >= 0.6
-        
+        # 予測モデルが使用する必須カラム
+        sdnn_scaled = row.get('SDNN_scaled')
+        lorenz_area_scaled = row.get('Lorenz_Area_scaled')
+
+        # 両方が有効な数値であることを確認
+        sdnn_valid = False
+        lorenz_valid = False
+
+        if sdnn_scaled is not None and pd.notna(sdnn_scaled):
+            try:
+                float_val = float(sdnn_scaled)
+                # NaN, Inf, -Infでない有効な数値か確認
+                if not (np.isnan(float_val) or np.isinf(float_val)):
+                    sdnn_valid = True
+            except (ValueError, TypeError):
+                pass
+
+        if lorenz_area_scaled is not None and pd.notna(lorenz_area_scaled):
+            try:
+                float_val = float(lorenz_area_scaled)
+                # NaN, Inf, -Infでない有効な数値か確認
+                if not (np.isnan(float_val) or np.isinf(float_val)):
+                    lorenz_valid = True
+            except (ValueError, TypeError):
+                pass
+
+        is_available = sdnn_valid and lorenz_valid
+
         if not is_available:
-            logger.debug(f"Fitbitデータ不足: {valid_count}/{total_count} カラムが有効 ({availability_ratio:.1%})")
-        
+            logger.debug(f"生体データ不足: SDNN_scaled={sdnn_valid}, Lorenz_Area_scaled={lorenz_valid}")
+
         return is_available
-        
+
     except Exception as e:
         logger.warning(f"Fitbitデータ可用性チェックエラー: {e}")
         return False
