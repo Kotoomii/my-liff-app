@@ -29,7 +29,7 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    evening_time: str = "22:30"  # 毎夜22:30（DiCE実行 + フィードバック生成）
+    evening_time: str = "23:00"  # 毎夜23:00（DiCE実行 + フィードバック生成）
     enabled: bool = True
 
 class FeedbackScheduler:

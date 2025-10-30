@@ -560,7 +560,7 @@ def generate_daily_dice_schedule():
 def generate_dice_analysis():
     """
     Hourly LogからDiCE提案を取得するAPI（DiCE実行はしない）
-    スケジューラーが22:30に実行したDiCE結果を読み取るだけ
+    スケジューラーが23:00に実行したDiCE結果を読み取るだけ
     """
     try:
         data = request.get_json()
@@ -579,7 +579,7 @@ def generate_dice_analysis():
                 'dice_analysis': {
                     'type': 'no_data',
                     'timeline': [],
-                    'summary': 'まだDiCE提案が生成されていません。22:30以降に確認してください。'
+                    'summary': 'まだDiCE提案が生成されていません。23:00以降に確認してください。'
                 },
                 'timestamp': datetime.now().isoformat()
             })
@@ -616,7 +616,7 @@ def generate_dice_analysis():
             dice_result = {
                 'type': 'no_suggestions',
                 'timeline': [],
-                'summary': 'DiCE提案はまだ生成されていません。22:30以降に確認してください。'
+                'summary': 'DiCE提案はまだ生成されていません。23:00以降に確認してください。'
             }
 
         logger.warning(f"✅ DiCE提案取得完了: {len(dice_suggestions)}件")
@@ -1891,7 +1891,7 @@ def initialize_application():
 
         # スケジューラー開始
         scheduler.start_scheduler()
-        logger.warning("✅ 定期フィードバックスケジューラーを開始しました（毎日22:30にDiCE実行 + フィードバック生成）")
+        logger.warning("✅ 定期フィードバックスケジューラーを開始しました（毎日23:00にDiCE実行 + フィードバック生成）")
 
         # データ更新監視スレッド開始
         data_monitor_running = True
