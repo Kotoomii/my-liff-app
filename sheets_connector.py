@@ -1122,7 +1122,7 @@ class SheetsConnector:
         時刻ごとの詳細データをスプレッドシートに保存
 
         シート構成: {user_id}_Hourly_Log
-        列: 日付, 時刻, 活動名, 実測NASA_F, 予測NASA_F, 誤差(MAE)
+        列: 日付, 時刻, 活動名, 実測NASA_F, 予測NASA_F, 誤差(MAE), DiCE提案活動名, 改善幅, 改善後F値
 
         Args:
             user_id: ユーザーID
@@ -1131,7 +1131,10 @@ class SheetsConnector:
                 'time': '10:00',
                 'activity': '授業',
                 'actual_frustration': 15,
-                'predicted_frustration': 14.2
+                'predicted_frustration': 14.2,
+                'dice_suggestion': '趣味',  # オプション（DiCE実行時に追加）
+                'improvement': -5.2,  # オプション（負の値が改善）
+                'improved_frustration': 9.8  # オプション
             }
         """
         try:
@@ -1148,11 +1151,11 @@ class SheetsConnector:
                 worksheet = self.spreadsheet.add_worksheet(
                     title=sheet_name,
                     rows="10000",
-                    cols="6"
+                    cols="9"
                 )
                 # ヘッダー行を追加
-                headers = ['日付', '時刻', '活動名', '実測NASA_F', '予測NASA_F', '誤差(MAE)']
-                worksheet.update('A1:F1', [headers])
+                headers = ['日付', '時刻', '活動名', '実測NASA_F', '予測NASA_F', '誤差(MAE)', 'DiCE提案活動名', '改善幅', '改善後F値']
+                worksheet.update('A1:I1', [headers])
                 logger.info(f"Hourly Logシートを作成しました: {sheet_name}")
 
             # 活動名のバリデーション
@@ -1177,6 +1180,11 @@ class SheetsConnector:
             predicted = hourly_data.get('predicted_frustration')
             mae = abs(actual - predicted) if actual is not None and predicted is not None else None
 
+            # DiCE提案データ（オプション）
+            dice_suggestion = hourly_data.get('dice_suggestion', '')
+            improvement = hourly_data.get('improvement')
+            improved_frustration = hourly_data.get('improved_frustration')
+
             # データ行を準備
             row_data = [
                 date,
@@ -1184,17 +1192,67 @@ class SheetsConnector:
                 activity,
                 round(actual, 2) if actual is not None else '',
                 round(predicted, 2) if predicted is not None else '',
-                round(mae, 2) if mae is not None else ''
+                round(mae, 2) if mae is not None else '',
+                dice_suggestion if dice_suggestion else '',
+                round(improvement, 2) if improvement is not None else '',
+                round(improved_frustration, 2) if improved_frustration is not None else ''
             ]
 
             # 新規行を追加（重複がない場合のみ）
             worksheet.append_row(row_data)
-            logger.info(f"Hourly Log追加: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}")
+            logger.info(f"Hourly Log追加: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}, DiCE={dice_suggestion}")
 
             return True
 
         except Exception as e:
             logger.error(f"Hourly Log保存エラー: {e}")
+            return False
+
+    def update_hourly_log_with_dice(self, user_id: str, date: str, time: str, activity: str,
+                                     dice_suggestion: str, improvement: float, improved_frustration: float) -> bool:
+        """
+        Hourly LogにDiCE提案を更新（既存行に追記）
+
+        Args:
+            user_id: ユーザーID
+            date: 日付 (YYYY-MM-DD)
+            time: 時刻 (HH:MM)
+            activity: 活動名
+            dice_suggestion: DiCE提案活動名
+            improvement: 改善幅（負の値が改善）
+            improved_frustration: 改善後のF値
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            sheet_name = f"{user_id}_Hourly_Log"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if not worksheet:
+                logger.warning(f"Hourly Logシートが見つかりません: {sheet_name}")
+                return False
+
+            # 該当行を探す
+            all_values = worksheet.get_all_values()
+
+            for idx, row in enumerate(all_values[1:], start=2):  # ヘッダーをスキップ
+                if len(row) >= 3 and row[0] == date and row[1] == time and row[2] == activity:
+                    # G列(DiCE提案活動名), H列(改善幅), I列(改善後F値)を更新
+                    worksheet.update(f'G{idx}:I{idx}', [[
+                        dice_suggestion,
+                        round(improvement, 2),
+                        round(improved_frustration, 2)
+                    ]])
+                    logger.info(f"Hourly Log更新: {user_id}, {date} {time} {activity} → {dice_suggestion} (改善: {improvement:.2f})")
+                    return True
+
+            logger.warning(f"Hourly Logに該当行が見つかりません: {date} {time} {activity}")
+            return False
+
+        except Exception as e:
+            logger.error(f"Hourly Log DiCE更新エラー: {e}")
             return False
 
     def save_daily_feedback_summary(self, user_id: str, summary_data: Dict) -> bool:

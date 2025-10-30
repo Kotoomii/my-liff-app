@@ -331,7 +331,39 @@ class FeedbackScheduler:
             
             if dice_explanation.get('type') != 'fallback':
                 dice_results.append(dice_explanation)
-            
+
+                # DiCE結果をHourly Logに更新
+                hourly_schedule = dice_explanation.get('hourly_schedule', [])
+                logger.info(f"📝 DiCE結果をHourly Logに更新: {len(hourly_schedule)}件")
+
+                for suggestion in hourly_schedule:
+                    try:
+                        date = today_data['date']
+                        time = suggestion.get('time', '')  # HH:MM形式
+                        original_activity = suggestion.get('original_activity', '')
+                        suggested_activity = suggestion.get('suggested_activity', '')
+                        original_f = suggestion.get('original_frustration')
+                        improved_f = suggestion.get('improved_frustration')
+
+                        # 改善幅を計算（負の値が改善）
+                        improvement = improved_f - original_f if (original_f and improved_f) else None
+
+                        # Hourly Logを更新
+                        self.sheets_connector.update_hourly_log_with_dice(
+                            user_id=user_id,
+                            date=date,
+                            time=time,
+                            activity=original_activity,
+                            dice_suggestion=suggested_activity,
+                            improvement=improvement,
+                            improved_frustration=improved_f
+                        )
+
+                    except Exception as update_error:
+                        logger.error(f"Hourly Log DiCE更新エラー: {update_error}")
+
+                logger.info(f"✅ Hourly Log DiCE更新完了")
+
             # 日次サマリーを生成
             daily_summary = self.explainer.generate_daily_summary(
                 dice_results, today_data['date']

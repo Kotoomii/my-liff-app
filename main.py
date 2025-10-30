@@ -377,276 +377,6 @@ def predict_frustration():
             'message': str(e)
         }), 500
 
-@app.route('/api/frustration/predict-activity', methods=['POST'])
-def predict_activity_frustration():
-    """
-    新しい活動入力時のリアルタイムフラストレーション予測API
-    """
-    try:
-        from datetime import datetime, timedelta
-        
-        data = request.get_json()
-        user_id = data.get('user_id', 'default')
-        activity_category = data.get('CatSub', 'その他')  # 活動カテゴリ（デフォルト: その他）
-        activity_subcategory = data.get('CatMid', activity_category)  # 活動サブカテゴリ
-
-        # 活動カテゴリのバリデーション
-        if not activity_category or activity_category.strip() == '':
-            activity_category = 'その他'
-            logger.warning("活動カテゴリが空またはNoneです。'その他'に設定しました。")
-        
-        # 時間の計算 - start_timeとend_timeがある場合はそれを使用
-        start_time = data.get('start_time')
-        end_time = data.get('end_time')
-        duration = data.get('Duration')
-        
-        if start_time and end_time and not duration:
-            # start_timeとend_timeから時間を計算
-            try:
-                # 時刻形式を解析 (HH:MM形式を想定)
-                start_hour, start_min = map(int, start_time.split(':'))
-                end_hour, end_min = map(int, end_time.split(':'))
-                
-                start_total_min = start_hour * 60 + start_min
-                end_total_min = end_hour * 60 + end_min
-                
-                # 日付をまたぐ場合を考慮
-                if end_total_min < start_total_min:
-                    end_total_min += 24 * 60  # 翌日とみなす
-                
-                duration = end_total_min - start_total_min
-                if config.ENABLE_DEBUG_LOGS:
-                    logger.debug(f"時間計算: {start_time} → {end_time} = {duration}分")
-                
-            except (ValueError, AttributeError) as e:
-                logger.warning(f"時刻解析エラー: {e}, デフォルト60分を使用")
-                duration = 60
-        elif not duration:
-            duration = 60  # デフォルト値
-            
-        timestamp = data.get('timestamp', datetime.now().isoformat())
-        
-        if isinstance(timestamp, str):
-            timestamp = datetime.fromisoformat(timestamp)
-        
-        # ユーザーごとのpredictorを取得
-        predictor = get_predictor(user_id)
-
-        # デバッグ: predictorの状態確認
-        logger.warning(f"🔍 predict-activity呼び出し: user_id={user_id}, predictor.model={'あり' if predictor.model else 'なし'}")
-
-        # 過去データ取得・前処理
-        activity_data = sheets_connector.get_activity_data(user_id)
-        fitbit_data = sheets_connector.get_fitbit_data(user_id)
-
-        if activity_data.empty:
-            # データ不足のため予測不可
-            return jsonify({
-                'status': 'error',
-                'message': 'データがありません。活動データを記録してください。',
-                'user_id': user_id,
-                'activity': activity_category,
-                'duration': duration,
-                'timestamp': timestamp.isoformat()
-            }), 400
-
-        # データ前処理とモデル学習
-        activity_processed = predictor.preprocess_activity_data(activity_data)
-        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-
-        # データ品質チェック
-        data_quality = predictor.check_data_quality(df_enhanced)
-
-        # デバッグ: データサイズ確認
-        logger.warning(f"📊 データ確認: df_enhanced={len(df_enhanced)}件, predictor.model={'あり' if predictor.model else 'なし'}")
-
-        # モデルが訓練されていない場合は自動訓練
-        if predictor.model is None:
-            logger.warning(f"🔍 predictor.model is None - 訓練チェックに入ります")
-            if len(df_enhanced) >= 10:
-                logger.warning(f"⚠️ モデル未訓練: user_id={user_id}, 自動訓練を開始します")
-                training_result = ensure_model_trained(user_id)
-
-                logger.warning(f"📊 訓練結果: {training_result.get('status')} - {training_result.get('message', '')}")
-
-                # 訓練が失敗した場合はエラーを返す
-                if training_result.get('status') != 'success':
-                    logger.error(f"❌ モデル訓練失敗: {training_result.get('message')}")
-                    return jsonify({
-                        'status': 'error',
-                        'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
-                        'user_id': user_id,
-                        'data_quality': data_quality,
-                        'training_result': training_result
-                    }), 400
-                else:
-                    logger.warning(f"✅ モデル訓練成功: user_id={user_id}")
-            else:
-                # データ不足の場合
-                logger.warning(f"❌ データ不足: {len(df_enhanced)}件 < 10件")
-                return jsonify({
-                    'status': 'error',
-                    'message': f'データ不足: {len(df_enhanced)}件 < 10件。モデルを訓練できません。',
-                    'user_id': user_id,
-                    'data_count': len(df_enhanced),
-                    'data_quality': data_quality,
-                    'warning': {
-                        'message': 'データが不足しているため、モデルを訓練できません。',
-                        'recommendations': data_quality.get('recommendations', [])
-                    }
-                }), 400
-        else:
-            # モデルが既に訓練済みの場合
-            logger.warning(f"✅ モデル既訓練済み: user_id={user_id}, predictor.modelが存在します")
-
-        # 新しい活動のフラストレーション値予測（生体情報が揃っている場合のみ）
-        # 入力された時刻のFitbitデータを探す
-        logger.info(f"App予測: 入力時刻 {timestamp} のFitbitデータを検索中...")
-
-        # 新しい活動の仮データフレームを作成
-        new_activity_dict = {
-            'Timestamp': timestamp,
-            'CatSub': activity_category,
-            'Duration': duration,
-            'NASA_F': np.nan  # 実測値はまだない
-        }
-        new_activity_df = pd.DataFrame([new_activity_dict])
-
-        # 活動データを前処理（時間特徴量、One-Hot化）
-        new_activity_processed = predictor.preprocess_activity_data(new_activity_df)
-
-        if new_activity_processed.empty:
-            logger.error("App予測: 新しい活動データの前処理に失敗しました")
-            return jsonify({
-                'status': 'no_prediction',
-                'message': '生体情報が不足しているため、予測できません。',
-                'user_id': user_id,
-                'activity': activity_category,
-                'duration': duration,
-                'timestamp': timestamp.isoformat(),
-                'predicted_frustration': None,
-                'confidence': 0.0,
-                'data_quality': data_quality
-            }), 200
-
-        # その時刻のFitbitデータを集計
-        new_activity_with_fitbit = predictor.aggregate_fitbit_by_activity(
-            new_activity_processed, fitbit_data
-        )
-
-        if new_activity_with_fitbit.empty:
-            logger.warning("App予測: 新しい活動にFitbitデータが紐づきませんでした")
-            return jsonify({
-                'status': 'no_prediction',
-                'message': '生体情報が不足しているため、予測できません。',
-                'user_id': user_id,
-                'activity': activity_category,
-                'duration': duration,
-                'timestamp': timestamp.isoformat(),
-                'predicted_frustration': None,
-                'confidence': 0.0,
-                'data_quality': data_quality
-            }), 200
-
-        # 生体情報が揃っているかチェック
-        row = new_activity_with_fitbit.iloc[0]
-        has_biodata = (
-            'SDNN_scaled' in row.index and pd.notna(row['SDNN_scaled']) and
-            'Lorenz_Area_scaled' in row.index and pd.notna(row['Lorenz_Area_scaled'])
-        )
-
-        if not has_biodata:
-            logger.warning(f"❌ App予測: 生体情報が不足 - 活動={activity_category} @{timestamp}, SDNN={row.get('SDNN_scaled')}, Lorenz={row.get('Lorenz_Area_scaled')}")
-            return jsonify({
-                'status': 'no_prediction',
-                'message': '生体情報が不足しているため、予測できません。',
-                'user_id': user_id,
-                'activity': activity_category,
-                'duration': duration,
-                'timestamp': timestamp.isoformat(),
-                'predicted_frustration': None,
-                'confidence': 0.0,
-                'data_quality': data_quality
-            }), 200
-
-        # 生体情報が揃っている場合のみ予測を実行
-        logger.warning(f"✅ App予測: 生体情報が揃っています - 活動={activity_category} @{timestamp}, SDNN={row.get('SDNN_scaled'):.3f}, Lorenz={row.get('Lorenz_Area_scaled'):.3f}")
-        prediction_result = predictor.predict_from_row(row)
-
-        if 'error' in prediction_result:
-            return jsonify({
-                'status': 'error',
-                'message': prediction_result['error'],
-                'data_quality': data_quality
-            }), 400
-
-        predicted_frustration = prediction_result['predicted_frustration']
-        confidence = prediction_result['confidence']
-
-        logger.warning(f"🎯 App予測完了: F値={predicted_frustration:.2f}, confidence={confidence:.2f}")
-
-        # NaN/Infバリデーション
-        if np.isnan(predicted_frustration) or np.isinf(predicted_frustration):
-            return jsonify({
-                'status': 'error',
-                'message': '予測値の計算に失敗しました (NaN/Inf)',
-                'user_id': user_id,
-                'activity': activity_category,
-                'data_quality': data_quality
-            }), 400
-
-        # データ品質に基づいて信頼度を調整
-        if not data_quality['is_sufficient']:
-            confidence = min(confidence, 0.3)  # データ不足時は信頼度を下げる
-        elif data_quality['quality_level'] == 'minimal':
-            confidence = min(confidence, 0.5)
-
-        # 予測結果をHourly Logに保存（キャッシュとして使用）
-        try:
-            hourly_data = {
-                'date': timestamp.strftime('%Y-%m-%d'),
-                'time': timestamp.strftime('%H:%M'),
-                'activity': activity_category,
-                'actual_frustration': None,  # 手動予測時は実測値なし
-                'predicted_frustration': float(predicted_frustration)
-            }
-            sheets_connector.save_hourly_log(user_id, hourly_data)
-            if config.LOG_PREDICTIONS:
-                logger.info(f"Hourly Logに保存: {user_id}, {activity_category} @{hourly_data['time']}, F値={predicted_frustration:.2f}")
-        except Exception as save_error:
-            logger.error(f"Hourly Log保存エラー: {save_error}")
-            # 保存エラーがあってもAPIレスポンスには影響しない
-
-        response = {
-            'status': 'success',
-            'user_id': user_id,
-            'predicted_frustration': round(float(predicted_frustration), 2),
-            'activity': activity_category,
-            'subcategory': activity_subcategory,
-            'duration': duration,
-            'confidence': round(float(confidence), 3),
-            'timestamp': timestamp.isoformat(),
-            'logged_to_sheets': True,
-            'data_quality': data_quality
-        }
-
-        # データ不足時の警告を追加
-        if not data_quality['is_sufficient']:
-            response['warning'] = {
-                'message': 'データが不足しているため、予測精度が低くなっています。',
-                'details': data_quality['warnings'],
-                'recommendations': data_quality['recommendations']
-            }
-
-        return jsonify(response)
-        
-    except Exception as e:
-        logger.error(f"活動フラストレーション予測エラー: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
 @app.route('/api/frustration/daily-dice-schedule', methods=['POST'])
 def generate_daily_dice_schedule():
     """
@@ -958,120 +688,74 @@ def get_frustration_timeline():
                 'message': '指定日のデータが見つかりません'
             })
         
-        # ユーザーごとのpredictorを取得
-        predictor = get_predictor(user_id)
-
-        # データ前処理
-        activity_processed = predictor.preprocess_activity_data(daily_data)
-        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-
-        # モデルが訓練されていない場合は自動訓練
-        training_info = None
-        if predictor.model is None:
-            logger.info(f"モデル未訓練: user_id={user_id}, 自動訓練を開始します")
-            training_result = ensure_model_trained(user_id)
-            training_info = {
-                'auto_trained': True,
-                'status': training_result.get('status'),
-                'message': training_result.get('message')
-            }
-
-            if training_result.get('status') != 'success':
-                # 訓練失敗時は警告を含めて継続
-                logger.warning(f"自動訓練失敗: {training_result.get('message')}")
-        else:
-            training_info = {
-                'auto_trained': False,
-                'status': 'already_trained'
-            }
-
-        # Hourly Logから既存の予測結果を取得（キャッシュとして使用）
+        # Hourly Logから予測済みデータを取得（F値、DiCE提案を含む）
         hourly_log = sheets_connector.get_hourly_log(user_id, date)
-        logger.info(f"Hourly Logキャッシュ: {len(hourly_log)}件取得")
+        logger.warning(f"📋 Hourly Log取得: {len(hourly_log)}件")
 
-        # タイムライン作成（Hourly Logを優先、不足分のみ予測）
+        # タイムライン作成（活動データ + Hourly Logマージ）
         timeline = []
-        for idx, row in df_enhanced.iterrows():
-            predicted_frustration = None
-            from_cache = False
-
-            # Fitbitデータの有無をチェック
-            has_fitbit_data = check_fitbit_data_availability(row)
-
-            # 時刻を取得（HH:MM形式）
+        for idx, row in daily_data.iterrows():
             timestamp = row['Timestamp']
             time_str = timestamp.strftime('%H:%M') if hasattr(timestamp, 'strftime') else str(timestamp)
-
-            # 活動名を取得（バリデーション付き）
             activity_name = row.get('CatSub', '')
+
+            # 活動名のバリデーション
             if not activity_name or pd.isna(activity_name):
                 logger.warning(f"活動名が不正です (CatSub='{activity_name}') @{time_str} - スキップします")
                 continue
 
-            # 1. まずHourly Logから予測結果を探す
+            # Hourly Logから予測値・DiCE提案を取得
+            predicted_frustration = None
+            dice_suggestion = None
+            improvement = None
+            improved_frustration = None
+
             if not hourly_log.empty:
                 cached = hourly_log[
                     (hourly_log['時刻'] == time_str) &
                     (hourly_log['活動名'] == activity_name)
                 ]
                 if not cached.empty:
-                    predicted_frustration = cached.iloc[0]['予測NASA_F']
-                    if pd.notna(predicted_frustration):
-                        from_cache = True
-                        logger.warning(f"📋 キャッシュから取得: {activity_name} @{time_str}, F値={predicted_frustration} (type={type(predicted_frustration).__name__})")
+                    cached_row = cached.iloc[0]
+                    predicted_frustration = cached_row.get('予測NASA_F')
+                    dice_suggestion = cached_row.get('DiCE提案活動名')
+                    improvement = cached_row.get('改善幅')
+                    improved_frustration = cached_row.get('改善後F値')
 
-            # 2. キャッシュになく、生体情報がある場合のみ予測を実行
-            if not from_cache and has_fitbit_data:
-                try:
-                    # 行データから直接予測（DiCEと同じ方法）
-                    prediction_result = predictor.predict_from_row(row)
+                    # NaNチェック
+                    if pd.isna(predicted_frustration):
+                        predicted_frustration = None
+                    if pd.isna(dice_suggestion) or dice_suggestion == '':
+                        dice_suggestion = None
+                    if pd.isna(improvement):
+                        improvement = None
+                    if pd.isna(improved_frustration):
+                        improved_frustration = None
 
-                    if prediction_result and 'predicted_frustration' in prediction_result:
-                        predicted_frustration = prediction_result['predicted_frustration']
-                        logger.warning(f"✨ 新規予測: {activity_name} @{time_str}, F値={predicted_frustration} (type={type(predicted_frustration).__name__})")
-
-                        # 3. 新しく予測した結果をHourly Logに保存
-                        hourly_data = {
-                            'date': date,
-                            'time': time_str,
-                            'activity': activity_name,
-                            'actual_frustration': row.get('NASA_F'),
-                            'predicted_frustration': predicted_frustration
-                        }
-                        logger.warning(f"💾 Hourly Log保存前: F値={predicted_frustration}")
-                        try:
-                            sheets_connector.save_hourly_log(user_id, hourly_data)
-                            logger.warning(f"💾 Hourly Log保存完了: {activity_name} @{time_str}")
-                        except Exception as save_error:
-                            logger.error(f"Hourly Log保存エラー: {save_error}")
-
-                except Exception as e:
-                    logger.warning(f"予測エラー: {e}")
-                    predicted_frustration = None
-            elif not from_cache and not has_fitbit_data:
-                if config.ENABLE_DEBUG_LOGS:
-                    logger.debug(f"生体情報なし、活動名のみ表示: {activity_name} @{time_str}")
-
-            # タイムラインに追加（予測値のみを使用、実測値は使わない）
-            # F値がなくても活動名は必ず表示する
+            # F値変換
             frustration_for_timeline = float(predicted_frustration) if predicted_frustration is not None else None
-            logger.warning(f"📱 タイムライン追加: {activity_name} @{time_str}, F値={frustration_for_timeline} (from_cache={from_cache})")
 
-            timeline.append({
-                'timestamp': row['Timestamp'].isoformat(),
-                'hour': row.get('hour', 0),
+            logger.warning(f"📱 タイムライン追加: {activity_name} @{time_str}, F値={frustration_for_timeline}, DiCE={dice_suggestion}")
+
+            # タイムラインに追加（活動名は必ず表示）
+            timeline_entry = {
+                'timestamp': timestamp.isoformat(),
+                'hour': timestamp.hour if hasattr(timestamp, 'hour') else 0,
                 'activity': activity_name,
                 'duration': row.get('Duration', 0),
                 'frustration_value': frustration_for_timeline,
-                'is_predicted': predicted_frustration is not None,
-                'has_biodata': has_fitbit_data,
-                'from_cache': from_cache,  # キャッシュから取得したかどうか
-                'activity_change': row.get('activity_change', 0) == 1,
-                'lorenz_stats': {
-                    'mean': row.get('lorenz_mean', 0),
-                    'std': row.get('lorenz_std', 0)
+                'is_predicted': predicted_frustration is not None
+            }
+
+            # DiCE提案がある場合は追加
+            if dice_suggestion:
+                timeline_entry['dice_suggestion'] = {
+                    'suggested_activity': dice_suggestion,
+                    'improvement': float(improvement) if improvement is not None else None,
+                    'improved_frustration': float(improved_frustration) if improved_frustration is not None else None
                 }
-            })
+
+            timeline.append(timeline_entry)
         
         # 時間順にソート
         timeline.sort(key=lambda x: x['timestamp'])
@@ -1081,8 +765,7 @@ def get_frustration_timeline():
             'user_id': user_id,
             'date': date,
             'timeline': timeline,
-            'total_entries': len(timeline),
-            'training_info': training_info
+            'total_entries': len(timeline)
         })
         
     except Exception as e:
@@ -1093,98 +776,68 @@ def get_frustration_timeline():
         }), 500
 
 @app.route('/api/feedback/generate', methods=['POST'])
+
+@app.route('/api/feedback/generate', methods=['POST'])
 def generate_feedback():
     """
     LLMを使用した自然言語フィードバック生成API (日次フィードバックのみ)
-    既に計算されたDiCE結果を受け取ることで、重複計算を防ぐ
+    Hourly LogとDaily Summaryから読み取るだけ（予測・DiCE実行しない）
     """
     try:
         data = request.get_json()
         user_id = data.get('user_id', 'default')
-        # 'type'と'feedback_type'の両方に対応
         feedback_type = data.get('feedback_type', data.get('type', 'daily'))
-
-        # 既に計算されたDiCE結果を受け取る（オプション）
-        dice_result = data.get('dice_result')
 
         # 今日の日付を取得
         today = datetime.now().strftime('%Y-%m-%d')
 
-        logger.info(f"日次フィードバック生成開始: user_id={user_id}, date={today}, dice_result={'あり' if dice_result else 'なし'}")
+        logger.warning(f"📝 日次フィードバック生成開始: user_id={user_id}, date={today}")
 
-        # ユーザーごとのpredictorを取得
-        predictor = get_predictor(user_id)
-
-        # データ取得
-        activity_data = sheets_connector.get_activity_data(user_id)
-        fitbit_data = sheets_connector.get_fitbit_data(user_id)
-
-        if activity_data.empty:
+        # Hourly Logから今日のデータを取得
+        hourly_log = sheets_connector.get_hourly_log(user_id, today)
+        
+        if hourly_log.empty:
             return jsonify({
                 'status': 'error',
-                'message': '活動データが見つかりません'
+                'message': '今日の活動データが見つかりません。活動を記録してください。'
             }), 400
 
-        # データ前処理
-        activity_processed = predictor.preprocess_activity_data(activity_data)
-        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-
-        # モデルが訓練されていることを確認
-        training_result = ensure_model_trained(user_id)
-        if training_result.get('status') not in ['success', 'already_trained']:
-            return jsonify({
-                'status': 'error',
-                'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
-                'user_id': user_id
-            }), 400
-
-        # DiCE結果が渡されていない場合は、DiCE分析を実行（後方互換性）
-        if not dice_result:
-            logger.info("DiCE結果が渡されていないため、DiCE分析を実行します")
-            dice_result = explainer.generate_activity_based_explanation(
-                df_enhanced, predictor, None, 24
-            )
-        else:
-            logger.info("既に計算されたDiCE結果を使用します")
-
-        # 今日のタイムラインデータを取得（実測値と予測値を含む）
+        # Hourly LogからタイムラインデータとDiCE提案を構築
         timeline_data = []
-        target_date = datetime.strptime(today, '%Y-%m-%d').date()
+        dice_suggestions = []
+        
+        for idx, row in hourly_log.iterrows():
+            activity = row.get('活動名')
+            time = row.get('時刻')
+            predicted_f = row.get('予測NASA_F')
+            dice_suggestion = row.get('DiCE提案活動名')
+            improvement = row.get('改善幅')
+            improved_f = row.get('改善後F値')
 
-        if 'Timestamp' in activity_data.columns:
-            activity_data['date'] = pd.to_datetime(activity_data['Timestamp']).dt.date
-            daily_data = activity_data[activity_data['date'] == target_date]
+            # タイムラインデータに追加
+            if pd.notna(predicted_f):
+                timeline_data.append({
+                    'time': time,
+                    'activity': activity,
+                    'frustration_value': float(predicted_f)
+                })
 
-            if not daily_data.empty:
-                activity_processed_daily = predictor.preprocess_activity_data(daily_data)
-                df_enhanced_daily = predictor.aggregate_fitbit_by_activity(activity_processed_daily, fitbit_data)
+            # DiCE提案がある場合
+            if pd.notna(dice_suggestion) and dice_suggestion != '':
+                dice_suggestions.append({
+                    'time': time,
+                    'original_activity': activity,
+                    'original_frustration': float(predicted_f) if pd.notna(predicted_f) else None,
+                    'suggested_activity': dice_suggestion,
+                    'improvement': float(improvement) if pd.notna(improvement) else None,
+                    'improved_frustration': float(improved_f) if pd.notna(improved_f) else None
+                })
 
-                # タイムラインデータを構築
-                for idx, row in df_enhanced_daily.iterrows():
-                    predicted_frustration = None
-
-                    # Fitbitデータがある場合のみ予測
-                    if check_fitbit_data_availability(row):
-                        try:
-                            prediction_result = predictor.predict_from_row(row)
-                            if prediction_result and 'predicted_frustration' in prediction_result:
-                                predicted_frustration = prediction_result['predicted_frustration']
-                        except Exception as e:
-                            logger.warning(f"予測エラー: {e}")
-
-                    # タイムラインに追加
-                    frustration_value = predicted_frustration if predicted_frustration is not None else row.get('NASA_F')
-                    if frustration_value is not None:
-                        timeline_data.append({
-                            'timestamp': row['Timestamp'].isoformat(),
-                            'hour': row.get('hour', 0),
-                            'activity': row.get('CatSub', 'unknown'),
-                            'duration': row.get('Duration', 0),
-                            'frustration_value': float(frustration_value),
-                            'actual_frustration': row.get('NASA_F'),
-                            'predicted_frustration': predicted_frustration,
-                            'is_predicted': predicted_frustration is not None
-                        })
+        # DiCE結果を構築
+        dice_result = {
+            'hourly_schedule': dice_suggestions,
+            'total_improvement_potential': sum([s.get('improvement', 0) or 0 for s in dice_suggestions])
+        }
 
         # LLMで日次フィードバックを生成
         feedback_result = feedback_generator.generate_daily_dice_feedback(
@@ -1192,25 +845,16 @@ def generate_feedback():
             timeline_data
         )
 
-        logger.info(f"日次フィードバック生成完了: user_id={user_id}, suggestions={len(dice_result.get('hourly_schedule', []))}")
+        logger.warning(f"✅ 日次フィードバック生成完了: user_id={user_id}, DiCE提案数={len(dice_suggestions)}")
 
         # 日次平均を計算
-        avg_actual = None
-        avg_predicted = None
+        predicted_values = [item['frustration_value'] for item in timeline_data]
+        avg_predicted = sum(predicted_values) / len(predicted_values) if predicted_values else None
 
-        if timeline_data:
-            actual_values = [item['actual_frustration'] for item in timeline_data if item.get('actual_frustration') is not None]
-            predicted_values = [item['predicted_frustration'] for item in timeline_data if item.get('predicted_frustration') is not None]
-
-            if actual_values:
-                avg_actual = sum(actual_values) / len(actual_values)
-            if predicted_values:
-                avg_predicted = sum(predicted_values) / len(predicted_values)
-
-        # スプレッドシートに日次サマリーを保存
+        # Daily Summaryに保存
         summary_data = {
             'date': today,
-            'avg_actual': avg_actual,
+            'avg_actual': None,  # 実測値は使用しない
             'avg_predicted': avg_predicted,
             'dice_improvement': feedback_result.get('total_improvement_potential', 0),
             'dice_count': feedback_result.get('num_suggestions', 0),
@@ -1221,9 +865,9 @@ def generate_feedback():
 
         save_success = sheets_connector.save_daily_feedback_summary(user_id, summary_data)
         if save_success:
-            logger.info(f"日次フィードバックサマリーを保存しました: user_id={user_id}, date={today}")
+            logger.warning(f"💾 Daily Summary保存完了: user_id={user_id}, date={today}")
         else:
-            logger.warning(f"日次フィードバックサマリーの保存に失敗しました: user_id={user_id}")
+            logger.warning(f"⚠️ Daily Summary保存失敗: user_id={user_id}")
 
         return jsonify({
             'status': 'success',
@@ -1231,9 +875,9 @@ def generate_feedback():
             'feedback_type': 'daily',
             'feedback': feedback_result,
             'daily_stats': {
-                'avg_actual': round(avg_actual, 2) if avg_actual is not None else None,
                 'avg_predicted': round(avg_predicted, 2) if avg_predicted is not None else None,
-                'total_activities': len(timeline_data)
+                'total_activities': len(timeline_data),
+                'dice_suggestions': len(dice_suggestions)
             },
             'saved_to_spreadsheet': save_success,
             'timestamp': datetime.now().isoformat()
@@ -1247,6 +891,7 @@ def generate_feedback():
             'status': 'error',
             'message': str(e)
         }), 500
+
 
 @app.route('/api/scheduler/status', methods=['GET'])
 def scheduler_status():
