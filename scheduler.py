@@ -29,7 +29,7 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    evening_time: str = "23:00"  # 毎夜23:00（DiCE実行 + フィードバック生成）
+    evening_time: str = "14:00"  # 毎夜14:00 UTC（日本時間23:00 JST）でDiCE実行 + フィードバック生成
     enabled: bool = True
 
 class FeedbackScheduler:
@@ -59,9 +59,10 @@ class FeedbackScheduler:
                 self._execute_evening_feedback
             )
 
-            logger.info(f"定期フィードバックスケジューラーを開始しました")
-            logger.info(f"夜のフィードバック + DiCE実行: {self.schedule_config.evening_time}")
-            
+            logger.warning(f"📅 定期フィードバックスケジューラーを開始しました")
+            logger.warning(f"⏰ 夜のフィードバック + DiCE実行: {self.schedule_config.evening_time} UTC（日本時間23:00 JST）")
+            logger.warning(f"🔄 現在のシステム時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
             self.running = True
             
             # バックグラウンドでスケジューラーを実行
@@ -130,26 +131,33 @@ class FeedbackScheduler:
         夜のフィードバックを実行
         """
         try:
-            logger.info("夜のフィードバック生成を開始します")
-            
+            logger.warning(f"🌙 夜のフィードバック生成を開始します（システム時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}）")
+
             # 今日のデータを取得・分析
             today_data = self._get_today_data()
-            
+            logger.warning(f"📊 今日のデータ取得完了: {today_data.get('date')}")
+
             # 全ユーザーに対してフィードバックを生成
             users = self._get_active_users()
-            
+            logger.warning(f"👥 対象ユーザー数: {len(users)}")
+
             for user_id in users:
+                logger.warning(f"🔄 ユーザー {user_id} の処理を開始...")
                 evening_feedback = self._generate_user_evening_feedback(user_id, today_data)
-                
+
                 if evening_feedback:
                     # フィードバックを保存・配信
                     self._save_and_deliver_feedback(user_id, evening_feedback, FeedbackType.EVENING)
-                    logger.info(f"ユーザー {user_id} の夜のフィードバックを生成しました")
-            
-            logger.info("夜のフィードバック生成が完了しました")
-            
+                    logger.warning(f"✅ ユーザー {user_id} の夜のフィードバックを生成しました")
+                else:
+                    logger.warning(f"⚠️ ユーザー {user_id} のフィードバック生成に失敗しました")
+
+            logger.warning("🎉 夜のフィードバック生成が完了しました")
+
         except Exception as e:
-            logger.error(f"夜のフィードバック実行エラー: {e}")
+            logger.error(f"❌ 夜のフィードバック実行エラー: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def _get_yesterday_data(self) -> Dict:
         """
@@ -329,7 +337,7 @@ class FeedbackScheduler:
 
                 # DiCE結果をHourly Logに更新
                 hourly_schedule = dice_explanation.get('hourly_schedule', [])
-                logger.info(f"📝 DiCE結果をHourly Logに更新: {len(hourly_schedule)}件")
+                logger.warning(f"📝 DiCE結果をHourly Logに更新: {len(hourly_schedule)}件")
 
                 for suggestion in hourly_schedule:
                     try:
@@ -343,6 +351,8 @@ class FeedbackScheduler:
                         # 改善幅を計算（負の値が改善）
                         improvement = improved_f - original_f if (original_f and improved_f) else None
 
+                        logger.warning(f"  💡 {time} {original_activity} → {suggested_activity} (改善: {improvement:.2f})")
+
                         # Hourly Logを更新
                         self.sheets_connector.update_hourly_log_with_dice(
                             user_id=user_id,
@@ -355,9 +365,11 @@ class FeedbackScheduler:
                         )
 
                     except Exception as update_error:
-                        logger.error(f"Hourly Log DiCE更新エラー: {update_error}")
+                        logger.error(f"❌ Hourly Log DiCE更新エラー: {update_error}")
 
-                logger.info(f"✅ Hourly Log DiCE更新完了")
+                logger.warning(f"✅ Hourly Log DiCE更新完了")
+            else:
+                logger.warning(f"⚠️ DiCE分析がfallbackタイプのため、Hourly Logに保存しません")
 
             # 日次サマリーを生成
             daily_summary = self.explainer.generate_daily_summary(

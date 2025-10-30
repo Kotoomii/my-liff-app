@@ -560,7 +560,7 @@ def generate_daily_dice_schedule():
 def generate_dice_analysis():
     """
     Hourly LogからDiCE提案を取得するAPI（DiCE実行はしない）
-    スケジューラーが23:00に実行したDiCE結果を読み取るだけ
+    スケジューラーが23:00 JST（14:00 UTC）に実行したDiCE結果を読み取るだけ
     """
     try:
         data = request.get_json()
@@ -1891,7 +1891,7 @@ def initialize_application():
 
         # スケジューラー開始
         scheduler.start_scheduler()
-        logger.warning("✅ 定期フィードバックスケジューラーを開始しました（毎日23:00にDiCE実行 + フィードバック生成）")
+        logger.warning("✅ 定期フィードバックスケジューラーを開始しました（毎日14:00 UTC = 23:00 JSTにDiCE実行 + フィードバック生成）")
 
         # データ更新監視スレッド開始
         data_monitor_running = True
