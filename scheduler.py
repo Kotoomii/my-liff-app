@@ -29,7 +29,7 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    evening_time: str = "14:55"  # 毎夜14:55 UTC（日本時間23:55 JST）でDiCE実行 + フィードバック生成
+    evening_time: str = "15:10"  # 15:10 UTC（日本時間24:10=翌0:10 JST）で前日データのDiCE実行（一時的）
     enabled: bool = True
 
 class FeedbackScheduler:
@@ -133,9 +133,9 @@ class FeedbackScheduler:
         try:
             logger.warning(f"🌙 夜のフィードバック生成を開始します（システム時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}）")
 
-            # 今日のデータを取得・分析
-            today_data = self._get_today_data()
-            logger.warning(f"📊 今日のデータ取得完了: {today_data.get('date')}")
+            # 【一時的】昨日（10/30）のデータを取得・分析
+            yesterday_data = self._get_yesterday_data()
+            logger.warning(f"📊 昨日のデータ取得完了: {yesterday_data.get('date')}（一時的に前日データを使用）")
 
             # 全ユーザーに対してフィードバックを生成
             users = self._get_active_users()
@@ -143,7 +143,7 @@ class FeedbackScheduler:
 
             for user_id in users:
                 logger.warning(f"🔄 ユーザー {user_id} の処理を開始...")
-                evening_feedback = self._generate_user_evening_feedback(user_id, today_data)
+                evening_feedback = self._generate_user_evening_feedback(user_id, yesterday_data)
 
                 if evening_feedback:
                     # フィードバックを保存・配信
