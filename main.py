@@ -1930,7 +1930,7 @@ def data_monitor_loop():
                             try:
                                 timestamp = row['Timestamp']
                                 date = timestamp.strftime('%Y-%m-%d')
-                                time = timestamp.strftime('%H:%M')
+                                time_str = timestamp.strftime('%H:%M')
                                 activity = row.get('CatSub', '')
 
                                 # 活動名バリデーション
@@ -1941,7 +1941,7 @@ def data_monitor_loop():
                                 hourly_log = sheets_connector.get_hourly_log(user_id, date)
                                 if not hourly_log.empty:
                                     existing = hourly_log[
-                                        (hourly_log['時刻'] == time) &
+                                        (hourly_log['時刻'] == time_str) &
                                         (hourly_log['活動名'] == activity)
                                     ]
                                     if not existing.empty:
@@ -1966,7 +1966,7 @@ def data_monitor_loop():
                                 # Hourly Logに保存
                                 hourly_data = {
                                     'date': date,
-                                    'time': time,
+                                    'time': time_str,
                                     'activity': activity,
                                     'actual_frustration': row.get('NASA_F'),
                                     'predicted_frustration': float(predicted_frustration)
@@ -1974,7 +1974,7 @@ def data_monitor_loop():
                                 sheets_connector.save_hourly_log(user_id, hourly_data)
                                 predictions_count += 1
 
-                                logger.warning(f"✅ 予測完了: {activity} @{time}, F値={predicted_frustration:.2f}")
+                                logger.warning(f"✅ 予測完了: {activity} @{time_str}, F値={predicted_frustration:.2f}")
 
                             except Exception as pred_error:
                                 logger.error(f"活動予測エラー: {pred_error}")
