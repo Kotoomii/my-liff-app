@@ -9,10 +9,14 @@ import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict
 import threading
 import time
 import json
+
+# 日本標準時（JST）のタイムゾーン
+JST = ZoneInfo('Asia/Tokyo')
 
 from ml_model import FrustrationPredictor
 from sheets_connector import SheetsConnector
@@ -1886,10 +1890,10 @@ def data_monitor_loop():
     users_config = config.get_all_users()
 
     def get_next_run_time():
-        """次の10分刻みの実行時刻を計算"""
+        """次の10分刻みの実行時刻を計算（JST）"""
         from datetime import timedelta
 
-        now = datetime.now()
+        now = datetime.now(JST)
         current_minute = now.minute
 
         # 次の10分刻みの分を計算（0, 10, 20, 30, 40, 50）
@@ -1911,13 +1915,13 @@ def data_monitor_loop():
         try:
             # 次の実行時刻まで待機
             next_run = get_next_run_time()
-            wait_seconds = (next_run - datetime.now()).total_seconds()
+            wait_seconds = (next_run - datetime.now(JST)).total_seconds()
 
             if wait_seconds > 0:
                 logger.warning(f"⏰ 次の実行時刻: {next_run.strftime('%H:%M')}, 待機時間: {int(wait_seconds)}秒")
                 time.sleep(wait_seconds)
 
-            logger.warning(f"🔍 データ監視開始: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            logger.warning(f"🔍 データ監視開始: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}")
 
             # 全ユーザーをチェック
             for user_config in users_config:
@@ -2033,7 +2037,7 @@ def data_monitor_loop():
                     # last_prediction_resultを更新
                     if predictions_count > 0:
                         last_prediction_result[user_id] = {
-                            'timestamp': datetime.now().isoformat(),
+                            'timestamp': datetime.now(JST).isoformat(),
                             'user_id': user_id,
                             'user_name': user_name,
                             'predictions_count': predictions_count
