@@ -699,6 +699,12 @@ def get_frustration_timeline():
         hourly_log = sheets_connector.get_hourly_log(user_id, date)
         logger.warning(f"📋 Hourly Log取得: {len(hourly_log)}件")
 
+        # デバッグ: Hourly Logの内容を表示
+        if not hourly_log.empty:
+            logger.warning(f"📊 Hourly Log列: {list(hourly_log.columns)}")
+            for idx, log_row in hourly_log.iterrows():
+                logger.warning(f"  - 時刻='{log_row.get('時刻')}', 活動名='{log_row.get('活動名')}', 予測F={log_row.get('予測NASA_F')}")
+
         # タイムライン作成（活動データ + Hourly Logマージ）
         timeline = []
         for idx, row in daily_data.iterrows():
@@ -718,10 +724,16 @@ def get_frustration_timeline():
             improved_frustration = None
 
             if not hourly_log.empty:
+                # デバッグ: マージ条件を表示
+                logger.warning(f"🔍 マージ検索: 時刻='{time_str}', 活動名='{activity_name}'")
+
                 cached = hourly_log[
                     (hourly_log['時刻'] == time_str) &
                     (hourly_log['活動名'] == activity_name)
                 ]
+
+                logger.warning(f"  → マッチ結果: {len(cached)}件")
+
                 if not cached.empty:
                     cached_row = cached.iloc[0]
                     predicted_frustration = cached_row.get('予測NASA_F')
