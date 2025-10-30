@@ -1921,63 +1921,76 @@ def data_monitor_loop():
                         activity_processed = predictor.preprocess_activity_data(activity_data)
                         df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
 
-                        # 最新の活動に対するフラストレーション予測（履歴データを使用）
-                        latest_activity = activity_processed.iloc[-1]
-                        prediction_result = predictor.predict_with_history(
-                            latest_activity.get('CatSub', 'unknown'),
-                            latest_activity.get('Duration', 60),
-                            latest_activity.get('Timestamp', datetime.now()),
-                            df_enhanced  # 履歴データを渡す
-                        )
+                        logger.warning(f"🔍 自動予測開始: {user_name}, 活動数={len(df_enhanced)}件")
 
-                        # ユーザー別に予測結果を保存
-                        last_prediction_result[user_id] = {
-                            'timestamp': datetime.now().isoformat(),
-                            'user_id': user_id,
-                            'user_name': user_name,
-                            'latest_activity': latest_activity.get('CatSub', 'unknown'),
-                            'prediction': prediction_result,
-                            'data_count': len(df_enhanced)
-                        }
+                        # 全活動をチェックして、未予測かつ生体データありの活動のみ予測
+                        predictions_count = 0
 
-                        if config.LOG_PREDICTIONS:
-                            logger.info(f"自動予測完了 ({user_name}): {prediction_result}")
+                        for idx, row in df_enhanced.iterrows():
+                            try:
+                                timestamp = row['Timestamp']
+                                date = timestamp.strftime('%Y-%m-%d')
+                                time = timestamp.strftime('%H:%M')
+                                activity = row.get('CatSub', '')
 
-                        # 予測結果をスプレッドシートに保存（重複チェック付き）
-                        activity_timestamp = latest_activity.get('Timestamp')
-                        predicted_frust = prediction_result.get('predicted_frustration', 0)
-                        predicted_conf = prediction_result.get('confidence', 0)
+                                # 活動名バリデーション
+                                if not activity or pd.isna(activity) or activity == 'unknown':
+                                    continue
 
-                        # NaN/Infバリデーション
-                        import numpy as np
-                        if np.isnan(predicted_frust) or np.isinf(predicted_frust):
-                            logger.warning(f"予測値が不正です (NaN/Inf) - ユーザー: {user_name}, 保存をスキップ")
-                            continue
+                                # Hourly Logに既に存在するかチェック
+                                hourly_log = sheets_connector.get_hourly_log(user_id, date)
+                                if not hourly_log.empty:
+                                    existing = hourly_log[
+                                        (hourly_log['時刻'] == time) &
+                                        (hourly_log['活動名'] == activity)
+                                    ]
+                                    if not existing.empty:
+                                        # 既に予測済み
+                                        continue
 
-                        prediction_data = {
-                            'timestamp': datetime.now().isoformat(),
-                            'user_id': user_id,
-                            'activity': latest_activity.get('CatSub', 'unknown'),
-                            'duration': latest_activity.get('Duration', 0),
-                            'predicted_frustration': float(predicted_frust),  # 明示的にfloat変換
-                            'confidence': float(predicted_conf),  # 明示的にfloat変換
-                            'actual_frustration': latest_activity.get('NASA_F', None),
-                            'source': 'auto_monitoring',  # 自動監視による予測であることを明記
-                            'activity_timestamp': activity_timestamp  # 重複チェック用の活動タイムスタンプ
-                        }
+                                # 生体情報が揃っているかチェック
+                                has_biodata = check_fitbit_data_availability(row)
+                                if not has_biodata:
+                                    # 生体データなし、スキップ
+                                    continue
 
-                        # PREDICTION_DATAシートへの保存を無効化（ユーザー要望により）
-                        # try:
-                        #     # 重複チェック：同じactivity_timestampの予測データが既に存在するかチェック
-                        #     if not sheets_connector.is_prediction_duplicate(user_id, activity_timestamp):
-                        #         sheets_connector.save_prediction_data(prediction_data)
-                        #         if config.LOG_PREDICTIONS:
-                        #             logger.info(f"自動予測結果をスプレッドシートに記録: {user_name}, {latest_activity.get('CatSub', 'unknown')}, 予測値: {predicted_frust:.2f}")
-                        #     else:
-                        #         if config.ENABLE_DEBUG_LOGS:
-                        #             logger.debug(f"重複する予測データをスキップ: {user_name}, {latest_activity.get('CatSub', 'unknown')}")
-                        # except Exception as save_error:
-                        #     logger.error(f"予測結果保存エラー ({user_name}): {save_error}")
+                                # predict_from_rowで予測
+                                prediction_result = predictor.predict_from_row(row)
+                                if not prediction_result or 'error' in prediction_result:
+                                    continue
+
+                                predicted_frustration = prediction_result.get('predicted_frustration')
+                                if predicted_frustration is None or np.isnan(predicted_frustration) or np.isinf(predicted_frustration):
+                                    continue
+
+                                # Hourly Logに保存
+                                hourly_data = {
+                                    'date': date,
+                                    'time': time,
+                                    'activity': activity,
+                                    'actual_frustration': row.get('NASA_F'),
+                                    'predicted_frustration': float(predicted_frustration)
+                                }
+                                sheets_connector.save_hourly_log(user_id, hourly_data)
+                                predictions_count += 1
+
+                                logger.warning(f"✅ 予測完了: {activity} @{time}, F値={predicted_frustration:.2f}")
+
+                            except Exception as pred_error:
+                                logger.error(f"活動予測エラー: {pred_error}")
+                                continue
+
+                        logger.warning(f"🎯 自動予測完了: {user_name}, {predictions_count}件の新規予測をHourly Logに保存")
+
+                        # last_prediction_resultを更新（最新の予測情報を保持）
+                        if predictions_count > 0:
+                            last_prediction_result[user_id] = {
+                                'timestamp': datetime.now().isoformat(),
+                                'user_id': user_id,
+                                'user_name': user_name,
+                                'predictions_count': predictions_count,
+                                'data_count': len(df_enhanced)
+                            }
 
             # 次のチェックまで待機
             time.sleep(check_interval)
