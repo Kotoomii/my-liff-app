@@ -8,12 +8,16 @@ import numpy as np
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta, time
+from zoneinfo import ZoneInfo
 import json
 import threading
 import time as time_module
 import schedule
 from dataclasses import dataclass
 from enum import Enum
+
+# 日本標準時（JST）のタイムゾーン
+JST = ZoneInfo('Asia/Tokyo')
 
 from config import Config
 from ml_model import FrustrationPredictor
@@ -161,11 +165,12 @@ class FeedbackScheduler:
     
     def _get_yesterday_data(self) -> Dict:
         """
-        昨日のデータを取得
+        昨日のデータを取得（JST基準）
         """
         try:
-            yesterday = datetime.now() - timedelta(days=1)
+            yesterday = datetime.now(JST) - timedelta(days=1)
             yesterday_str = yesterday.strftime('%Y-%m-%d')
+            logger.warning(f"🗓️ 昨日の日付を計算: {yesterday_str}（JST基準: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}）")
             
             # 活動データとFitbitデータを取得
             activity_data = self.sheets_connector.get_activity_data()
@@ -325,6 +330,14 @@ class FeedbackScheduler:
             df_enhanced = self.predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
             logger.warning(f"📊 データ前処理完了: 活動={len(df_enhanced)}件")
 
+            # Walk Forward Validationで学習（DiCE実行に必要）
+            if len(df_enhanced) > 10:
+                logger.warning(f"🎓 モデル学習を開始します...")
+                training_results = self.predictor.walk_forward_validation_train(df_enhanced)
+                logger.warning(f"🎓 モデル学習完了: MAE={training_results.get('avg_mae', 'N/A')}")
+            else:
+                logger.warning(f"⚠️ データ不足によりモデル学習をスキップ（{len(df_enhanced)}件）")
+
             # 今日の行動についてDiCE分析を実行
             dice_results = []
             now = datetime.now()
@@ -374,24 +387,71 @@ class FeedbackScheduler:
             else:
                 logger.warning(f"⚠️ DiCE分析がfallbackタイプのため、Hourly Logに保存しません")
 
-            # 日次サマリーを生成
-            daily_summary = self.explainer.generate_daily_summary(
-                dice_results, today_data['date']
-            )
-            
-            # LLM夜のサマリー生成
+            # Hourly Logから今日のデータを再取得してフィードバック生成
             logger.warning(f"💬 LLMフィードバックを生成中...")
-            evening_summary = self.feedback_generator.generate_evening_summary(dice_results)
+            hourly_log = self.sheets_connector.get_hourly_log(user_id, today_data['date'])
+
+            # タイムラインデータを構築
+            timeline_data = []
+            for idx, row in hourly_log.iterrows():
+                activity = row.get('活動名')
+                time_str = row.get('時刻')
+                predicted_f = row.get('予測NASA_F')
+
+                if pd.notna(predicted_f):
+                    timeline_data.append({
+                        'time': time_str,
+                        'activity': activity,
+                        'frustration_value': float(predicted_f)
+                    })
+
+            # DiCE結果を構築
+            dice_result = {
+                'hourly_schedule': hourly_schedule if dice_explanation.get('type') != 'fallback' else [],
+                'total_improvement_potential': sum([s.get('improvement', 0) or 0 for s in hourly_schedule]) if dice_explanation.get('type') != 'fallback' else 0
+            }
+
+            # LLMで日次フィードバックを生成
+            feedback_result_llm = self.feedback_generator.generate_daily_dice_feedback(
+                dice_result,
+                timeline_data
+            )
             logger.warning(f"💬 LLMフィードバック生成完了")
+
+            # 日次平均を計算
+            predicted_values = [item['frustration_value'] for item in timeline_data]
+            avg_predicted = sum(predicted_values) / len(predicted_values) if predicted_values else None
+
+            # Daily Summaryに保存
+            summary_data = {
+                'date': today_data['date'],
+                'avg_actual': None,
+                'avg_predicted': avg_predicted,
+                'dice_improvement': feedback_result_llm.get('total_improvement_potential', 0),
+                'dice_count': feedback_result_llm.get('num_suggestions', 0),
+                'chatgpt_feedback': feedback_result_llm.get('main_feedback', ''),
+                'action_plan': feedback_result_llm.get('action_plan', []),
+                'generated_at': feedback_result_llm.get('generated_at', datetime.now().isoformat())
+            }
+
+            save_success = self.sheets_connector.save_daily_feedback_summary(user_id, summary_data)
+            if save_success:
+                logger.warning(f"💾 Daily Summary保存完了: user_id={user_id}, date={today_data['date']}")
+            else:
+                logger.warning(f"⚠️ Daily Summary保存失敗: user_id={user_id}")
 
             feedback_result = {
                 'user_id': user_id,
                 'type': 'evening_feedback',
                 'generated_at': datetime.now().isoformat(),
                 'date': today_data['date'],
-                'summary': evening_summary,
-                'daily_summary': daily_summary,
-                'dice_analysis': dice_results
+                'feedback': feedback_result_llm,
+                'daily_stats': {
+                    'avg_predicted': round(avg_predicted, 2) if avg_predicted is not None else None,
+                    'total_activities': len(timeline_data),
+                    'dice_suggestions': len(hourly_schedule) if dice_explanation.get('type') != 'fallback' else 0
+                },
+                'saved_to_spreadsheet': save_success
             }
 
             logger.warning(f"🎉 ユーザー {user_id} の夜のフィードバック生成完了")
