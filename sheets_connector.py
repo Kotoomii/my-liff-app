@@ -1178,12 +1178,12 @@ class SheetsConnector:
             date = hourly_data.get('date', '')
             time = hourly_data.get('time', '')
 
-            # 重複チェック: 同じ日付・時刻の行を探す
+            # 重複チェック: 同じ日付・時刻・活動名の行を探す
             all_values = worksheet.get_all_values()
 
             for idx, row in enumerate(all_values[1:], start=2):  # ヘッダーをスキップ、行番号は2から
-                if len(row) >= 3 and row[0] == date and row[1] == time:
-                    logger.info(f"重複を検出: {date} {time} (行{idx}) - スキップします（再予測しない）")
+                if len(row) >= 3 and row[0] == date and row[1] == time and row[2] == activity:
+                    logger.info(f"重複を検出: {date} {time} {activity} (行{idx}) - スキップします")
                     return True  # 既に存在する場合は何もしない
 
             # 誤差を計算
