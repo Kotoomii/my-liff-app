@@ -30,7 +30,7 @@ class FeedbackType(Enum):
 @dataclass
 class FeedbackSchedule:
     morning_time: str = "07:30"  # 毎朝7:30
-    evening_time: str = "21:00"  # 毎夜21:00
+    evening_time: str = "21:30"  # 毎夜21:30
     enabled: bool = True
 
 class FeedbackScheduler:
