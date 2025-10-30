@@ -1877,127 +1877,175 @@ def run_daily_dice_for_user(user_id: str):
 
 def data_monitor_loop():
     """
-    全ユーザーのデータ更新を監視し、新しいデータが追加されたら自動的にフラストレーション予測を実行
+    全ユーザーのデータを監視し、nasa_status='done'の活動を自動的に予測
+    毎時00,10,20,30,40,50分に実行
     """
     global data_monitor_running, last_prediction_result
 
-    check_interval = 600  # 600秒（10分）ごとにチェック
-    
     # 全ユーザーのリストをConfigから取得
     users_config = config.get_all_users()
 
+    def get_next_run_time():
+        """次の10分刻みの実行時刻を計算"""
+        now = datetime.now()
+        current_minute = now.minute
+        # 次の10分刻みの分を計算（0, 10, 20, 30, 40, 50）
+        next_minute = ((current_minute // 10) + 1) * 10
+
+        if next_minute >= 60:
+            # 次の時間の00分
+            next_time = now.replace(hour=(now.hour + 1) % 24, minute=0, second=0, microsecond=0)
+            if now.hour == 23:
+                next_time = next_time.replace(day=now.day + 1)
+        else:
+            next_time = now.replace(minute=next_minute, second=0, microsecond=0)
+
+        return next_time
+
+    logger.warning(f"🕐 データ監視ループ開始: 毎時00,10,20,30,40,50分に実行")
+
     while data_monitor_running:
         try:
+            # 次の実行時刻まで待機
+            next_run = get_next_run_time()
+            wait_seconds = (next_run - datetime.now()).total_seconds()
+
+            if wait_seconds > 0:
+                logger.warning(f"⏰ 次の実行時刻: {next_run.strftime('%H:%M')}, 待機時間: {int(wait_seconds)}秒")
+                time.sleep(wait_seconds)
+
+            logger.warning(f"🔍 データ監視開始: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
             # 全ユーザーをチェック
             for user_config in users_config:
                 user_id = user_config['user_id']
                 user_name = user_config['name']
-                
-                if sheets_connector.has_new_data(user_id):
-                    if config.ENABLE_INFO_LOGS:
-                        logger.info(f"新しいデータを検知しました。フラストレーション予測を実行します: {user_name} ({user_id})")
 
+                # 毎回全活動をチェック（has_new_data不要）
+                try:
                     # ユーザーごとのpredictorを取得
                     predictor = get_predictor(user_id)
 
-                    # 新しいデータを取得（キャッシュをクリアして最新データを取得）
+                    # データ取得（キャッシュなし）
                     activity_data = sheets_connector.get_activity_data(user_id, use_cache=False)
                     fitbit_data = sheets_connector.get_fitbit_data(user_id, use_cache=False)
 
-                    if not activity_data.empty:
-                        # モデル再訓練（ensure_model_trainedを使用）
-                        training_result = ensure_model_trained(user_id, force_retrain=True)
+                    if activity_data.empty:
+                        logger.warning(f"活動データなし: {user_name}")
+                        continue
 
-                        if training_result['status'] not in ['success', 'already_trained']:
-                            logger.warning(f"モデル再訓練失敗 ({user_name}): {training_result.get('message')}")
-                            continue
+                    # nasa_status='done'の行のみフィルタリング
+                    if 'nasa_status' in activity_data.columns:
+                        activity_data_done = activity_data[activity_data['nasa_status'] == 'done'].copy()
+                        logger.warning(f"📊 {user_name}: 全活動={len(activity_data)}件, nasa_status='done'={len(activity_data_done)}件")
+                    else:
+                        # nasa_status列がない場合は全てを処理
+                        activity_data_done = activity_data.copy()
+                        logger.warning(f"⚠️ {user_name}: nasa_status列が見つかりません。全活動を処理します")
 
-                        # モデルが初期化されているか確認
-                        if predictor.model is None:
-                            logger.error(f"モデルが初期化されていません ({user_name})")
-                            continue
+                    if activity_data_done.empty:
+                        logger.warning(f"nasa_status='done'の活動なし: {user_name}")
+                        continue
 
-                        # データ前処理
-                        activity_processed = predictor.preprocess_activity_data(activity_data)
-                        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+                    # モデル訓練確認
+                    training_result = ensure_model_trained(user_id, force_retrain=False)
+                    if training_result['status'] not in ['success', 'already_trained']:
+                        logger.warning(f"モデル訓練失敗 ({user_name}): {training_result.get('message')}")
+                        continue
 
-                        logger.warning(f"🔍 自動予測開始: {user_name}, 活動数={len(df_enhanced)}件")
+                    if predictor.model is None:
+                        logger.error(f"モデルが初期化されていません ({user_name})")
+                        continue
 
-                        # 全活動をチェックして、未予測かつ生体データありの活動のみ予測
-                        predictions_count = 0
+                    # データ前処理
+                    activity_processed = predictor.preprocess_activity_data(activity_data_done)
+                    df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
 
-                        for idx, row in df_enhanced.iterrows():
-                            try:
-                                timestamp = row['Timestamp']
-                                date = timestamp.strftime('%Y-%m-%d')
-                                time_str = timestamp.strftime('%H:%M')
-                                activity = row.get('CatSub', '')
+                    logger.warning(f"🔍 予測チェック開始: {user_name}, 対象活動={len(df_enhanced)}件")
 
-                                # 活動名バリデーション
-                                if not activity or pd.isna(activity) or activity == 'unknown':
-                                    continue
+                    # 全活動をチェックして、Hourly Log未登録の活動のみ予測
+                    predictions_count = 0
 
-                                # Hourly Logに既に存在するかチェック
-                                hourly_log = sheets_connector.get_hourly_log(user_id, date)
-                                if not hourly_log.empty:
-                                    existing = hourly_log[
-                                        (hourly_log['時刻'] == time_str) &
-                                        (hourly_log['活動名'] == activity)
-                                    ]
-                                    if not existing.empty:
-                                        # 既に予測済み
-                                        continue
+                    for idx, row in df_enhanced.iterrows():
+                        try:
+                            timestamp = row['Timestamp']
+                            date = timestamp.strftime('%Y-%m-%d')
+                            time_str = timestamp.strftime('%H:%M')
+                            activity = row.get('CatSub', '')
 
-                                # 生体情報が揃っているかチェック
-                                has_biodata = check_fitbit_data_availability(row)
-                                if not has_biodata:
-                                    # 生体データなし、スキップ
-                                    continue
-
-                                # predict_from_rowで予測
-                                prediction_result = predictor.predict_from_row(row)
-                                if not prediction_result or 'error' in prediction_result:
-                                    continue
-
-                                predicted_frustration = prediction_result.get('predicted_frustration')
-                                if predicted_frustration is None or np.isnan(predicted_frustration) or np.isinf(predicted_frustration):
-                                    continue
-
-                                # Hourly Logに保存
-                                hourly_data = {
-                                    'date': date,
-                                    'time': time_str,
-                                    'activity': activity,
-                                    'actual_frustration': row.get('NASA_F'),
-                                    'predicted_frustration': float(predicted_frustration)
-                                }
-                                sheets_connector.save_hourly_log(user_id, hourly_data)
-                                predictions_count += 1
-
-                                logger.warning(f"✅ 予測完了: {activity} @{time_str}, F値={predicted_frustration:.2f}")
-
-                            except Exception as pred_error:
-                                logger.error(f"活動予測エラー: {pred_error}")
+                            # 活動名バリデーション
+                            if not activity or pd.isna(activity) or activity == 'unknown':
                                 continue
 
-                        logger.warning(f"🎯 自動予測完了: {user_name}, {predictions_count}件の新規予測をHourly Logに保存")
+                            # Hourly Logに既に存在するかチェック
+                            hourly_log = sheets_connector.get_hourly_log(user_id, date)
+                            if not hourly_log.empty:
+                                existing = hourly_log[
+                                    (hourly_log['時刻'] == time_str) &
+                                    (hourly_log['活動名'] == activity)
+                                ]
+                                if not existing.empty:
+                                    # 既に登録済み
+                                    continue
 
-                        # last_prediction_resultを更新（最新の予測情報を保持）
-                        if predictions_count > 0:
-                            last_prediction_result[user_id] = {
-                                'timestamp': datetime.now().isoformat(),
-                                'user_id': user_id,
-                                'user_name': user_name,
-                                'predictions_count': predictions_count,
-                                'data_count': len(df_enhanced)
+                            # 実測値を取得
+                            actual_frustration = row.get('NASA_F')
+
+                            # 生体情報が揃っているかチェック
+                            has_biodata = check_fitbit_data_availability(row)
+                            predicted_frustration = None
+
+                            if has_biodata:
+                                # 予測実行
+                                prediction_result = predictor.predict_from_row(row)
+                                if prediction_result and 'predicted_frustration' in prediction_result:
+                                    predicted_frustration = prediction_result.get('predicted_frustration')
+                                    if predicted_frustration is not None and not (np.isnan(predicted_frustration) or np.isinf(predicted_frustration)):
+                                        predicted_frustration = float(predicted_frustration)
+                                    else:
+                                        predicted_frustration = None
+
+                            # Hourly Logに保存（予測値なしでも保存）
+                            hourly_data = {
+                                'date': date,
+                                'time': time_str,
+                                'activity': activity,
+                                'actual_frustration': actual_frustration,
+                                'predicted_frustration': predicted_frustration
                             }
+                            sheets_connector.save_hourly_log(user_id, hourly_data)
+                            predictions_count += 1
 
-            # 次のチェックまで待機
-            time.sleep(check_interval)
+                            if predicted_frustration:
+                                logger.warning(f"✅ 登録完了: {activity} @{time_str}, 実測={actual_frustration}, 予測={predicted_frustration:.2f}")
+                            else:
+                                logger.warning(f"✅ 登録完了: {activity} @{time_str}, 実測={actual_frustration}, 予測=なし（生体データ不足）")
+
+                        except Exception as pred_error:
+                            logger.error(f"活動処理エラー: {pred_error}")
+                            continue
+
+                    logger.warning(f"🎯 処理完了: {user_name}, {predictions_count}件をHourly Logに登録")
+
+                    # last_prediction_resultを更新
+                    if predictions_count > 0:
+                        last_prediction_result[user_id] = {
+                            'timestamp': datetime.now().isoformat(),
+                            'user_id': user_id,
+                            'user_name': user_name,
+                            'predictions_count': predictions_count
+                        }
+
+                except Exception as user_error:
+                    logger.error(f"{user_name} の処理エラー: {user_error}")
+                    continue
 
         except Exception as e:
             logger.error(f"データ監視ループエラー: {e}")
-            time.sleep(check_interval)
+            import traceback
+            logger.error(traceback.format_exc())
+            # エラー時も次の実行時刻まで待機
+            time.sleep(60)
 
 def initialize_application():
     """アプリケーション初期化（一度だけ実行）"""
