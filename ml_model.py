@@ -110,6 +110,13 @@ class FrustrationPredictor:
             df['weekday_str'] = df['Timestamp'].dt.strftime('%a')
             df = pd.get_dummies(df, columns=['weekday_str'], prefix='weekday', dtype=int)  # int型に指定
 
+            # 【重要】全曜日の列を確実に作成（データに含まれない曜日は0で埋める）
+            # これにより、DiCE実行時にモデルのfeature_columnsと一致させる
+            for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']:
+                col_name = f'weekday_{day}'
+                if col_name not in df.columns:
+                    df[col_name] = 0
+
             # NASA_Fのスケーリング (0-20 → 0-1)
             df['NASA_F_scaled'] = df['NASA_F'] / 20.0
 
