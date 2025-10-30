@@ -37,17 +37,30 @@ class FeedbackSchedule:
     enabled: bool = True
 
 class FeedbackScheduler:
-    def __init__(self):
+    def __init__(self, user_predictors: Dict = None):
+        """
+        user_predictors: main.pyで管理されている {user_id: FrustrationPredictor} 辞書
+                        data_monitor_loopで学習済みのモデルを使用する
+        """
         self.config = Config()
-        self.predictor = FrustrationPredictor()
+        self.user_predictors = user_predictors or {}  # 既に学習済みのpredictor辞書
         self.explainer = ActivityCounterfactualExplainer()
         self.feedback_generator = LLMFeedbackGenerator()
         self.sheets_connector = SheetsConnector()
-        
+
         self.schedule_config = FeedbackSchedule()
         self.running = False
         self.scheduler_thread = None
         self.feedback_history = []  # 生成したフィードバックの履歴
+
+    def get_predictor(self, user_id: str) -> FrustrationPredictor:
+        """
+        ユーザーのpredictorを取得（既に学習済みのものを使用）
+        """
+        if user_id not in self.user_predictors:
+            logger.warning(f"⚠️ ユーザー {user_id} のpredictorが見つかりません。新規作成します。")
+            self.user_predictors[user_id] = FrustrationPredictor()
+        return self.user_predictors[user_id]
         
     def start_scheduler(self):
         """
@@ -257,34 +270,33 @@ class FeedbackScheduler:
     def _generate_user_morning_feedback(self, user_id: str, yesterday_data: Dict) -> Optional[Dict]:
         """
         特定ユーザーの朝のフィードバックを生成
+        data_monitor_loopで既に学習済みのpredictorを使用
         """
         try:
             activity_data = yesterday_data.get('activity_data', pd.DataFrame())
             fitbit_data = yesterday_data.get('fitbit_data', pd.DataFrame())
-            
+
             if activity_data.empty:
                 logger.warning(f"ユーザー {user_id} の昨日の活動データが見つかりません")
                 return self._get_fallback_morning_feedback(user_id)
-            
+
+            # 既に学習済みのpredictorを取得
+            predictor = self.get_predictor(user_id)
+
             # データを前処理
-            activity_processed = self.predictor.preprocess_activity_data(activity_data)
+            activity_processed = predictor.preprocess_activity_data(activity_data)
             if activity_processed.empty:
                 return self._get_fallback_morning_feedback(user_id)
-            
+
             # Fitbitデータとの統合
-            df_enhanced = self.predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-            
-            # Walk Forward Validationで学習（必要に応じて）
-            if len(df_enhanced) > 10:
-                training_results = self.predictor.walk_forward_validation_train(df_enhanced)
-                logger.info(f"ユーザー {user_id} のモデル学習完了")
-            
+            df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+
             # DiCE分析を実行（昨日の行動について）
             dice_results = []
             yesterday_end = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            
+
             dice_explanation = self.explainer.generate_activity_based_explanation(
-                df_enhanced, self.predictor, yesterday_end
+                df_enhanced, predictor, yesterday_end
             )
             
             if dice_explanation.get('type') != 'fallback':
@@ -312,10 +324,11 @@ class FeedbackScheduler:
     def _generate_user_evening_feedback(self, user_id: str, today_data: Dict) -> Optional[Dict]:
         """
         特定ユーザーの夜のフィードバックを生成
-        今日（昨日）のデータに対してDiCE分析を実行するが、モデル学習は全期間データで行う
+        data_monitor_loopで既に学習済みのpredictorを使用してDiCE分析を実行
         """
         try:
             target_activity_data = today_data.get('activity_data', pd.DataFrame())
+            target_fitbit_data = today_data.get('fitbit_data', pd.DataFrame())
             target_date = today_data.get('date', '')
 
             if target_activity_data.empty:
@@ -324,34 +337,17 @@ class FeedbackScheduler:
 
             logger.warning(f"📊 対象日のデータ: {target_date}, 活動={len(target_activity_data)}件")
 
-            # 【重要】モデル学習用に全期間のデータを取得
-            logger.warning(f"📦 全期間のデータを取得してモデル学習を開始...")
-            all_activity_data = self.sheets_connector.get_activity_data()
-            all_fitbit_data = self.sheets_connector.get_fitbit_data()
-
-            # 全期間データを前処理
-            all_activity_processed = self.predictor.preprocess_activity_data(all_activity_data)
-            if all_activity_processed.empty:
-                logger.warning(f"⚠️ 全期間の活動データが空です")
-                return self._get_fallback_evening_feedback(user_id)
-
-            # 全期間データでFitbitと統合
-            all_df_enhanced = self.predictor.aggregate_fitbit_by_activity(all_activity_processed, all_fitbit_data)
-            logger.warning(f"📊 全期間データ前処理完了: 活動={len(all_df_enhanced)}件")
-
-            # 全期間データでモデル学習（DiCE実行に必要）
-            if len(all_df_enhanced) > 10:
-                logger.warning(f"🎓 モデル学習を開始します（全期間: {len(all_df_enhanced)}件）...")
-                training_results = self.predictor.walk_forward_validation_train(all_df_enhanced)
-                logger.warning(f"🎓 モデル学習完了: MAE={training_results.get('avg_mae', 'N/A')}")
-            else:
-                logger.warning(f"⚠️ データ不足によりモデル学習をスキップ（{len(all_df_enhanced)}件）")
-                return self._get_fallback_evening_feedback(user_id)
+            # 既に学習済みのpredictorを取得（data_monitor_loopで学習済み）
+            predictor = self.get_predictor(user_id)
+            logger.warning(f"✅ 既に学習済みのpredictorを使用します")
 
             # 対象日のデータを前処理（DiCE分析対象）
-            target_activity_processed = self.predictor.preprocess_activity_data(target_activity_data)
-            target_fitbit_data = today_data.get('fitbit_data', pd.DataFrame())
-            target_df_enhanced = self.predictor.aggregate_fitbit_by_activity(target_activity_processed, target_fitbit_data)
+            target_activity_processed = predictor.preprocess_activity_data(target_activity_data)
+            if target_activity_processed.empty:
+                logger.warning(f"⚠️ 対象日のデータ前処理後が空です")
+                return self._get_fallback_evening_feedback(user_id)
+
+            target_df_enhanced = predictor.aggregate_fitbit_by_activity(target_activity_processed, target_fitbit_data)
             logger.warning(f"📊 対象日データ前処理完了: 活動={len(target_df_enhanced)}件")
 
             # 対象日の行動についてDiCE分析を実行
@@ -360,7 +356,7 @@ class FeedbackScheduler:
 
             logger.warning(f"🎲 DiCE分析を開始します（対象: {target_date}）...")
             dice_explanation = self.explainer.generate_activity_based_explanation(
-                target_df_enhanced, self.predictor, now
+                target_df_enhanced, predictor, now
             )
             logger.warning(f"🎲 DiCE分析完了: type={dice_explanation.get('type')}")
 

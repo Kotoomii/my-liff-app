@@ -85,10 +85,12 @@ gunicorn_error_logger.setLevel(logging.ERROR)
 sheets_connector = SheetsConnector()
 explainer = ActivityCounterfactualExplainer()
 feedback_generator = LLMFeedbackGenerator()
-scheduler = FeedbackScheduler()
 
 # ユーザーごとのモデル管理
 user_predictors = {}  # {user_id: FrustrationPredictor}
+
+# schedulerにuser_predictorsを渡す（data_monitor_loopで学習済みのモデルを共有）
+scheduler = FeedbackScheduler(user_predictors=user_predictors)
 
 # アプリケーション初期化フラグ
 _app_initialized = False
