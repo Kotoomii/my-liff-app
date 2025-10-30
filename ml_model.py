@@ -199,11 +199,9 @@ class FrustrationPredictor:
                     lorenz_mean = fitbit_period['Lorenz_Area_scaled'].mean()
                     activity_dict['SDNN_scaled'] = sdnn_mean
                     activity_dict['Lorenz_Area_scaled'] = lorenz_mean
-                    logger.warning(f"✅ 活動 {activity.get('CatSub', 'unknown')} @{start_time}: Fitbit={len(fitbit_period)}件, SDNN_scaled={sdnn_mean:.3f}, Lorenz_scaled={lorenz_mean:.3f}")
                 else:
                     activity_dict['SDNN_scaled'] = np.nan
                     activity_dict['Lorenz_Area_scaled'] = np.nan
-                    logger.warning(f"❌ 活動 {activity.get('CatSub', 'unknown')} @{start_time}: Fitbitデータなし (期間: {start_time} - {end_time})")
 
                 activity_with_fitbit.append(activity_dict)
 
