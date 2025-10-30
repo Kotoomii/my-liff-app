@@ -193,11 +193,6 @@ def ensure_model_trained(user_id: str, force_retrain: bool = False) -> dict:
             'user_id': user_id
         }
 
-# DiCE daily scheduler
-dice_scheduler_thread = None
-dice_scheduler_running = False
-last_dice_result = {}
-
 # データ更新監視スレッド
 data_monitor_thread = None
 data_monitor_running = False
@@ -1517,113 +1512,6 @@ def generate_daily_summary():
             'message': str(e)
         }), 500
 
-@app.route('/api/debug/dice-scheduler/status', methods=['GET'])
-def debug_dice_scheduler_status():
-    """DiCEスケジューラーの状態とスケジュール確認API"""
-    try:
-        now = datetime.now()
-        next_run = now.replace(hour=21, minute=0, second=0, microsecond=0)
-        if now > next_run:
-            next_run += timedelta(days=1)
-        
-        status = {
-            'scheduler_running': dice_scheduler_running,
-            'current_time': now.isoformat(),
-            'next_scheduled_run': next_run.isoformat(),
-            'seconds_until_next_run': (next_run - now).total_seconds(),
-            'last_dice_result': last_dice_result,
-            'scheduler_thread_alive': dice_scheduler_thread.is_alive() if dice_scheduler_thread else False
-        }
-        
-        return jsonify({
-            'status': 'success',
-            'data': status
-        })
-    except Exception as e:
-        logger.error(f"DiCEスケジューラー状態確認エラー: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
-@app.route('/api/debug/dice-scheduler/trigger', methods=['POST'])
-def debug_trigger_dice():
-    """手動でDiCE改善提案を実行するデバッグAPI"""
-    global last_dice_result
-    
-    try:
-        data = request.get_json() or {}
-        user_id = data.get('user_id', 'default')
-        target_date = data.get('date')
-        
-        if target_date:
-            if isinstance(target_date, str):
-                target_date = datetime.fromisoformat(target_date.replace('Z', '+00:00')).date()
-        else:
-            target_date = datetime.now().date()
-        
-        if config.ENABLE_DEBUG_LOGS:
-            logger.debug(f"手動DiCE実行開始: ユーザー={user_id}, 日付={target_date}")
-        
-        dice_result = run_daily_dice_for_user(user_id)
-        
-        if dice_result:
-            last_dice_result = {
-                'timestamp': datetime.now().isoformat(),
-                'user_id': user_id,
-                'result': dice_result,
-                'execution_type': 'manual_debug'
-            }
-            
-            return jsonify({
-                'status': 'success',
-                'message': '手動DiCE実行完了',
-                'data': {
-                    'user_id': user_id,
-                    'execution_time': last_dice_result['timestamp'],
-                    'total_improvement': dice_result.get('total_improvement', 0),
-                    'schedule_items': len(dice_result.get('hourly_schedule', [])),
-                    'dice_message': dice_result.get('message', ''),
-                    'confidence': dice_result.get('confidence', 0),
-                    'summary': dice_result.get('summary', ''),
-                    'full_result': dice_result
-                }
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'DiCE実行に失敗しました。データが不足している可能性があります。'
-            }), 400
-            
-    except Exception as e:
-        logger.error(f"手動DiCE実行エラー: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': f'エラーが発生しました: {str(e)}'
-        }), 500
-
-@app.route('/api/debug/dice-scheduler/results', methods=['GET'])
-def debug_get_dice_results():
-    """最新のDiCE結果を取得するデバッグAPI"""
-    try:
-        if not last_dice_result:
-            return jsonify({
-                'status': 'success',
-                'message': 'DiCE結果がまだありません',
-                'data': None
-            })
-
-        return jsonify({
-            'status': 'success',
-            'data': last_dice_result
-        })
-    except Exception as e:
-        logger.error(f"DiCE結果取得エラー: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
 @app.route('/api/debug/data-monitor/status', methods=['GET'])
 def debug_data_monitor_status():
     """データ監視スレッドの状態確認API"""
@@ -1788,108 +1676,6 @@ def get_user_config(user_id: str) -> Dict:
         return users[0]
 
     return {'user_id': user_id, 'name': user_id}
-
-def daily_dice_scheduler():
-    """毎日21:00にDiCE改善提案を生成するスケジューラー"""
-    global dice_scheduler_running, last_dice_result
-
-    while dice_scheduler_running:
-        try:
-            now = datetime.now()
-            # 毎日21:00に実行
-            target_time = now.replace(hour=21, minute=0, second=0, microsecond=0)
-
-            # 今日の21:00がまだ来ていない場合はそのまま、過ぎている場合は明日の21:00
-            if now > target_time:
-                target_time += timedelta(days=1)
-
-            sleep_seconds = (target_time - now).total_seconds()
-            if config.ENABLE_INFO_LOGS:
-                logger.info(f"次回DiCE実行予定: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({sleep_seconds:.0f}秒後)")
-
-            # 指定時刻まで待機
-            time.sleep(sleep_seconds)
-
-            if dice_scheduler_running:  # スケジューラーが停止されていないか確認
-                if config.ENABLE_INFO_LOGS:
-                    logger.info("定時DiCE改善提案と日次サマリーを実行中...")
-
-                # 全ユーザーに対して実行
-                users_config = config.get_all_users()
-
-                for user_config in users_config:
-                    user_id = user_config['user_id']
-                    user_name = user_config['name']
-
-                    # DiCE実行
-                    dice_result = run_daily_dice_for_user(user_id)
-
-                    if dice_result:
-                        last_dice_result = {
-                            'timestamp': datetime.now().isoformat(),
-                            'user_id': user_id,
-                            'user_name': user_name,
-                            'result': dice_result,
-                            'execution_type': 'scheduled'
-                        }
-                        if config.ENABLE_INFO_LOGS:
-                            logger.info(f"定時DiCE実行完了 ({user_name}): 改善ポイント {dice_result.get('total_improvement', 0):.1f}点")
-                    else:
-                        logger.error(f"定時DiCE実行に失敗しました: {user_name}")
-
-                    # 日次サマリー計算と保存（昨日のデータ）
-                    yesterday = (datetime.now() - timedelta(days=1)).date()
-                    summary_success = calculate_and_save_daily_summary(user_id, yesterday)
-
-                    if summary_success and config.ENABLE_INFO_LOGS:
-                        logger.info(f"日次サマリー保存完了 ({user_name}): {yesterday}")
-                    elif not summary_success:
-                        logger.warning(f"日次サマリー保存失敗 ({user_name}): {yesterday}")
-
-        except Exception as e:
-            logger.error(f"DiCEスケジューラーエラー: {e}")
-            time.sleep(3600)  # エラー時は1時間待機
-
-def run_daily_dice_for_user(user_id: str):
-    """指定ユーザーの日次DiCE改善提案を実行"""
-    try:
-        # ユーザーごとのpredictorを取得
-        predictor = get_predictor(user_id)
-
-        # モデルが訓練されていることを確認（ensure_model_trainedを使用）
-        training_result = ensure_model_trained(user_id, force_retrain=True)
-
-        if training_result['status'] not in ['success', 'already_trained']:
-            logger.warning(f"ユーザー {user_id} のモデル訓練失敗: {training_result.get('message')}")
-            return None
-
-        # モデルが初期化されているか最終確認
-        if predictor.model is None:
-            logger.error(f"ユーザー {user_id} のモデルが初期化されていません")
-            return None
-
-        # データを再取得（訓練後の最新データ）
-        activity_data = sheets_connector.get_activity_data(user_id)
-        fitbit_data = sheets_connector.get_fitbit_data(user_id)
-
-        if activity_data.empty:
-            logger.warning(f"ユーザー {user_id} の活動データが見つかりません")
-            return None
-
-        # データ前処理
-        enhanced_data = predictor.preprocess_activity_data(activity_data)
-        if not enhanced_data.empty:
-            enhanced_data = predictor.aggregate_fitbit_by_activity(enhanced_data, fitbit_data)
-
-        # 昨日のデータでDiCE実行
-        yesterday = datetime.now() - timedelta(days=1)
-        dice_result = explainer.generate_hourly_alternatives(enhanced_data, predictor, yesterday)
-
-        return dice_result
-
-    except Exception as e:
-        logger.error(f"ユーザー {user_id} のDiCE実行エラー: {e}", exc_info=True)
-        return None
 
 def data_monitor_loop():
     """
@@ -2088,7 +1874,7 @@ def data_monitor_loop():
 
 def initialize_application():
     """アプリケーション初期化（一度だけ実行）"""
-    global dice_scheduler_thread, dice_scheduler_running, data_monitor_thread, data_monitor_running, user_predictors, _app_initialized
+    global data_monitor_thread, data_monitor_running, user_predictors, _app_initialized
 
     # 既に初期化済みの場合はスキップ
     if _app_initialized:
@@ -2105,13 +1891,7 @@ def initialize_application():
 
         # スケジューラー開始
         scheduler.start_scheduler()
-        logger.warning("✅ 定期フィードバックスケジューラーを開始しました")
-
-        # DiCE daily scheduler開始
-        dice_scheduler_running = True
-        dice_scheduler_thread = threading.Thread(target=daily_dice_scheduler, daemon=True)
-        dice_scheduler_thread.start()
-        logger.warning("✅ DiCE日次スケジューラーを開始しました (毎日21:00実行)")
+        logger.warning("✅ 定期フィードバックスケジューラーを開始しました（毎日22:30にDiCE実行 + フィードバック生成）")
 
         # データ更新監視スレッド開始
         data_monitor_running = True
@@ -2194,18 +1974,16 @@ def recreate_daily_summary_sheet_endpoint():
 
 def cleanup_application():
     """アプリケーション終了処理"""
-    global dice_scheduler_running, data_monitor_running
+    global data_monitor_running
 
     try:
         if config.ENABLE_INFO_LOGS:
             logger.info("アプリケーションを終了しています...")
 
-        # DiCE スケジューラー停止
-        dice_scheduler_running = False
-
         # データ監視スレッド停止
         data_monitor_running = False
 
+        # スケジューラー停止
         scheduler.stop_scheduler()
         if config.ENABLE_INFO_LOGS:
             logger.info("アプリケーション終了完了")
