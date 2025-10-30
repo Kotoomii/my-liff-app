@@ -323,15 +323,18 @@ class FeedbackScheduler:
             
             # Fitbitデータとの統合
             df_enhanced = self.predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-            
+            logger.warning(f"📊 データ前処理完了: 活動={len(df_enhanced)}件")
+
             # 今日の行動についてDiCE分析を実行
             dice_results = []
             now = datetime.now()
-            
+
+            logger.warning(f"🎲 DiCE分析を開始します...")
             dice_explanation = self.explainer.generate_activity_based_explanation(
                 df_enhanced, self.predictor, now
             )
-            
+            logger.warning(f"🎲 DiCE分析完了: type={dice_explanation.get('type')}")
+
             if dice_explanation.get('type') != 'fallback':
                 dice_results.append(dice_explanation)
 
@@ -377,9 +380,11 @@ class FeedbackScheduler:
             )
             
             # LLM夜のサマリー生成
+            logger.warning(f"💬 LLMフィードバックを生成中...")
             evening_summary = self.feedback_generator.generate_evening_summary(dice_results)
-            
-            return {
+            logger.warning(f"💬 LLMフィードバック生成完了")
+
+            feedback_result = {
                 'user_id': user_id,
                 'type': 'evening_feedback',
                 'generated_at': datetime.now().isoformat(),
@@ -388,9 +393,14 @@ class FeedbackScheduler:
                 'daily_summary': daily_summary,
                 'dice_analysis': dice_results
             }
+
+            logger.warning(f"🎉 ユーザー {user_id} の夜のフィードバック生成完了")
+            return feedback_result
             
         except Exception as e:
-            logger.error(f"ユーザー {user_id} の夜のフィードバック生成エラー: {e}")
+            logger.error(f"❌ ユーザー {user_id} の夜のフィードバック生成エラー: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return self._get_fallback_evening_feedback(user_id)
     
     def _save_and_deliver_feedback(self, user_id: str, feedback: Dict, feedback_type: FeedbackType):
