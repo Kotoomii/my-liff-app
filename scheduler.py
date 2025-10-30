@@ -43,7 +43,8 @@ class FeedbackScheduler:
                         data_monitor_loopで学習済みのモデルを使用する
         """
         self.config = Config()
-        self.user_predictors = user_predictors or {}  # 既に学習済みのpredictor辞書
+        # 重要: user_predictors が空の辞書 {} でも参照を保持する
+        self.user_predictors = user_predictors if user_predictors is not None else {}
         self.explainer = ActivityCounterfactualExplainer()
         self.feedback_generator = LLMFeedbackGenerator()
         self.sheets_connector = SheetsConnector()
@@ -57,9 +58,14 @@ class FeedbackScheduler:
         """
         ユーザーのpredictorを取得（既に学習済みのものを使用）
         """
+        logger.warning(f"🔍 user_predictors辞書の状態: keys={list(self.user_predictors.keys())}, id={id(self.user_predictors)}")
+
         if user_id not in self.user_predictors:
             logger.warning(f"⚠️ ユーザー {user_id} のpredictorが見つかりません。新規作成します。")
             self.user_predictors[user_id] = FrustrationPredictor()
+        else:
+            logger.warning(f"✅ ユーザー {user_id} のpredictorが見つかりました（学習済み）")
+
         return self.user_predictors[user_id]
         
     def start_scheduler(self):

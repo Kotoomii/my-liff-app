@@ -91,6 +91,7 @@ user_predictors = {}  # {user_id: FrustrationPredictor}
 
 # schedulerにuser_predictorsを渡す（data_monitor_loopで学習済みのモデルを共有）
 scheduler = FeedbackScheduler(user_predictors=user_predictors)
+logger.warning(f"🔧 main.py: user_predictors辞書のID={id(user_predictors)}")
 
 # アプリケーション初期化フラグ
 _app_initialized = False
@@ -100,8 +101,9 @@ def get_predictor(user_id: str) -> FrustrationPredictor:
     ユーザーごとのpredictorを取得（存在しない場合は作成）
     """
     if user_id not in user_predictors:
-        logger.info(f"新しいpredictorを作成: user_id={user_id}")
+        logger.warning(f"🆕 新しいpredictorを作成: user_id={user_id}, 辞書ID={id(user_predictors)}")
         user_predictors[user_id] = FrustrationPredictor()
+        logger.warning(f"✅ predictor作成完了: keys={list(user_predictors.keys())}")
     return user_predictors[user_id]
 
 def ensure_model_trained(user_id: str, force_retrain: bool = False) -> dict:
