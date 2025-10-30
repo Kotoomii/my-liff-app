@@ -564,66 +564,77 @@ def generate_daily_dice_schedule():
 @app.route('/api/frustration/dice-analysis', methods=['POST'])
 def generate_dice_analysis():
     """
-    過去24時間の行動に対するDiCE分析API
+    Hourly LogからDiCE提案を取得するAPI（DiCE実行はしない）
+    スケジューラーが22:30に実行したDiCE結果を読み取るだけ
     """
     try:
         data = request.get_json()
         user_id = data.get('user_id', 'default')
-        target_timestamp = data.get('timestamp')
-        lookback_hours = data.get('lookback_hours', 24)
+        date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
 
-        if target_timestamp:
-            target_timestamp = datetime.fromisoformat(target_timestamp)
+        logger.warning(f"📊 DiCE分析取得: user_id={user_id}, date={date}")
 
-        # ユーザーごとのpredictorを取得
-        predictor = get_predictor(user_id)
+        # Hourly LogからDiCE提案を取得
+        hourly_log = sheets_connector.get_hourly_log(user_id, date)
 
-        # データ取得
-        activity_data = sheets_connector.get_activity_data(user_id)
-        fitbit_data = sheets_connector.get_fitbit_data(user_id)
-
-        if activity_data.empty:
+        if hourly_log.empty:
             return jsonify({
-                'status': 'error',
-                'message': '活動データが見つかりません'
-            }), 400
-
-        # データ前処理
-        activity_processed = predictor.preprocess_activity_data(activity_data)
-        if activity_processed.empty:
-            return jsonify({
-                'status': 'error',
-                'message': 'データの前処理に失敗しました'
-            }), 400
-
-        # Fitbitデータとの統合
-        df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
-
-        # モデルが訓練されていることを確認（DiCE実行前に必須）
-        training_result = ensure_model_trained(user_id)
-        if training_result.get('status') not in ['success', 'already_trained']:
-            return jsonify({
-                'status': 'error',
-                'message': f"モデルの訓練に失敗しました: {training_result.get('message')}",
+                'status': 'success',
                 'user_id': user_id,
-                'training_result': training_result
-            }), 400
+                'dice_analysis': {
+                    'type': 'no_data',
+                    'timeline': [],
+                    'summary': 'まだDiCE提案が生成されていません。22:30以降に確認してください。'
+                },
+                'timestamp': datetime.now().isoformat()
+            })
 
-        # DiCE分析実行
-        dice_result = explainer.generate_activity_based_explanation(
-            df_enhanced, predictor, target_timestamp, lookback_hours
-        )
-        
+        # DiCE提案があるデータのみ抽出
+        dice_suggestions = []
+        for idx, row in hourly_log.iterrows():
+            dice_suggestion = row.get('DiCE提案活動名')
+            if pd.notna(dice_suggestion) and dice_suggestion != '':
+                time_str = row.get('時刻')
+                activity = row.get('活動名')
+                predicted_f = row.get('予測NASA_F')
+                improvement = row.get('改善幅')
+                improved_f = row.get('改善後F値')
+
+                dice_suggestions.append({
+                    'time': time_str,
+                    'original_activity': activity,
+                    'original_frustration': float(predicted_f) if pd.notna(predicted_f) else None,
+                    'suggested_activity': dice_suggestion,
+                    'improvement': float(improvement) if pd.notna(improvement) else None,
+                    'improved_frustration': float(improved_f) if pd.notna(improved_f) else None
+                })
+
+        # DiCE分析結果を構築
+        if len(dice_suggestions) > 0:
+            dice_result = {
+                'type': 'dice_analysis',
+                'timeline': dice_suggestions,
+                'summary': f'{len(dice_suggestions)}件の改善提案があります。',
+                'total_improvement': sum([s.get('improvement', 0) or 0 for s in dice_suggestions])
+            }
+        else:
+            dice_result = {
+                'type': 'no_suggestions',
+                'timeline': [],
+                'summary': 'DiCE提案はまだ生成されていません。22:30以降に確認してください。'
+            }
+
+        logger.warning(f"✅ DiCE提案取得完了: {len(dice_suggestions)}件")
+
         return jsonify({
             'status': 'success',
             'user_id': user_id,
             'dice_analysis': dice_result,
-            'lookback_hours': lookback_hours,
             'timestamp': datetime.now().isoformat()
         })
-        
+
     except Exception as e:
-        logger.error(f"DiCE分析エラー: {e}")
+        logger.error(f"DiCE分析取得エラー: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -697,13 +708,6 @@ def get_frustration_timeline():
         
         # Hourly Logから予測済みデータを取得（F値、DiCE提案を含む）
         hourly_log = sheets_connector.get_hourly_log(user_id, date)
-        logger.warning(f"📋 Hourly Log取得: {len(hourly_log)}件")
-
-        # デバッグ: Hourly Logの内容を表示
-        if not hourly_log.empty:
-            logger.warning(f"📊 Hourly Log列: {list(hourly_log.columns)}")
-            for idx, log_row in hourly_log.iterrows():
-                logger.warning(f"  - 時刻='{log_row.get('時刻')}', 活動名='{log_row.get('活動名')}', 予測F={log_row.get('予測NASA_F')}")
 
         # タイムライン作成（活動データ + Hourly Logマージ）
         timeline = []
@@ -724,15 +728,10 @@ def get_frustration_timeline():
             improved_frustration = None
 
             if not hourly_log.empty:
-                # デバッグ: マージ条件を表示
-                logger.warning(f"🔍 マージ検索: 時刻='{time_str}', 活動名='{activity_name}'")
-
                 cached = hourly_log[
                     (hourly_log['時刻'] == time_str) &
                     (hourly_log['活動名'] == activity_name)
                 ]
-
-                logger.warning(f"  → マッチ結果: {len(cached)}件")
 
                 if not cached.empty:
                     cached_row = cached.iloc[0]
@@ -753,8 +752,6 @@ def get_frustration_timeline():
 
             # F値変換
             frustration_for_timeline = float(predicted_frustration) if predicted_frustration is not None else None
-
-            logger.warning(f"📱 タイムライン追加: {activity_name} @{time_str}, F値={frustration_for_timeline}, DiCE={dice_suggestion}")
 
             # タイムラインに追加（活動名は必ず表示）
             timeline_entry = {
