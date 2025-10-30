@@ -1266,6 +1266,54 @@ class SheetsConnector:
             logger.error(f"Hourly Log DiCE更新エラー: {e}")
             return False
 
+    def update_hourly_log_prediction(self, user_id: str, date: str, time: str, activity: str,
+                                      predicted_frustration: float) -> bool:
+        """
+        Hourly Logの予測値を後から更新（生体データが後から揃った場合）
+
+        Args:
+            user_id: ユーザーID
+            date: 日付 (YYYY-MM-DD)
+            time: 時刻 (HH:MM)
+            activity: 活動名
+            predicted_frustration: 予測されたF値
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return False
+
+            sheet_name = f"{user_id}_Hourly_Log"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if not worksheet:
+                logger.warning(f"Hourly Logシートが見つかりません: {sheet_name}")
+                return False
+
+            # 該当行を探す
+            all_values = worksheet.get_all_values()
+
+            for idx, row in enumerate(all_values[1:], start=2):  # ヘッダーをスキップ
+                if len(row) >= 3 and row[0] == date and row[1] == time and row[2] == activity:
+                    # 実測値を取得してMAEを計算
+                    actual_frustration = float(row[3]) if len(row) > 3 and row[3] else None
+                    mae = abs(actual_frustration - predicted_frustration) if actual_frustration is not None else None
+
+                    # E列(予測NASA_F), F列(誤差MAE)を更新
+                    worksheet.update(f'E{idx}:F{idx}', [[
+                        round(predicted_frustration, 2),
+                        round(mae, 2) if mae is not None else ''
+                    ]])
+                    logger.info(f"Hourly Log予測値更新: {user_id}, {date} {time} {activity}, 予測={predicted_frustration:.2f}, MAE={mae:.2f if mae else 'N/A'}")
+                    return True
+
+            logger.warning(f"Hourly Logに該当行が見つかりません: {date} {time} {activity}")
+            return False
+
+        except Exception as e:
+            logger.error(f"Hourly Log予測値更新エラー: {e}")
+            return False
+
     def save_daily_feedback_summary(self, user_id: str, summary_data: Dict) -> bool:
         """
         日次フィードバックサマリーをスプレッドシートに保存

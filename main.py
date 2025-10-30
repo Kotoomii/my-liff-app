@@ -1984,6 +1984,12 @@ def data_monitor_loop():
                             if not activity or pd.isna(activity) or activity == 'unknown':
                                 continue
 
+                            # 実測値を取得
+                            actual_frustration = row.get('NASA_F')
+
+                            # 生体情報が揃っているかチェック
+                            has_biodata = check_fitbit_data_availability(row)
+
                             # Hourly Logに既に存在するかチェック
                             hourly_log = sheets_connector.get_hourly_log(user_id, date)
                             if not hourly_log.empty:
@@ -1993,13 +1999,27 @@ def data_monitor_loop():
                                 ]
                                 if not existing.empty:
                                     # 既に登録済み
+                                    existing_row = existing.iloc[0]
+                                    existing_predicted = existing_row.get('予測NASA_F')
+
+                                    # 予測値が空白で、かつ生体データがある場合は予測値を更新
+                                    if (pd.isna(existing_predicted) or existing_predicted == '') and has_biodata:
+                                        # 予測実行
+                                        prediction_result = predictor.predict_from_row(row)
+                                        if prediction_result and 'predicted_frustration' in prediction_result:
+                                            predicted_frustration = prediction_result.get('predicted_frustration')
+                                            if predicted_frustration is not None and not (np.isnan(predicted_frustration) or np.isinf(predicted_frustration)):
+                                                predicted_frustration = float(predicted_frustration)
+                                                # 予測値を更新
+                                                sheets_connector.update_hourly_log_prediction(
+                                                    user_id, date, time_str, activity, predicted_frustration
+                                                )
+                                                predictions_count += 1
+                                                logger.warning(f"🔄 予測値更新: {activity} @{time_str}, 実測={actual_frustration}, 予測={predicted_frustration:.2f}")
+                                    # それ以外はスキップ
                                     continue
 
-                            # 実測値を取得
-                            actual_frustration = row.get('NASA_F')
-
-                            # 生体情報が揃っているかチェック
-                            has_biodata = check_fitbit_data_availability(row)
+                            # 新規保存の場合
                             predicted_frustration = None
 
                             if has_biodata:
@@ -2024,9 +2044,9 @@ def data_monitor_loop():
                             predictions_count += 1
 
                             if predicted_frustration:
-                                logger.warning(f"✅ 登録完了: {activity} @{time_str}, 実測={actual_frustration}, 予測={predicted_frustration:.2f}")
+                                logger.warning(f"✅ 新規登録: {activity} @{time_str}, 実測={actual_frustration}, 予測={predicted_frustration:.2f}")
                             else:
-                                logger.warning(f"✅ 登録完了: {activity} @{time_str}, 実測={actual_frustration}, 予測=なし（生体データ不足）")
+                                logger.warning(f"✅ 新規登録: {activity} @{time_str}, 実測={actual_frustration}, 予測=なし（生体データ不足）")
 
                         except Exception as pred_error:
                             logger.error(f"活動処理エラー: {pred_error}")
