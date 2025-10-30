@@ -1089,7 +1089,18 @@ class SheetsConnector:
             worksheet = self._find_worksheet_by_exact_name(sheet_name)
 
             if not worksheet:
-                logger.info(f"Hourly Logシートが存在しません: {sheet_name}")
+                logger.warning(f"Hourly Logシートが存在しないため作成します: {sheet_name}")
+                # シートを作成
+                worksheet = self.spreadsheet.add_worksheet(
+                    title=sheet_name,
+                    rows="10000",
+                    cols="9"
+                )
+                # ヘッダー行を追加
+                headers = ['日付', '時刻', '活動名', '実測NASA_F', '予測NASA_F', '誤差(MAE)', 'DiCE提案活動名', '改善幅', '改善後F値']
+                worksheet.update('A1:I1', [headers])
+                logger.info(f"Hourly Logシートを作成しました: {sheet_name}")
+                # 空のDataFrameを返す（データはまだないため）
                 return pd.DataFrame()
 
             # シートの全データを取得
