@@ -29,8 +29,7 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    morning_time: str = "07:30"  # 毎朝7:30
-    evening_time: str = "21:30"  # 毎夜21:30
+    evening_time: str = "21:30"  # 毎夜21:30（DiCE実行 + フィードバック生成）
     enabled: bool = True
 
 class FeedbackScheduler:
@@ -55,17 +54,13 @@ class FeedbackScheduler:
                 logger.warning("スケジューラーは既に実行中です")
                 return
             
-            # スケジュール設定
-            schedule.every().day.at(self.schedule_config.morning_time).do(
-                self._execute_morning_feedback
-            )
+            # スケジュール設定（夜のフィードバック + DiCE実行のみ）
             schedule.every().day.at(self.schedule_config.evening_time).do(
                 self._execute_evening_feedback
             )
-            
+
             logger.info(f"定期フィードバックスケジューラーを開始しました")
-            logger.info(f"朝のフィードバック: {self.schedule_config.morning_time}")
-            logger.info(f"夜のフィードバック: {self.schedule_config.evening_time}")
+            logger.info(f"夜のフィードバック + DiCE実行: {self.schedule_config.evening_time}")
             
             self.running = True
             
