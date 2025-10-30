@@ -348,22 +348,37 @@ class FeedbackScheduler:
             predictor = self.get_predictor(user_id)
             logger.warning(f"✅ 既に学習済みのpredictorを使用します")
 
-            # 対象日のデータを前処理（DiCE分析対象）
+            # 【重要】DiCEには全期間データを渡す必要がある
+            # DiCEは「このデータセットの中から代替活動を探す」ため、
+            # 対象日のデータだけでは候補が不足する
+            logger.warning(f"📦 DiCE用に全期間データを取得...")
+            all_activity_data = self.sheets_connector.get_activity_data(user_id)
+            all_fitbit_data = self.sheets_connector.get_fitbit_data(user_id)
+
+            all_activity_processed = predictor.preprocess_activity_data(all_activity_data)
+            all_df_enhanced = predictor.aggregate_fitbit_by_activity(all_activity_processed, all_fitbit_data)
+            logger.warning(f"📊 全期間データ: {len(all_df_enhanced)}件")
+
+            # 対象日のデータを前処理（DiCE分析対象の日付を指定するため）
             target_activity_processed = predictor.preprocess_activity_data(target_activity_data)
             if target_activity_processed.empty:
                 logger.warning(f"⚠️ 対象日のデータ前処理後が空です")
                 return self._get_fallback_evening_feedback(user_id)
 
             target_df_enhanced = predictor.aggregate_fitbit_by_activity(target_activity_processed, target_fitbit_data)
-            logger.warning(f"📊 対象日データ前処理完了: 活動={len(target_df_enhanced)}件")
+            logger.warning(f"📊 対象日データ: {len(target_df_enhanced)}件")
 
             # 対象日の行動についてDiCE分析を実行
+            # 全期間データを渡し、その中から対象日のデータに対する改善案を生成
             dice_results = []
-            now = datetime.now()
 
-            logger.warning(f"🎲 DiCE分析を開始します（対象: {target_date}）...")
+            # target_dateは文字列なのでdatetimeオブジェクトに変換
+            from datetime import datetime as dt_class
+            target_datetime = dt_class.strptime(target_date, '%Y-%m-%d')
+
+            logger.warning(f"🎲 DiCE分析を開始します（全期間: {len(all_df_enhanced)}件, 対象日: {target_date}）...")
             dice_explanation = self.explainer.generate_activity_based_explanation(
-                target_df_enhanced, predictor, now
+                all_df_enhanced, predictor, target_datetime
             )
             logger.warning(f"🎲 DiCE分析完了: type={dice_explanation.get('type')}")
 
