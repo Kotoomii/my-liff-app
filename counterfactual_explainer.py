@@ -73,6 +73,7 @@ class ActivityCounterfactualExplainer:
                     'type': 'daily_dice_analysis',
                     'date': target_date.strftime('%Y-%m-%d'),
                     'timeline': timeline,
+                    'hourly_schedule': timeline,  # schedulerとの互換性のため追加
                     'total_improvement': daily_result['total_improvement'],
                     'average_improvement': daily_result.get('average_improvement', 0),
                     'schedule_items': len(timeline),
@@ -580,6 +581,7 @@ class ActivityCounterfactualExplainer:
                         if result:
                             hourly_schedule.append({
                                 'hour': hour,
+                                'time': f"{hour:02d}:00",  # schedulerとの互換性のため追加
                                 'time_range': f"{hour:02d}:00-{hour+1:02d}:00",
                                 'original_activity': result['original_activity'],
                                 'suggested_activity': result['suggested_activity'],

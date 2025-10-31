@@ -405,7 +405,8 @@ class FeedbackScheduler:
                         original_activity = suggestion.get('original_activity', '')
                         suggested_activity = suggestion.get('suggested_activity', '')
                         original_f = suggestion.get('original_frustration')
-                        improved_f = suggestion.get('improved_frustration')
+                        # improved_frustration または predicted_frustration のどちらかを取得
+                        improved_f = suggestion.get('improved_frustration') or suggestion.get('predicted_frustration')
 
                         # 改善幅を計算（負の値が改善）
                         improvement = improved_f - original_f if (original_f and improved_f) else None
