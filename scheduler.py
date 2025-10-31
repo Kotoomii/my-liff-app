@@ -407,7 +407,8 @@ class FeedbackScheduler:
 
                 for suggestion in hourly_schedule:
                     try:
-                        date = today_data['date']
+                        # 【重要】対象日のデータに保存するため target_date を使用
+                        date = target_date  # today_data['date'] ではなく target_date
                         time = suggestion.get('time', '')  # HH:MM形式
                         original_activity = suggestion.get('original_activity', '')
                         suggested_activity = suggestion.get('suggested_activity', '')
@@ -418,7 +419,7 @@ class FeedbackScheduler:
                         # 改善幅を計算（負の値が改善）
                         improvement = improved_f - original_f if (original_f and improved_f) else None
 
-                        logger.warning(f"  💡 {time} {original_activity} → {suggested_activity} (改善: {improvement:.2f})")
+                        logger.warning(f"  💡 {date} {time} {original_activity} → {suggested_activity} (改善: {improvement:.2f})")
 
                         # Hourly Logを更新
                         self.sheets_connector.update_hourly_log_with_dice(

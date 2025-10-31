@@ -1248,7 +1248,14 @@ class SheetsConnector:
             # 該当行を探す
             all_values = worksheet.get_all_values()
 
+            logger.warning(f"🔍 Hourly Log検索: date={date}, time={time}, activity={activity}")
+            matching_date_rows = []
+
             for idx, row in enumerate(all_values[1:], start=2):  # ヘッダーをスキップ
+                # デバッグ: 日付が一致する行を記録
+                if len(row) >= 3 and row[0] == date:
+                    matching_date_rows.append((idx, row[0], row[1], row[2]))
+
                 if len(row) >= 3 and row[0] == date and row[1] == time and row[2] == activity:
                     # G列(DiCE提案活動名), H列(改善幅), I列(改善後F値)を更新
                     worksheet.update(f'G{idx}:I{idx}', [[
@@ -1259,7 +1266,15 @@ class SheetsConnector:
                     logger.info(f"Hourly Log更新: {user_id}, {date} {time} {activity} → {dice_suggestion} (改善: {improvement:.2f})")
                     return True
 
-            logger.warning(f"Hourly Logに該当行が見つかりません: {date} {time} {activity}")
+            # 該当行が見つからなかった場合、デバッグ情報を出力
+            logger.error(f"❌ Hourly Logに該当行が見つかりません: {date} {time} {activity}")
+            logger.error(f"   検索条件: date='{date}', time='{time}', activity='{activity}'")
+            if matching_date_rows:
+                logger.error(f"   日付が一致する行: {len(matching_date_rows)}件")
+                for idx, d, t, a in matching_date_rows[:5]:  # 最初の5件を表示
+                    logger.error(f"     行{idx}: date='{d}', time='{t}', activity='{a}'")
+            else:
+                logger.error(f"   日付が一致する行が1件も見つかりません")
             return False
 
         except Exception as e:
