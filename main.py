@@ -605,12 +605,23 @@ def generate_dice_analysis():
                 improvement = row.get('改善幅')
                 improved_f = row.get('改善後F値')
 
+                # タイムスタンプを作成（フロントエンドがDate型として扱えるように）
+                timestamp_str = f"{date} {time_str}:00" if time_str else f"{date} 00:00:00"
+
+                # 改善幅を数値化
+                improvement_value = float(improvement) if pd.notna(improvement) else 0
+
                 dice_suggestions.append({
+                    # フロントエンド用フィールド（tablet_mirror.html）
+                    'timestamp': timestamp_str,
+                    'frustration_reduction': improvement_value,
+                    # バックエンド互換性用フィールド（既存コード用）
                     'time': time_str,
+                    'improvement': improvement_value,
+                    # 共通フィールド
                     'original_activity': activity,
                     'original_frustration': float(predicted_f) if pd.notna(predicted_f) else None,
                     'suggested_activity': dice_suggestion,
-                    'improvement': float(improvement) if pd.notna(improvement) else None,
                     'improved_frustration': float(improved_f) if pd.notna(improved_f) else None
                 })
 
