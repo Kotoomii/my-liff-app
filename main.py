@@ -121,11 +121,15 @@ def ensure_model_trained(user_id: str, force_retrain: bool = False) -> dict:
     predictor = get_predictor(user_id)
 
     # モデルが訓練済みで強制再訓練でない場合はスキップ
+    logger.warning(f"🔍 ensure_model_trained: user_id={user_id}, predictor.model is None={predictor.model is None}, force_retrain={force_retrain}")
     if predictor.model is not None and not force_retrain:
+        logger.warning(f"✅ モデルは既に訓練済みです: user_id={user_id}")
         return {
             'status': 'already_trained',
             'message': 'モデルは既に訓練済みです'
         }
+
+    logger.warning(f"🎓 モデル訓練を開始します: user_id={user_id}")
 
     # データ取得
     activity_data = sheets_connector.get_activity_data(user_id)
@@ -170,7 +174,8 @@ def ensure_model_trained(user_id: str, force_retrain: bool = False) -> dict:
 
         # モデルが正常に初期化されたか最終確認
         if predictor.model is None:
-            logger.error(f"モデル訓練後もmodelがNoneです: user_id={user_id}")
+            logger.error(f"❌ モデル訓練後もmodelがNoneです: user_id={user_id}")
+            logger.error(f"   training_results: {training_results}")
             return {
                 'status': 'error',
                 'message': 'モデルの初期化に失敗しました',
@@ -178,9 +183,10 @@ def ensure_model_trained(user_id: str, force_retrain: bool = False) -> dict:
                 'data_quality': data_quality
             }
 
-        logger.info(f"モデル訓練完了: user_id={user_id}, "
+        logger.warning(f"✅✅✅ モデル訓練完了: user_id={user_id}, "
                    f"RMSE={training_results.get('walk_forward_rmse', 0):.4f}, "
-                   f"R²={training_results.get('walk_forward_r2', 0):.3f}")
+                   f"R²={training_results.get('walk_forward_r2', 0):.3f}, "
+                   f"model_type={type(predictor.model).__name__}")
         return {
             'status': 'success',
             'message': 'モデル訓練完了',

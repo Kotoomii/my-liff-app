@@ -346,7 +346,16 @@ class FeedbackScheduler:
 
             # 既に学習済みのpredictorを取得（data_monitor_loopで学習済み）
             predictor = self.get_predictor(user_id)
-            logger.warning(f"✅ 既に学習済みのpredictorを使用します")
+
+            # 🔍 デバッグ: predictorとmodelの状態を詳細に確認
+            logger.warning(f"🔍 predictor is None: {predictor is None}")
+            logger.warning(f"🔍 predictor.model is None: {predictor.model is None if predictor else 'N/A'}")
+            if predictor and predictor.model is not None:
+                logger.warning(f"✅ 既に学習済みのpredictorを使用します（model type: {type(predictor.model).__name__}）")
+            else:
+                logger.error(f"❌ predictor.model が None です！モデルが学習されていません。")
+                logger.error(f"   data_monitor_loopでモデル学習が実行されていない可能性があります。")
+                return self._get_fallback_evening_feedback(user_id)
 
             # 【重要】DiCEには全期間データを渡す必要がある
             # DiCEは「このデータセットの中から代替活動を探す」ため、
