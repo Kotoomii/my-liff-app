@@ -33,8 +33,8 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    evening_time: str = "10:35"  # 10:35 UTC（日本時間19:35 JST）で前日データのDiCE実行（一時的）
-                                 # 19:30のdata_monitor_loop実行後、5分のバッファを確保（15分間隔で干渉を回避）
+    evening_time: str = "13:20"  # 13:20 UTC（日本時間22:20 JST）で当日データのDiCE実行
+                                 # 22:15のdata_monitor_loop実行後、5分のバッファを確保（15分間隔で干渉を回避）
     enabled: bool = True
 
 class FeedbackScheduler:
@@ -157,9 +157,9 @@ class FeedbackScheduler:
         try:
             logger.warning(f"🌙 夜のフィードバック生成を開始します（システム時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}）")
 
-            # 【一時的】昨日（10/30）のデータを取得・分析
-            yesterday_data = self._get_yesterday_data()
-            logger.warning(f"📊 昨日のデータ取得完了: {yesterday_data.get('date')}（一時的に前日データを使用）")
+            # 今日のデータを取得・分析
+            today_data = self._get_today_data()
+            logger.warning(f"📊 今日のデータ取得完了: {today_data.get('date')}")
 
             # 全ユーザーに対してフィードバックを生成
             users = self._get_active_users()
@@ -167,7 +167,7 @@ class FeedbackScheduler:
 
             for user_id in users:
                 logger.warning(f"🔄 ユーザー {user_id} の処理を開始...")
-                evening_feedback = self._generate_user_evening_feedback(user_id, yesterday_data)
+                evening_feedback = self._generate_user_evening_feedback(user_id, today_data)
 
                 if evening_feedback:
                     # フィードバックを保存・配信
@@ -183,53 +183,14 @@ class FeedbackScheduler:
             import traceback
             logger.error(traceback.format_exc())
     
-    def _get_yesterday_data(self) -> Dict:
-        """
-        昨日のデータを取得（JST基準）
-        """
-        try:
-            yesterday = datetime.now(JST) - timedelta(days=1)
-            yesterday_str = yesterday.strftime('%Y-%m-%d')
-            logger.warning(f"🗓️ 昨日の日付を計算: {yesterday_str}（JST基準: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}）")
-            
-            # 活動データとFitbitデータを取得
-            activity_data = self.sheets_connector.get_activity_data()
-            fitbit_data = self.sheets_connector.get_fitbit_data()
-            
-            # 昨日のデータにフィルタリング
-            if not activity_data.empty and 'Timestamp' in activity_data.columns:
-                activity_data['date'] = pd.to_datetime(activity_data['Timestamp']).dt.date
-                yesterday_activity = activity_data[activity_data['date'] == yesterday.date()]
-            else:
-                yesterday_activity = pd.DataFrame()
-            
-            if not fitbit_data.empty and 'Timestamp' in fitbit_data.columns:
-                fitbit_data['date'] = pd.to_datetime(fitbit_data['Timestamp']).dt.date
-                yesterday_fitbit = fitbit_data[fitbit_data['date'] == yesterday.date()]
-            else:
-                yesterday_fitbit = pd.DataFrame()
-            
-            return {
-                'date': yesterday_str,
-                'activity_data': yesterday_activity,
-                'fitbit_data': yesterday_fitbit
-            }
-            
-        except Exception as e:
-            logger.error(f"昨日のデータ取得エラー: {e}")
-            return {
-                'date': (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'),
-                'activity_data': pd.DataFrame(),
-                'fitbit_data': pd.DataFrame()
-            }
-    
     def _get_today_data(self) -> Dict:
         """
-        今日のデータを取得
+        今日のデータを取得（JST基準）
         """
         try:
-            today = datetime.now()
+            today = datetime.now(JST)
             today_str = today.strftime('%Y-%m-%d')
+            logger.warning(f"🗓️ 今日の日付: {today_str}（JST基準: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}）")
             
             # 活動データとFitbitデータを取得
             activity_data = self.sheets_connector.get_activity_data()
@@ -241,27 +202,27 @@ class FeedbackScheduler:
                 today_activity = activity_data[activity_data['date'] == today.date()]
             else:
                 today_activity = pd.DataFrame()
-            
+
             if not fitbit_data.empty and 'Timestamp' in fitbit_data.columns:
                 fitbit_data['date'] = pd.to_datetime(fitbit_data['Timestamp']).dt.date
                 today_fitbit = fitbit_data[fitbit_data['date'] == today.date()]
             else:
                 today_fitbit = pd.DataFrame()
-            
+
             return {
                 'date': today_str,
                 'activity_data': today_activity,
                 'fitbit_data': today_fitbit
             }
-            
+
         except Exception as e:
             logger.error(f"今日のデータ取得エラー: {e}")
             return {
-                'date': datetime.now().strftime('%Y-%m-%d'),
+                'date': datetime.now(JST).strftime('%Y-%m-%d'),
                 'activity_data': pd.DataFrame(),
                 'fitbit_data': pd.DataFrame()
             }
-    
+
     def _get_active_users(self) -> List[str]:
         """
         アクティブなユーザー一覧を取得
