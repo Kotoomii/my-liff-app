@@ -33,8 +33,8 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    evening_time: str = "13:20"  # 13:20 UTC（日本時間22:20 JST）で当日データのDiCE実行
-                                 # 22:15のdata_monitor_loop実行後、5分のバッファを確保（15分間隔で干渉を回避）
+    evening_time: str = "13:50"  # 13:50 UTC（日本時間22:50 JST）で当日データのDiCE実行
+                                 # 22:45のdata_monitor_loop実行後、5分のバッファを確保（15分間隔で干渉を回避）
     enabled: bool = True
 
 class FeedbackScheduler:
