@@ -390,13 +390,20 @@ class FeedbackScheduler:
                 all_df_enhanced, predictor, target_datetime
             )
             logger.warning(f"🎲 DiCE分析完了: type={dice_explanation.get('type')}")
+            logger.warning(f"🔍 DiCE結果の詳細: keys={list(dice_explanation.keys())}")
 
-            if dice_explanation.get('type') != 'fallback':
+            # DiCE結果のタイプを厳密にチェック
+            if dice_explanation.get('type') == 'daily_dice_analysis':
                 dice_results.append(dice_explanation)
 
                 # DiCE結果をHourly Logに更新
                 hourly_schedule = dice_explanation.get('hourly_schedule', [])
                 logger.warning(f"📝 DiCE結果をHourly Logに更新: {len(hourly_schedule)}件")
+
+                if len(hourly_schedule) == 0:
+                    logger.error(f"❌ hourly_scheduleが空です！")
+                    logger.error(f"   dice_explanation['timeline']の長さ: {len(dice_explanation.get('timeline', []))}")
+                    logger.error(f"   dice_explanation['total_improvement']: {dice_explanation.get('total_improvement')}")
 
                 for suggestion in hourly_schedule:
                     try:
@@ -429,7 +436,9 @@ class FeedbackScheduler:
 
                 logger.warning(f"✅ Hourly Log DiCE更新完了")
             else:
-                logger.warning(f"⚠️ DiCE分析がfallbackタイプのため、Hourly Logに保存しません")
+                logger.error(f"❌ DiCE分析が失敗しました（type={dice_explanation.get('type')}）")
+                logger.error(f"   エラーメッセージ: {dice_explanation.get('error_message', 'なし')}")
+                logger.error(f"   Hourly Logに保存しません")
 
             # Hourly Logから今日のデータを再取得してフィードバック生成
             logger.warning(f"💬 LLMフィードバックを生成中...")

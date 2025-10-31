@@ -546,12 +546,19 @@ class ActivityCounterfactualExplainer:
                 return self._get_error_hourly_schedule("活動データが空です")
 
             # 指定日のデータを抽出
+            logger.warning(f"🔍 対象日 {target_date} のデータを抽出中...")
+            logger.warning(f"🔍 全活動データのタイムスタンプ範囲: {activities_data['Timestamp'].min()} - {activities_data['Timestamp'].max()}")
+
             day_data = activities_data[
                 activities_data['Timestamp'].dt.date == target_date
             ].copy()
 
+            logger.warning(f"🔍 抽出結果: {len(day_data)}件のデータが見つかりました")
+
             if day_data.empty:
-                logger.info(f"時間別DiCE提案: {target_date}のデータが見つかりません")
+                logger.error(f"❌ 時間別DiCE提案: {target_date}のデータが見つかりません")
+                logger.error(f"   activities_data全体の件数: {len(activities_data)}")
+                logger.error(f"   Timestampカラムの型: {activities_data['Timestamp'].dtype}")
                 return self._get_error_hourly_schedule(f"{target_date}のデータが見つかりません")
 
             # 時間別の改善提案を生成
@@ -591,9 +598,16 @@ class ActivityCounterfactualExplainer:
                                 'confidence': result['confidence']
                             })
                             total_improvement += result['improvement']
+                            logger.info(f"  ✅ {hour}時台: {result['original_activity']} → {result['suggested_activity']} (改善: {result['improvement']:.2f})")
+                        else:
+                            logger.debug(f"  ⚠️ {hour}時台: DiCE提案なし")
+
+            logger.warning(f"🔍 hourly_schedule生成完了: {len(hourly_schedule)}件, total_improvement={total_improvement:.2f}")
 
             if total_improvement == 0:
-                logger.warning("時間別DiCE提案: 改善提案を生成できませんでした")
+                logger.error(f"❌ 時間別DiCE提案: 改善提案を生成できませんでした")
+                logger.error(f"   対象日のデータ件数: {len(day_data)}")
+                logger.error(f"   hourly_scheduleの長さ: {len(hourly_schedule)}")
                 return self._get_error_hourly_schedule("改善提案を生成できませんでした")
 
             return {
