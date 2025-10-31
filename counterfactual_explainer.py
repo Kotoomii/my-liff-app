@@ -97,6 +97,7 @@ class ActivityCounterfactualExplainer:
         DiCEを使用して反実仮想例を生成 (webhooktest.py形式のシンプルな実装)
         """
         try:
+            logger.warning(f"🎲 DiCE個別処理開始: activity_idx={activity_idx}")
             # ===== デバッグ開始: 値の出所を追跡 =====
             logger.info(f"DiCE: activity_idx = {activity_idx}")
             logger.info(f"DiCE: 対象行のインデックス = {df_enhanced.index[activity_idx]}")
@@ -509,7 +510,7 @@ class ActivityCounterfactualExplainer:
                     }
 
             if best_result:
-                logger.info(f"DiCE成功: {best_result['original_activity']} → {best_result['suggested_activity']} (改善: {best_improvement:.2f}点)")
+                logger.warning(f"✅ DiCE個別処理成功: {best_result['original_activity']} → {best_result['suggested_activity']} (改善: {best_improvement:.2f}点)")
                 return best_result
             else:
                 # より詳細なデバッグ情報を追加
@@ -529,7 +530,8 @@ class ActivityCounterfactualExplainer:
                 return None
 
         except Exception as e:
-            logger.error(f"DiCE反実仮想例生成エラー: {e}", exc_info=True)
+            logger.error(f"❌ DiCE個別処理エラー: {e}", exc_info=True)
+            logger.warning(f"❌ DiCE個別処理でエラーが発生: {str(e)[:200]}")
             return None
 
     def generate_hourly_alternatives(self, activities_data: pd.DataFrame,
@@ -565,6 +567,9 @@ class ActivityCounterfactualExplainer:
             hourly_schedule = []
             total_improvement = 0
 
+            logger.warning(f"🔄 24時間分のDiCE提案を生成開始（対象日に活動がある時間帯のみ処理）")
+            activities_processed = 0
+
             for hour in range(24):
                 hour_start = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=hour)
                 hour_end = hour_start + timedelta(hours=1)
@@ -576,14 +581,19 @@ class ActivityCounterfactualExplainer:
                 ]
 
                 if not hour_activities.empty:
+                    logger.warning(f"  🔍 {hour}時台: 活動あり、DiCE処理開始...")
+                    activities_processed += 1
                     original_activity = hour_activities.iloc[0]
                     idx = activities_data.index[activities_data['Timestamp'] == original_activity['Timestamp']]
 
                     if len(idx) > 0:
                         # DiCEを使った代替活動の提案
+                        import time
+                        start_time = time.time()
                         result = self._generate_dice_counterfactual_simple(
                             activities_data, idx[0], original_activity, predictor
                         )
+                        elapsed = time.time() - start_time
 
                         if result:
                             hourly_schedule.append({
@@ -598,9 +608,9 @@ class ActivityCounterfactualExplainer:
                                 'confidence': result['confidence']
                             })
                             total_improvement += result['improvement']
-                            logger.info(f"  ✅ {hour}時台: {result['original_activity']} → {result['suggested_activity']} (改善: {result['improvement']:.2f})")
+                            logger.warning(f"  ✅ {hour}時台: {result['original_activity']} → {result['suggested_activity']} (改善: {result['improvement']:.2f}, 処理時間: {elapsed:.1f}秒)")
                         else:
-                            logger.debug(f"  ⚠️ {hour}時台: DiCE提案なし")
+                            logger.warning(f"  ⚠️ {hour}時台: DiCE提案なし（処理時間: {elapsed:.1f}秒）")
 
             logger.warning(f"🔍 hourly_schedule生成完了: {len(hourly_schedule)}件, total_improvement={total_improvement:.2f}")
 
