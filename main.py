@@ -1778,8 +1778,17 @@ def data_monitor_loop():
 
                     logger.warning(f"🔍 予測チェック開始: {user_name}, 対象活動={len(df_enhanced)}件")
 
-                    # 全活動をチェックして、Hourly Log未登録の活動のみ予測
-                    predictions_count = 0
+                    # 【重要】全期間のHourly Logを一度に取得（効率化と重複防止）
+                    all_dates = df_enhanced['Timestamp'].dt.strftime('%Y-%m-%d').unique()
+                    hourly_log_cache = {}
+                    for date in all_dates:
+                        hourly_log_cache[date] = sheets_connector.get_hourly_log(user_id, date)
+
+                    logger.warning(f"📋 Hourly Log取得完了: {len(hourly_log_cache)}日分")
+
+                    # 新規活動のみを抽出
+                    new_activities = []
+                    update_predictions = []
 
                     for idx, row in df_enhanced.iterrows():
                         try:
@@ -1798,41 +1807,77 @@ def data_monitor_loop():
                             # 生体情報が揃っているかチェック
                             has_biodata = check_fitbit_data_availability(row)
 
-                            # Hourly Logに既に存在するかチェック
-                            hourly_log = sheets_connector.get_hourly_log(user_id, date)
+                            # Hourly Logに既に存在するかチェック（キャッシュから）
+                            hourly_log = hourly_log_cache.get(date, pd.DataFrame())
+                            is_existing = False
+                            existing_predicted = None
+
                             if not hourly_log.empty:
                                 existing = hourly_log[
                                     (hourly_log['時刻'] == time_str) &
                                     (hourly_log['活動名'] == activity)
                                 ]
                                 if not existing.empty:
-                                    # 既に登録済み
+                                    is_existing = True
                                     existing_row = existing.iloc[0]
                                     existing_predicted = existing_row.get('予測NASA_F')
 
-                                    # 予測値が空白で、かつ生体データがある場合は予測値を更新
-                                    if (pd.isna(existing_predicted) or existing_predicted == '') and has_biodata:
-                                        # 予測実行
-                                        prediction_result = predictor.predict_from_row(row)
-                                        if prediction_result and 'predicted_frustration' in prediction_result:
-                                            predicted_frustration = prediction_result.get('predicted_frustration')
-                                            if predicted_frustration is not None and not (np.isnan(predicted_frustration) or np.isinf(predicted_frustration)):
-                                                predicted_frustration = float(predicted_frustration)
-                                                # 予測値を更新
-                                                sheets_connector.update_hourly_log_prediction(
-                                                    user_id, date, time_str, activity, predicted_frustration
-                                                )
-                                                predictions_count += 1
-                                                logger.warning(f"🔄 予測値更新: {activity} @{time_str}, 実測={actual_frustration}, 予測={predicted_frustration:.2f}")
-                                    # それ以外はスキップ
-                                    continue
+                            if is_existing:
+                                # 予測値が空白で、かつ生体データがある場合は予測値を更新対象に追加
+                                if (pd.isna(existing_predicted) or existing_predicted == '') and has_biodata:
+                                    update_predictions.append({
+                                        'row': row,
+                                        'date': date,
+                                        'time': time_str,
+                                        'activity': activity,
+                                        'actual_frustration': actual_frustration
+                                    })
+                                # それ以外はスキップ（既に登録済み）
+                                continue
 
-                            # 新規保存の場合
+                            # 新規活動として追加
+                            new_activities.append({
+                                'row': row,
+                                'date': date,
+                                'time': time_str,
+                                'activity': activity,
+                                'actual_frustration': actual_frustration,
+                                'has_biodata': has_biodata
+                            })
+
+                        except Exception as parse_error:
+                            logger.error(f"活動データ解析エラー: {parse_error}")
+                            continue
+
+                    logger.warning(f"📊 新規活動: {len(new_activities)}件, 予測値更新: {len(update_predictions)}件")
+
+                    # 予測値更新処理
+                    predictions_count = 0
+                    for item in update_predictions:
+                        try:
+                            prediction_result = predictor.predict_from_row(item['row'])
+                            if prediction_result and 'predicted_frustration' in prediction_result:
+                                predicted_frustration = prediction_result.get('predicted_frustration')
+                                if predicted_frustration is not None and not (np.isnan(predicted_frustration) or np.isinf(predicted_frustration)):
+                                    predicted_frustration = float(predicted_frustration)
+                                    # 予測値を更新
+                                    sheets_connector.update_hourly_log_prediction(
+                                        user_id, item['date'], item['time'], item['activity'], predicted_frustration
+                                    )
+                                    predictions_count += 1
+                                    logger.warning(f"🔄 予測値更新: {item['activity']} @{item['time']}, 実測={item['actual_frustration']}, 予測={predicted_frustration:.2f}")
+                        except Exception as update_error:
+                            logger.error(f"予測値更新エラー: {update_error}")
+                            continue
+
+                    # 新規活動保存処理
+                    for item in new_activities:
+                        try:
                             predicted_frustration = None
 
-                            if has_biodata:
+                            if item['has_biodata']:
                                 # 予測実行
-                                prediction_result = predictor.predict_from_row(row)
+                                prediction_result = predictor.predict_from_row(item['row'])
                                 if prediction_result and 'predicted_frustration' in prediction_result:
                                     predicted_frustration = prediction_result.get('predicted_frustration')
                                     if predicted_frustration is not None and not (np.isnan(predicted_frustration) or np.isinf(predicted_frustration)):
@@ -1842,22 +1887,22 @@ def data_monitor_loop():
 
                             # Hourly Logに保存（予測値なしでも保存）
                             hourly_data = {
-                                'date': date,
-                                'time': time_str,
-                                'activity': activity,
-                                'actual_frustration': actual_frustration,
+                                'date': item['date'],
+                                'time': item['time'],
+                                'activity': item['activity'],
+                                'actual_frustration': item['actual_frustration'],
                                 'predicted_frustration': predicted_frustration
                             }
                             sheets_connector.save_hourly_log(user_id, hourly_data)
                             predictions_count += 1
 
                             if predicted_frustration:
-                                logger.warning(f"✅ 新規登録: {activity} @{time_str}, 実測={actual_frustration}, 予測={predicted_frustration:.2f}")
+                                logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 実測={item['actual_frustration']}, 予測={predicted_frustration:.2f}")
                             else:
-                                logger.warning(f"✅ 新規登録: {activity} @{time_str}, 実測={actual_frustration}, 予測=なし（生体データ不足）")
+                                logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 実測={item['actual_frustration']}, 予測=なし（生体データ不足）")
 
-                        except Exception as pred_error:
-                            logger.error(f"活動処理エラー: {pred_error}")
+                        except Exception as save_error:
+                            logger.error(f"新規登録エラー: {save_error}")
                             continue
 
                     logger.warning(f"🎯 処理完了: {user_name}, {predictions_count}件をHourly Logに登録")
