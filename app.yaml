@@ -5,7 +5,7 @@ env_variables:
   # OpenAI API key for LLM feedback (optional)
   OPENAI_API_KEY: "your-openai-api-key-here"
   # Spreadsheet ID
-  SPREADSHEET_ID: "your-spreadsheet-id-here"
+  SPREADSHEET_ID: "15Mv9-N1RFKLmDd2vqYBLwKR-aPWA3Mgw9dAHHOWilLs"
   FLASK_ENV: "production"
 
 automatic_scaling:
