@@ -57,6 +57,7 @@ class ActivityCounterfactualExplainer:
                     timestamp = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=hour)
                     timeline.append({
                         'hour': hour,
+                        'time': item.get('time'),  # 実際のTimestamp (例: "14:30")
                         'timestamp': timestamp.isoformat(),
                         'original_timestamp': timestamp.isoformat(),
                         'time_range': item['time_range'],
@@ -596,9 +597,11 @@ class ActivityCounterfactualExplainer:
                         elapsed = time.time() - start_time
 
                         if result:
+                            # 【重要】実際のTimestampから時刻を取得（Hourly Logとの一致のため）
+                            actual_time = original_activity['Timestamp'].strftime('%H:%M')
                             hourly_schedule.append({
                                 'hour': hour,
-                                'time': f"{hour:02d}:00",  # schedulerとの互換性のため追加
+                                'time': actual_time,  # 実際のTimestamp (例: "14:30")
                                 'time_range': f"{hour:02d}:00-{hour+1:02d}:00",
                                 'original_activity': result['original_activity'],
                                 'suggested_activity': result['suggested_activity'],
