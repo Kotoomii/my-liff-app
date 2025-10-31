@@ -24,7 +24,8 @@ class ActivityCounterfactualExplainer:
                                           df_enhanced: pd.DataFrame,
                                           predictor,
                                           target_timestamp: datetime = None,
-                                          lookback_hours: int = 24) -> Dict:
+                                          lookback_hours: int = 24,
+                                          callback=None) -> Dict:
         """
         DiCEライブラリを使用した反実仮想説明生成 (1日分のデータに対して実行)
         21:00などの定時実行を想定し、その日1日の全活動に対してDiCE提案を生成
@@ -46,7 +47,7 @@ class ActivityCounterfactualExplainer:
             logger.info(f"DiCE: {target_date}の1日分のデータに対してDiCE分析を実行します")
 
             # generate_hourly_alternativesを使用して1日分のDiCE提案を生成
-            daily_result = self.generate_hourly_alternatives(df_enhanced, predictor, target_date)
+            daily_result = self.generate_hourly_alternatives(df_enhanced, predictor, target_date, callback=callback)
 
             if daily_result.get('type') == 'hourly_dice_schedule' and daily_result.get('hourly_schedule'):
                 # 時間別の提案をフラットな形式に変換
@@ -536,9 +537,12 @@ class ActivityCounterfactualExplainer:
             return None
 
     def generate_hourly_alternatives(self, activities_data: pd.DataFrame,
-                                   predictor, target_date: datetime = None) -> dict:
+                                   predictor, target_date: datetime = None, callback=None) -> dict:
         """
         1日の終わりに時間単位でDiCE改善提案を生成
+
+        Args:
+            callback: DiCE結果を1件生成するたびに呼び出される関数
         """
         try:
             if target_date is None:
@@ -599,7 +603,7 @@ class ActivityCounterfactualExplainer:
                         if result:
                             # 【重要】実際のTimestampから時刻を取得（Hourly Logとの一致のため）
                             actual_time = original_activity['Timestamp'].strftime('%H:%M')
-                            hourly_schedule.append({
+                            dice_result = {
                                 'hour': hour,
                                 'time': actual_time,  # 実際のTimestamp (例: "14:30")
                                 'time_range': f"{hour:02d}:00-{hour+1:02d}:00",
@@ -609,9 +613,14 @@ class ActivityCounterfactualExplainer:
                                 'predicted_frustration': result['predicted_frustration'],  # 改善後のF値
                                 'improvement': result['improvement'],
                                 'confidence': result['confidence']
-                            })
+                            }
+                            hourly_schedule.append(dice_result)
                             total_improvement += result['improvement']
                             logger.warning(f"  ✅ {hour}時台: {result['original_activity']} → {result['suggested_activity']} (改善: {result['improvement']:.2f}, 処理時間: {elapsed:.1f}秒)")
+
+                            # コールバック関数が指定されていれば、即座に呼び出す
+                            if callback:
+                                callback(dice_result)
                         else:
                             logger.warning(f"  ⚠️ {hour}時台: DiCE提案なし（処理時間: {elapsed:.1f}秒）")
 

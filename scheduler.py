@@ -33,8 +33,8 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    evening_time: str = "09:55"  # 09:55 UTC（日本時間18:55 JST）で前日データのDiCE実行（一時的）
-                                 # 14:10のdata_monitor_loop実行後、モデル訓練完了まで285分のバッファを確保
+    evening_time: str = "10:35"  # 10:35 UTC（日本時間19:35 JST）で前日データのDiCE実行（一時的）
+                                 # 19:30のdata_monitor_loop実行後、5分のバッファを確保（15分間隔で干渉を回避）
     enabled: bool = True
 
 class FeedbackScheduler:
@@ -386,60 +386,54 @@ class FeedbackScheduler:
             target_datetime = dt_class.strptime(target_date, '%Y-%m-%d')
 
             logger.warning(f"🎲 DiCE分析を開始します（全期間: {len(all_df_enhanced)}件, 対象日: {target_date}）...")
+            logger.warning(f"📝 DiCE結果は1件生成されるたびにHourly Logに書き込みます")
+
+            # コールバック関数：DiCE結果を1件ずつHourly Logに書き込む
+            saved_count = [0]  # リストで包んで参照を保持
+
+            def save_dice_result_callback(result):
+                """DiCE結果を1件受け取って即座にHourly Logに保存"""
+                try:
+                    date = target_date
+                    time = result.get('time', '')
+                    original_activity = result.get('original_activity', '')
+                    suggested_activity = result.get('suggested_activity', '')
+                    original_f = result.get('original_frustration')
+                    improved_f = result.get('predicted_frustration')
+
+                    # 改善幅を計算（負の値が改善）
+                    improvement = improved_f - original_f if (original_f and improved_f) else None
+
+                    logger.warning(f"  💡 {date} {time} {original_activity} → {suggested_activity} (改善: {improvement:.2f})")
+
+                    # Hourly Logを更新
+                    success = self.sheets_connector.update_hourly_log_with_dice(
+                        user_id=user_id,
+                        date=date,
+                        time=time,
+                        activity=original_activity,
+                        dice_suggestion=suggested_activity,
+                        improvement=improvement,
+                        improved_frustration=improved_f
+                    )
+
+                    if success:
+                        saved_count[0] += 1
+                        logger.warning(f"  ✅ Hourly Logに保存しました（{saved_count[0]}件目）")
+
+                except Exception as e:
+                    logger.error(f"❌ Hourly Log DiCE更新エラー: {e}")
+
+            # DiCE分析を実行（コールバックで1件ずつ保存）
             dice_explanation = self.explainer.generate_activity_based_explanation(
-                all_df_enhanced, predictor, target_datetime
+                all_df_enhanced, predictor, target_datetime, callback=save_dice_result_callback
             )
-            logger.warning(f"🎲 DiCE分析完了: type={dice_explanation.get('type')}")
-            logger.warning(f"🔍 DiCE結果の詳細: keys={list(dice_explanation.keys())}")
 
-            # DiCE結果のタイプを厳密にチェック
-            if dice_explanation.get('type') == 'daily_dice_analysis':
-                dice_results.append(dice_explanation)
+            logger.warning(f"🎲 DiCE分析完了: type={dice_explanation.get('type')}, 保存件数={saved_count[0]}件")
 
-                # DiCE結果をHourly Logに更新
-                hourly_schedule = dice_explanation.get('hourly_schedule', [])
-                logger.warning(f"📝 DiCE結果をHourly Logに更新: {len(hourly_schedule)}件")
-
-                if len(hourly_schedule) == 0:
-                    logger.error(f"❌ hourly_scheduleが空です！")
-                    logger.error(f"   dice_explanation['timeline']の長さ: {len(dice_explanation.get('timeline', []))}")
-                    logger.error(f"   dice_explanation['total_improvement']: {dice_explanation.get('total_improvement')}")
-
-                for suggestion in hourly_schedule:
-                    try:
-                        # 【重要】対象日のデータに保存するため target_date を使用
-                        date = target_date  # today_data['date'] ではなく target_date
-                        time = suggestion.get('time', '')  # HH:MM形式
-                        original_activity = suggestion.get('original_activity', '')
-                        suggested_activity = suggestion.get('suggested_activity', '')
-                        original_f = suggestion.get('original_frustration')
-                        # improved_frustration または predicted_frustration のどちらかを取得
-                        improved_f = suggestion.get('improved_frustration') or suggestion.get('predicted_frustration')
-
-                        # 改善幅を計算（負の値が改善）
-                        improvement = improved_f - original_f if (original_f and improved_f) else None
-
-                        logger.warning(f"  💡 {date} {time} {original_activity} → {suggested_activity} (改善: {improvement:.2f})")
-
-                        # Hourly Logを更新
-                        self.sheets_connector.update_hourly_log_with_dice(
-                            user_id=user_id,
-                            date=date,
-                            time=time,
-                            activity=original_activity,
-                            dice_suggestion=suggested_activity,
-                            improvement=improvement,
-                            improved_frustration=improved_f
-                        )
-
-                    except Exception as update_error:
-                        logger.error(f"❌ Hourly Log DiCE更新エラー: {update_error}")
-
-                logger.warning(f"✅ Hourly Log DiCE更新完了")
-            else:
+            if dice_explanation.get('type') != 'daily_dice_analysis':
                 logger.error(f"❌ DiCE分析が失敗しました（type={dice_explanation.get('type')}）")
                 logger.error(f"   エラーメッセージ: {dice_explanation.get('error_message', 'なし')}")
-                logger.error(f"   Hourly Logに保存しません")
 
             # Hourly Logから今日のデータを再取得してフィードバック生成
             logger.warning(f"💬 LLMフィードバックを生成中...")

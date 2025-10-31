@@ -1690,7 +1690,7 @@ def get_user_config(user_id: str) -> Dict:
 def data_monitor_loop():
     """
     全ユーザーのデータを監視し、nasa_status='done'の活動を自動的に予測
-    毎時00,10,20,30,40,50分に実行
+    毎時00,15,30,45分に実行
     """
     global data_monitor_running, last_prediction_result
 
@@ -1698,26 +1698,26 @@ def data_monitor_loop():
     users_config = config.get_all_users()
 
     def get_next_run_time():
-        """次の10分刻みの実行時刻を計算（JST）"""
+        """次の15分刻みの実行時刻を計算（JST）"""
         from datetime import timedelta
 
         now = datetime.now(JST)
         current_minute = now.minute
 
-        # 次の10分刻みの分を計算（0, 10, 20, 30, 40, 50）
-        next_minute = ((current_minute // 10) + 1) * 10
+        # 次の15分刻みの分を計算（0, 15, 30, 45）
+        next_minute = ((current_minute // 15) + 1) * 15
 
         if next_minute >= 60:
             # 次の時間の00分
             next_time = now + timedelta(hours=1)
             next_time = next_time.replace(minute=0, second=0, microsecond=0)
         else:
-            # 今の時間の次の10分刻み
+            # 今の時間の次の15分刻み
             next_time = now.replace(minute=next_minute, second=0, microsecond=0)
 
         return next_time
 
-    logger.warning(f"🕐 データ監視ループ開始: 毎時00,10,20,30,40,50分に実行")
+    logger.warning(f"🕐 データ監視ループ開始: 毎時00,15,30,45分に実行")
 
     while data_monitor_running:
         try:
@@ -1907,7 +1907,7 @@ def initialize_application():
         data_monitor_running = True
         data_monitor_thread = threading.Thread(target=data_monitor_loop, daemon=True)
         data_monitor_thread.start()
-        logger.warning("✅ データ更新監視スレッドを開始しました (10分ごとにチェック)")
+        logger.warning("✅ データ更新監視スレッドを開始しました (15分ごとにチェック)")
 
         _app_initialized = True
         logger.warning("🎉 アプリケーション初期化完了")
