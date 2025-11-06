@@ -738,38 +738,40 @@ def get_frustration_timeline():
                 continue
 
             # Hourly Logから予測値・DiCE提案を取得
-            predicted_frustration = None
-            dice_suggestion = None
-            improvement = None
-            improved_frustration = None
+            # 【重要】Hourly Logに登録されている活動のみを表示
+            if hourly_log.empty:
+                continue  # Hourly Logが空なら全てスキップ
 
-            if not hourly_log.empty:
-                cached = hourly_log[
-                    (hourly_log['時刻'] == time_str) &
-                    (hourly_log['活動名'] == activity_name)
-                ]
+            cached = hourly_log[
+                (hourly_log['時刻'] == time_str) &
+                (hourly_log['活動名'] == activity_name)
+            ]
 
-                if not cached.empty:
-                    cached_row = cached.iloc[0]
-                    predicted_frustration = cached_row.get('予測NASA_F')
-                    dice_suggestion = cached_row.get('DiCE提案活動名')
-                    improvement = cached_row.get('改善幅')
-                    improved_frustration = cached_row.get('改善後F値')
+            if cached.empty:
+                # Hourly Logに未登録の活動はスキップ（デフォルト値10を表示しないため）
+                continue
 
-                    # NaNチェック
-                    if pd.isna(predicted_frustration):
-                        predicted_frustration = None
-                    if pd.isna(dice_suggestion) or dice_suggestion == '':
-                        dice_suggestion = None
-                    if pd.isna(improvement):
-                        improvement = None
-                    if pd.isna(improved_frustration):
-                        improved_frustration = None
+            # Hourly Logから予測値とDiCE提案を取得
+            cached_row = cached.iloc[0]
+            predicted_frustration = cached_row.get('予測NASA_F')
+            dice_suggestion = cached_row.get('DiCE提案活動名')
+            improvement = cached_row.get('改善幅')
+            improved_frustration = cached_row.get('改善後F値')
+
+            # NaNチェック
+            if pd.isna(predicted_frustration):
+                predicted_frustration = None
+            if pd.isna(dice_suggestion) or dice_suggestion == '':
+                dice_suggestion = None
+            if pd.isna(improvement):
+                improvement = None
+            if pd.isna(improved_frustration):
+                improved_frustration = None
 
             # F値変換
             frustration_for_timeline = float(predicted_frustration) if predicted_frustration is not None else None
 
-            # タイムラインに追加（活動名は必ず表示）
+            # タイムラインに追加（Hourly Logに登録済みの活動のみ）
             timeline_entry = {
                 'timestamp': timestamp.isoformat(),
                 'hour': timestamp.hour if hasattr(timestamp, 'hour') else 0,
