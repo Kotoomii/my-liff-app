@@ -577,7 +577,9 @@ def generate_dice_analysis():
         user_id = data.get('user_id', 'default')
         date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
 
-        logger.warning(f"📊 DiCE分析取得: user_id={user_id}, date={date}")
+        # ログレベルをDEBUGに変更（頻繁に呼ばれるため、WARNINGレベルでは多すぎる）
+        if config.ENABLE_DEBUG_LOGS:
+            logger.debug(f"📊 DiCE分析取得: user_id={user_id}, date={date}")
 
         # Hourly LogからDiCE提案を取得
         hourly_log = sheets_connector.get_hourly_log(user_id, date)
@@ -640,7 +642,9 @@ def generate_dice_analysis():
                 'summary': 'DiCE提案はまだ生成されていません。23:55以降に確認してください。'
             }
 
-        logger.warning(f"✅ DiCE提案取得完了: {len(dice_suggestions)}件")
+        # ログレベルをDEBUGに変更（頻繁に呼ばれるため）
+        if config.ENABLE_DEBUG_LOGS:
+            logger.debug(f"✅ DiCE提案取得完了: {len(dice_suggestions)}件")
 
         return jsonify({
             'status': 'success',
