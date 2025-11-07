@@ -149,19 +149,17 @@
             min-height: 0;
         }
 
-        /* 今日のフラストレーション値 - コンパクト化 */
+        /* 今日のフラストレーション値 - 他のセクションと統一 */
         .daily-analysis {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
             border-radius: 15px;
-            padding: 5px 10px;
+            padding: 15px;
             border: 1px solid rgba(255, 255, 255, 0.2);
-            flex: 0 0 auto;
-            width: calc(33.333% - 10px);
-            height: fit-content;
-            max-height: 100px;
+            flex: 1;
             position: relative;
-            overflow: hidden;
+            overflow-y: auto;
+            min-height: 0;
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
