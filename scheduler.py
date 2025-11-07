@@ -397,16 +397,22 @@ class FeedbackScheduler:
                 logger.error(f"   エラーメッセージ: {dice_explanation.get('error_message', 'なし')}")
 
             # Hourly Logから今日のデータを再取得してフィードバック生成
-            logger.warning(f"💬 LLMフィードバックを生成中...")
+            logger.warning(f"💬 Hourly LogからDiCE提案を含むデータを取得中...")
             hourly_log = self.sheets_connector.get_hourly_log(user_id, today_data['date'])
 
-            # タイムラインデータを構築
+            # タイムラインデータとDiCE提案を構築
             timeline_data = []
+            hourly_schedule = []  # DiCE提案のリスト
+
             for idx, row in hourly_log.iterrows():
                 activity = row.get('活動名')
                 time_str = row.get('時刻')
                 predicted_f = row.get('予測NASA_F')
+                dice_suggestion = row.get('DiCE提案活動名')
+                improvement = row.get('改善幅')
+                improved_f = row.get('改善後F値')
 
+                # タイムラインデータに追加
                 if pd.notna(predicted_f):
                     timeline_data.append({
                         'time': time_str,
@@ -414,10 +420,23 @@ class FeedbackScheduler:
                         'frustration_value': float(predicted_f)
                     })
 
+                # DiCE提案がある場合
+                if pd.notna(dice_suggestion) and dice_suggestion != '':
+                    hourly_schedule.append({
+                        'time': time_str,
+                        'original_activity': activity,
+                        'suggested_activity': dice_suggestion,
+                        'improvement': float(improvement) if pd.notna(improvement) else 0,
+                        'original_frustration': float(predicted_f) if pd.notna(predicted_f) else None,
+                        'improved_frustration': float(improved_f) if pd.notna(improved_f) else None
+                    })
+
+            logger.warning(f"📊 タイムラインデータ: {len(timeline_data)}件, DiCE提案: {len(hourly_schedule)}件")
+
             # DiCE結果を構築
             dice_result = {
-                'hourly_schedule': hourly_schedule if dice_explanation.get('type') != 'fallback' else [],
-                'total_improvement_potential': sum([s.get('improvement', 0) or 0 for s in hourly_schedule]) if dice_explanation.get('type') != 'fallback' else 0
+                'hourly_schedule': hourly_schedule,
+                'total_improvement_potential': sum([s.get('improvement', 0) or 0 for s in hourly_schedule])
             }
 
             # LLMで日次フィードバックを生成
@@ -458,7 +477,7 @@ class FeedbackScheduler:
                 'daily_stats': {
                     'avg_predicted': round(avg_predicted, 2) if avg_predicted is not None else None,
                     'total_activities': len(timeline_data),
-                    'dice_suggestions': len(hourly_schedule) if dice_explanation.get('type') != 'fallback' else 0
+                    'dice_suggestions': len(hourly_schedule)
                 },
                 'saved_to_spreadsheet': save_success
             }
