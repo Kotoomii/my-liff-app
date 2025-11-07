@@ -1439,3 +1439,54 @@ class SheetsConnector:
         except Exception as e:
             logger.error(f"日次フィードバックサマリー保存エラー: {e}")
             return False
+
+    def get_daily_summary(self, user_id: str, date: str) -> Optional[Dict]:
+        """
+        指定日のDaily Summaryをスプレッドシートから取得
+
+        Args:
+            user_id: ユーザーID
+            date: 日付 (YYYY-MM-DD形式)
+
+        Returns:
+            Daily Summaryデータ（存在しない場合はNone）
+        """
+        try:
+            if not self.gc:
+                logger.warning("Google Sheetsクライアントが初期化されていません")
+                return None
+
+            sheet_name = f"{user_id}_Daily_Summary"
+            worksheet = self._find_worksheet_by_exact_name(sheet_name)
+
+            if not worksheet:
+                logger.warning(f"Daily Summaryシートが見つかりません: {sheet_name}")
+                return None
+
+            all_values = worksheet.get_all_values()
+            if len(all_values) <= 1:
+                return None
+
+            # 指定日のデータを検索
+            for row in all_values[1:]:
+                if len(row) > 0 and row[0] == date:
+                    summary_data = {
+                        'date': row[0],
+                        'avg_actual': float(row[1]) if len(row) > 1 and row[1] else None,
+                        'avg_predicted': float(row[2]) if len(row) > 2 and row[2] else None,
+                        'daily_mae': float(row[3]) if len(row) > 3 and row[3] else None,
+                        'dice_improvement': float(row[4]) if len(row) > 4 and row[4] else 0,
+                        'dice_count': int(row[5]) if len(row) > 5 and row[5] else 0,
+                        'chatgpt_feedback': row[6] if len(row) > 6 else '',
+                        'action_plan': json.loads(row[7]) if len(row) > 7 and row[7] else [],
+                        'generated_at': row[8] if len(row) > 8 else ''
+                    }
+                    logger.info(f"Daily Summary取得成功: {user_id}, {date}")
+                    return summary_data
+
+            logger.warning(f"指定日のDaily Summaryが見つかりません: {user_id}, {date}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Daily Summary取得エラー: {e}")
+            return None

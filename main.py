@@ -814,12 +814,12 @@ def get_frustration_timeline():
         }), 500
 
 @app.route('/api/feedback/generate', methods=['POST'])
-
-@app.route('/api/feedback/generate', methods=['POST'])
 def generate_feedback():
     """
-    LLMを使用した自然言語フィードバック生成API (日次フィードバックのみ)
-    Hourly LogとDaily Summaryから読み取るだけ（予測・DiCE実行しない）
+    Daily SummaryからChatGPTフィードバックを読み取るAPI（生成しない）
+
+    フィードバック生成は1日1回、scheduler.py の _execute_evening_feedback で実行される（22:50 JST）
+    このAPIはDaily Summaryシートから既に生成されたフィードバックを読み取るだけ
     """
     try:
         data = request.get_json()
@@ -829,83 +829,36 @@ def generate_feedback():
         # 今日の日付を取得
         today = datetime.now().strftime('%Y-%m-%d')
 
-        logger.warning(f"📝 日次フィードバック生成開始: user_id={user_id}, date={today}")
+        logger.info(f"📖 Daily Summaryからフィードバック取得: user_id={user_id}, date={today}")
 
-        # Hourly Logから今日のデータを取得
-        hourly_log = sheets_connector.get_hourly_log(user_id, today)
-        
-        if hourly_log.empty:
+        # Daily Summaryシートからフィードバックを取得
+        summary = sheets_connector.get_daily_summary(user_id, today)
+
+        if not summary:
             return jsonify({
-                'status': 'error',
-                'message': '今日の活動データが見つかりません。活動を記録してください。'
-            }), 400
+                'status': 'success',
+                'user_id': user_id,
+                'feedback_type': 'daily',
+                'feedback': {
+                    'main_feedback': 'フィードバックはまだ生成されていません。22:50以降に確認してください。',
+                    'action_plan': [],
+                    'total_improvement_potential': 0,
+                    'num_suggestions': 0,
+                    'generated_at': None
+                },
+                'message': 'フィードバックは毎日22:50（JST）に生成されます。'
+            })
 
-        # Hourly LogからタイムラインデータとDiCE提案を構築
-        timeline_data = []
-        dice_suggestions = []
-        
-        for idx, row in hourly_log.iterrows():
-            activity = row.get('活動名')
-            time = row.get('時刻')
-            predicted_f = row.get('予測NASA_F')
-            dice_suggestion = row.get('DiCE提案活動名')
-            improvement = row.get('改善幅')
-            improved_f = row.get('改善後F値')
-
-            # タイムラインデータに追加
-            if pd.notna(predicted_f):
-                timeline_data.append({
-                    'time': time,
-                    'activity': activity,
-                    'frustration_value': float(predicted_f)
-                })
-
-            # DiCE提案がある場合
-            if pd.notna(dice_suggestion) and dice_suggestion != '':
-                dice_suggestions.append({
-                    'time': time,
-                    'original_activity': activity,
-                    'original_frustration': float(predicted_f) if pd.notna(predicted_f) else None,
-                    'suggested_activity': dice_suggestion,
-                    'improvement': float(improvement) if pd.notna(improvement) else None,
-                    'improved_frustration': float(improved_f) if pd.notna(improved_f) else None
-                })
-
-        # DiCE結果を構築
-        dice_result = {
-            'hourly_schedule': dice_suggestions,
-            'total_improvement_potential': sum([s.get('improvement', 0) or 0 for s in dice_suggestions])
+        # Daily Summaryのデータをフィードバック形式に変換
+        feedback_result = {
+            'main_feedback': summary.get('chatgpt_feedback', ''),
+            'action_plan': summary.get('action_plan', []),
+            'total_improvement_potential': summary.get('dice_improvement', 0),
+            'num_suggestions': summary.get('dice_count', 0),
+            'generated_at': summary.get('generated_at', '')
         }
 
-        # LLMで日次フィードバックを生成
-        feedback_result = feedback_generator.generate_daily_dice_feedback(
-            dice_result,
-            timeline_data
-        )
-
-        logger.warning(f"✅ 日次フィードバック生成完了: user_id={user_id}, DiCE提案数={len(dice_suggestions)}")
-
-        # 日次平均を計算
-        predicted_values = [item['frustration_value'] for item in timeline_data]
-        avg_predicted = sum(predicted_values) / len(predicted_values) if predicted_values else None
-
-        # Daily Summaryに保存
-        summary_data = {
-            'date': today,
-            'avg_actual': None,  # 実測値は使用しない
-            'avg_predicted': avg_predicted,
-            'dice_improvement': feedback_result.get('total_improvement_potential', 0),
-            'dice_count': feedback_result.get('num_suggestions', 0),
-            'chatgpt_feedback': feedback_result.get('main_feedback', ''),
-            'action_plan': feedback_result.get('action_plan', []),
-            'generated_at': feedback_result.get('generated_at', datetime.now().isoformat())
-        }
-
-        save_success = sheets_connector.save_daily_feedback_summary(user_id, summary_data)
-        if save_success:
-            logger.warning(f"💾 Daily Summary保存完了: user_id={user_id}, date={today}")
-        else:
-            logger.warning(f"⚠️ Daily Summary保存失敗: user_id={user_id}")
+        logger.info(f"✅ Daily Summaryからフィードバック取得完了: user_id={user_id}")
 
         return jsonify({
             'status': 'success',
@@ -913,16 +866,14 @@ def generate_feedback():
             'feedback_type': 'daily',
             'feedback': feedback_result,
             'daily_stats': {
-                'avg_predicted': round(avg_predicted, 2) if avg_predicted is not None else None,
-                'total_activities': len(timeline_data),
-                'dice_suggestions': len(dice_suggestions)
+                'avg_predicted': round(summary.get('avg_predicted', 0), 2) if summary.get('avg_predicted') is not None else None,
+                'dice_suggestions': summary.get('dice_count', 0)
             },
-            'saved_to_spreadsheet': save_success,
             'timestamp': datetime.now().isoformat()
         })
 
     except Exception as e:
-        logger.error(f"フィードバック生成エラー: {e}")
+        logger.error(f"フィードバック取得エラー: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({
