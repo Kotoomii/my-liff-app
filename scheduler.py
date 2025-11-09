@@ -46,9 +46,9 @@ class FeedbackScheduler:
         self.config = Config()
         # 重要: user_predictors が空の辞書 {} でも参照を保持する
         self.user_predictors = user_predictors if user_predictors is not None else {}
-        self.explainer = ActivityCounterfactualExplainer()
-        self.feedback_generator = LLMFeedbackGenerator()
         self.sheets_connector = SheetsConnector()
+        self.explainer = ActivityCounterfactualExplainer()
+        self.feedback_generator = LLMFeedbackGenerator(self.sheets_connector)
 
         self.schedule_config = FeedbackSchedule()
         self.running = False
@@ -439,16 +439,11 @@ class FeedbackScheduler:
                 'total_improvement_potential': sum([s.get('improvement', 0) or 0 for s in hourly_schedule])
             }
 
-            # 昨日のデータをDaily Summaryから取得（進捗追跡のため）
-            yesterday_date = (datetime.strptime(today_data['date'], '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
-            yesterday_summary = self.sheets_connector.get_daily_summary(user_id, yesterday_date)
-            logger.warning(f"📊 昨日のデータ取得: {yesterday_date}, 存在={yesterday_summary is not None}")
-
-            # LLMで日次フィードバックを生成（昨日のデータを含む）
+            # LLMで日次フィードバックを生成（内部で昨日のデータを取得）
             feedback_result_llm = self.feedback_generator.generate_daily_dice_feedback(
                 dice_result,
                 timeline_data,
-                yesterday_summary=yesterday_summary
+                user_id=user_id
             )
             logger.warning(f"💬 LLMフィードバック生成完了")
 

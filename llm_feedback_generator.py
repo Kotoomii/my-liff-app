@@ -18,13 +18,15 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 class LLMFeedbackGenerator:
-    def __init__(self):
+    def __init__(self, sheets_connector=None):
         logger.info("=" * 60)
         logger.info("🚀 LLMFeedbackGenerator 初期化開始")
         logger.info("=" * 60)
 
         self.config = Config()
         logger.info(f"📋 設定読み込み完了 (IS_CLOUD_RUN: {self.config.IS_CLOUD_RUN})")
+
+        self.sheets_connector = sheets_connector
 
         self.llm_api_key = self._get_api_key_from_secret_manager()
         self.llm_api_base = "https://api.openai.com/v1"
@@ -126,7 +128,7 @@ class LLMFeedbackGenerator:
     def generate_daily_dice_feedback(self,
                                     daily_dice_result: Dict,
                                     timeline_data: List[Dict] = None,
-                                    yesterday_summary: Dict = None) -> Dict:
+                                    user_id: str = 'default') -> Dict:
         """
         1日の終わりにDiCE結果に基づいた日次フィードバックを生成
         タイムライン全体を考慮した包括的なアドバイスを提供
@@ -134,7 +136,7 @@ class LLMFeedbackGenerator:
         Args:
             daily_dice_result: 1日分のDiCE分析結果
             timeline_data: 1日のタイムラインデータ（オプション）
-            yesterday_summary: 昨日のDaily Summaryデータ（進捗追跡用、オプション）
+            user_id: ユーザーID（昨日のデータ取得用、デフォルト: 'default'）
 
         Returns:
             日次フィードバック辞書
@@ -150,6 +152,14 @@ class LLMFeedbackGenerator:
 
             # タイムラインデータから統計情報を計算
             timeline_stats = self._analyze_timeline_data(timeline_data) if timeline_data else {}
+
+            # 昨日のDaily Summaryデータを取得（進捗追跡のため）
+            yesterday_summary = None
+            if self.sheets_connector:
+                from datetime import datetime as dt_class, timedelta
+                yesterday_date = (dt_class.strptime(date, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+                yesterday_summary = self.sheets_connector.get_daily_summary(user_id, yesterday_date)
+                logger.info(f"📊 昨日のデータ取得: {yesterday_date}, 存在={yesterday_summary is not None}")
 
             # プロンプトを構築（昨日のデータを含む）
             prompt = self._build_daily_dice_feedback_prompt(
