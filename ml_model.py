@@ -100,10 +100,10 @@ class FrustrationPredictor:
             # 15分未満の活動を除外
             df = df[df['Duration'] >= 15]
 
-            # Durationのスケーリング (15-480分 → 0-1)
-            # 15分=最小値、480分(8時間)=妥当な最大値
+            # Durationのスケーリング (15-720分 → 0-1)
+            # 15分=最小値、720分(12時間)=妥当な最大値
             duration_min = 15
-            duration_max = 480
+            duration_max = 720
             df['Duration_scaled'] = (df['Duration'] - duration_min) / (duration_max - duration_min)
             # 範囲外の値をクリップ（0-1に収める）
             df['Duration_scaled'] = df['Duration_scaled'].clip(0, 1)
@@ -497,7 +497,7 @@ class FrustrationPredictor:
 
             # Durationのスケーリング
             duration_min = 15
-            duration_max = 480
+            duration_max = 720
             duration_scaled = (duration - duration_min) / (duration_max - duration_min)
             duration_scaled = np.clip(duration_scaled, 0, 1)
             features['Duration_scaled'] = duration_scaled
@@ -580,7 +580,7 @@ class FrustrationPredictor:
                 # スケール済みでない場合は計算
                 duration = row_data.get('Duration', 60)
                 duration_min = 15
-                duration_max = 480
+                duration_max = 720
                 duration_scaled = (duration - duration_min) / (duration_max - duration_min)
                 duration_scaled = np.clip(duration_scaled, 0, 1)
                 features['Duration_scaled'] = duration_scaled
@@ -706,7 +706,7 @@ class FrustrationPredictor:
 
             # Durationのスケーリング
             duration_min = 15
-            duration_max = 480
+            duration_max = 720
             duration_scaled = (duration - duration_min) / (duration_max - duration_min)
             duration_scaled = np.clip(duration_scaled, 0, 1)
             features['Duration_scaled'] = duration_scaled
