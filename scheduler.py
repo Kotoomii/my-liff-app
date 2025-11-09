@@ -422,8 +422,39 @@ class FeedbackScheduler:
 
                 # DiCE提案がある場合
                 if pd.notna(dice_suggestion) and dice_suggestion != '':
+                    # 元の活動データからDurationを取得してtime_rangeを計算
+                    time_range = time_str  # デフォルトは時刻のみ
+                    duration_minutes = 60  # デフォルト60分
+
+                    try:
+                        # target_activity_dataから該当する活動を探す
+                        # Timestampの時刻部分とactivity名でマッチング
+                        if not target_activity_data.empty and 'Timestamp' in target_activity_data.columns:
+                            # 時刻文字列をパース（例: "13:00"）
+                            from datetime import datetime as dt_class
+                            target_time_obj = dt_class.strptime(f"{target_date} {time_str}", '%Y-%m-%d %H:%M')
+
+                            # 該当する活動を探す
+                            matching_activities = target_activity_data[
+                                (target_activity_data['Timestamp'].dt.strftime('%H:%M') == time_str) &
+                                (target_activity_data['CatSub'] == activity)
+                            ]
+
+                            if not matching_activities.empty:
+                                # Durationを取得（分単位）
+                                duration_minutes = matching_activities.iloc[0].get('Duration', 60)
+
+                                # time_rangeを計算（例: "13:00-16:00"）
+                                from datetime import timedelta
+                                end_time_obj = target_time_obj + timedelta(minutes=duration_minutes)
+                                time_range = f"{time_str}-{end_time_obj.strftime('%H:%M')}"
+                                logger.info(f"  📐 {activity} の time_range を計算: {time_range} (Duration: {duration_minutes}分)")
+                    except Exception as e:
+                        logger.warning(f"  ⚠️ time_range計算エラー（デフォルト値を使用）: {e}")
+
                     hourly_schedule.append({
                         'time': time_str,
+                        'time_range': time_range,  # 追加
                         'original_activity': activity,
                         'suggested_activity': dice_suggestion,
                         'improvement': float(improvement) if pd.notna(improvement) else 0,

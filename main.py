@@ -596,6 +596,9 @@ def generate_dice_analysis():
                 'timestamp': datetime.now().isoformat()
             })
 
+        # Activity_Dataを取得（Durationを取得するため）
+        activity_data = sheets_connector.get_activity_data(user_id)
+
         # DiCE提案があるデータのみ抽出
         dice_suggestions = []
         for idx, row in hourly_log.iterrows():
@@ -613,6 +616,26 @@ def generate_dice_analysis():
                 # 改善幅を数値化
                 improvement_value = float(improvement) if pd.notna(improvement) else 0
 
+                # time_rangeを計算（Activity_DataからDurationを取得）
+                time_range = time_str  # デフォルト
+                duration_minutes = 60  # デフォルト
+                try:
+                    if not activity_data.empty and 'Timestamp' in activity_data.columns:
+                        # 該当する活動を探す
+                        matching = activity_data[
+                            (activity_data['Timestamp'].dt.strftime('%Y-%m-%d %H:%M') == f"{date} {time_str}") &
+                            (activity_data['CatSub'] == activity)
+                        ]
+                        if not matching.empty:
+                            duration_minutes = matching.iloc[0].get('Duration', 60)
+                            # time_rangeを計算
+                            from datetime import datetime as dt_class, timedelta
+                            start_time = dt_class.strptime(f"{date} {time_str}", '%Y-%m-%d %H:%M')
+                            end_time = start_time + timedelta(minutes=duration_minutes)
+                            time_range = f"{time_str}-{end_time.strftime('%H:%M')}"
+                except Exception as e:
+                    logger.debug(f"time_range計算エラー（デフォルト値使用）: {e}")
+
                 dice_suggestions.append({
                     # フロントエンド用フィールド（tablet_mirror.html）
                     'timestamp': timestamp_str,
@@ -624,7 +647,8 @@ def generate_dice_analysis():
                     'original_activity': activity,
                     'original_frustration': float(predicted_f) if pd.notna(predicted_f) else None,
                     'suggested_activity': dice_suggestion,
-                    'improved_frustration': float(improved_f) if pd.notna(improved_f) else None
+                    'improved_frustration': float(improved_f) if pd.notna(improved_f) else None,
+                    'time_range': time_range  # 追加
                 })
 
         # DiCE分析結果を構築
@@ -776,21 +800,28 @@ def get_frustration_timeline():
             frustration_for_timeline = float(predicted_frustration) if predicted_frustration is not None else None
 
             # タイムラインに追加（Hourly Logに登録済みの活動のみ）
+            duration_minutes = row.get('Duration', 60)
             timeline_entry = {
                 'timestamp': timestamp.isoformat(),
                 'hour': timestamp.hour if hasattr(timestamp, 'hour') else 0,
                 'activity': activity_name,
-                'duration': row.get('Duration', 0),
+                'duration': duration_minutes,
                 'frustration_value': frustration_for_timeline,
                 'is_predicted': predicted_frustration is not None
             }
 
             # DiCE提案がある場合は追加
             if dice_suggestion:
+                # time_rangeを計算（例: "13:00-16:00"）
+                from datetime import timedelta
+                end_time = timestamp + timedelta(minutes=duration_minutes)
+                time_range = f"{time_str}-{end_time.strftime('%H:%M')}"
+
                 timeline_entry['dice_suggestion'] = {
                     'suggested_activity': dice_suggestion,
                     'improvement': float(improvement) if improvement is not None else None,
-                    'improved_frustration': float(improved_frustration) if improved_frustration is not None else None
+                    'improved_frustration': float(improved_frustration) if improved_frustration is not None else None,
+                    'time_range': time_range  # 追加
                 }
 
             timeline.append(timeline_entry)
