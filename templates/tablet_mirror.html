@@ -1673,9 +1673,37 @@
             const hour = timeObj.getHours();
             const minute = timeObj.getMinutes();
 
-            // 位置を計算（時刻ベース、1時間幅で表示）
+            // 開始位置を計算
             const startPosition = (hour * 60 + minute) / (24 * 60) * 100;
-            const width = 60 / (24 * 60) * 100; // 1時間幅
+
+            // 幅を計算：time_rangeがあれば実際の継続時間、なければ1時間
+            let width;
+            let durationMinutes = 60; // デフォルト1時間
+            let timeRangeStr = '';
+
+            if (suggestion.time_range) {
+                // time_range（例: "13:00-16:00"）をパース
+                const [startStr, endStr] = suggestion.time_range.split('-');
+                if (startStr && endStr) {
+                    const [startHour, startMin] = startStr.split(':').map(Number);
+                    const [endHour, endMin] = endStr.split(':').map(Number);
+
+                    // 継続時間を分単位で計算
+                    durationMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+
+                    // 幅をパーセンテージで計算
+                    width = durationMinutes / (24 * 60) * 100;
+                    timeRangeStr = suggestion.time_range;
+                } else {
+                    // パースに失敗した場合はデフォルト
+                    width = 60 / (24 * 60) * 100;
+                    timeRangeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                }
+            } else {
+                // time_rangeがない場合は1時間幅
+                width = 60 / (24 * 60) * 100;
+                timeRangeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+            }
 
             const suggestionBar = document.createElement('div');
             suggestionBar.className = 'dice-suggestion-bar';
@@ -1683,24 +1711,24 @@
             // 位置とサイズを設定
             suggestionBar.style.left = startPosition + '%';
             suggestionBar.style.width = Math.max(width, 3) + '%'; // 最小3%の幅
-            
+
             // 提案情報を表示
             const suggestionInfo = document.createElement('div');
             suggestionInfo.className = 'activity-bar-info';
-            
+
             const timeStr = timeObj.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-            
+
             suggestionInfo.innerHTML = `
                 <div class="activity-bar-name" style="font-size: 12px; margin-bottom: 2px;">${suggestion.suggested_activity || '改善提案'}</div>
-                <div class="activity-bar-time" style="font-size: 9px; opacity: 0.8;">${timeStr}</div>
+                <div class="activity-bar-time" style="font-size: 9px; opacity: 0.8;">${timeRangeStr}</div>
                 <div class="activity-bar-duration" style="font-size: 9px; opacity: 0.85; margin-top: 2px;">${(suggestion.frustration_reduction || 0).toFixed(1)}点改善</div>
             `;
-            
+
             suggestionBar.appendChild(suggestionInfo);
-            
+
             // ツールチップ
-            suggestionBar.title = `${timeStr}の改善提案\n${suggestion.original_activity} → ${suggestion.suggested_activity}\n期待効果: ${(suggestion.frustration_reduction || 0).toFixed(1)}点改善`;
-            
+            suggestionBar.title = `${timeRangeStr}の改善提案\n${suggestion.original_activity} → ${suggestion.suggested_activity}\n継続時間: ${durationMinutes}分\n期待効果: ${(suggestion.frustration_reduction || 0).toFixed(1)}点改善`;
+
             return suggestionBar;
         }
 
