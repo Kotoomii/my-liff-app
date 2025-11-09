@@ -430,6 +430,12 @@
             border-color: #F44336;
         }
 
+        .timeline-activity-bar.no-data {
+            background: linear-gradient(135deg, rgba(150, 150, 150, 0.6), rgba(120, 120, 120, 0.6));
+            border-color: #999;
+            border-style: dashed;
+        }
+
         .dice-suggestion-bar {
             position: absolute;
             top: 18px;
@@ -1517,11 +1523,6 @@
             const processed = [];
 
             timeline.forEach(item => {
-                // frustration_valueがnullの場合はスキップ（表示しない）
-                if (item.frustration_value == null) {
-                    return;
-                }
-
                 const startTime = new Date(item.timestamp);
                 const durationMinutes = item.duration || 0;
                 const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
@@ -1531,7 +1532,7 @@
                     startTime: startTime,
                     endTime: endTime,
                     durationMinutes: durationMinutes,
-                    frustration: item.frustration_value,
+                    frustration: item.frustration_value,  // nullの場合もそのまま保持
                     startHour: startTime.getHours(),
                     startMinute: startTime.getMinutes(),
                     endHour: endTime.getHours(),
@@ -1617,10 +1618,13 @@
 
             const activityBar = document.createElement('div');
             activityBar.className = 'timeline-activity-bar';
-            
+
             // フラストレーション値で色分け（1-20スケール）
             const avgFrustration = activity.avgFrustration;
-            if (avgFrustration <= 6) {
+            if (avgFrustration == null) {
+                // データなしの場合はグレー
+                activityBar.classList.add('no-data');
+            } else if (avgFrustration <= 6) {
                 activityBar.classList.add('low-stress');    // 1-6: 低ストレス
             } else if (avgFrustration <= 13) {
                 activityBar.classList.add('medium-stress'); // 7-13: 中ストレス
@@ -1631,25 +1635,33 @@
             // 位置とサイズを設定
             activityBar.style.left = startPosition + '%';
             activityBar.style.width = Math.max(width, 2) + '%'; // 最小2%の幅
-            
+
             // 活動情報を表示
             const activityInfo = document.createElement('div');
             activityInfo.className = 'activity-bar-info';
-            
+
             const startTimeStr = activity.startTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
             const endTimeStr = activity.endTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-            
+
+            // フラストレーション値の表示
+            const frustrationDisplay = avgFrustration != null
+                ? `F:${avgFrustration.toFixed(1)}`
+                : 'F:--';
+
             activityInfo.innerHTML = `
                 <div class="activity-bar-name">${activity.activity}</div>
                 <div class="activity-bar-time">${startTimeStr}-${endTimeStr}</div>
-                <div class="activity-bar-frustration">F:${activity.avgFrustration.toFixed(1)}</div>
+                <div class="activity-bar-frustration">${frustrationDisplay}</div>
             `;
-            
+
             activityBar.appendChild(activityInfo);
-            
+
             // ツールチップ
-            activityBar.title = `${activity.activity}\n${startTimeStr} - ${endTimeStr}\n継続時間: ${Math.round(activity.durationMinutes)}分\nフラストレーション: ${activity.avgFrustration.toFixed(1)}`;
-            
+            const frustrationTooltip = avgFrustration != null
+                ? avgFrustration.toFixed(1)
+                : '予測なし';
+            activityBar.title = `${activity.activity}\n${startTimeStr} - ${endTimeStr}\n継続時間: ${Math.round(activity.durationMinutes)}分\nフラストレーション: ${frustrationTooltip}`;
+
             return activityBar;
         }
 
