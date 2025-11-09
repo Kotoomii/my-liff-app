@@ -181,9 +181,9 @@ class ActivityCounterfactualExplainer:
                 logger.warning(f"訓練データが不足（{len(df_train)}件）")
                 return None
 
-            # DiCE用のデータフレームを作成: CatSub列と生体情報、時間特徴量のみを含む
+            # DiCE用のデータフレームを作成: CatSub列と生体情報、時間特徴量、継続時間を含む
             # One-Hotエンコードされた活動列は含めない
-            dice_features = ['CatSub', 'SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
+            dice_features = ['CatSub', 'Duration_scaled', 'SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
 
             # 曜日列を追加
             weekday_cols = [col for col in df_train.columns if col.startswith('weekday_')]
@@ -214,6 +214,7 @@ class ActivityCounterfactualExplainer:
 
             query_dict = {
                 'CatSub': [query_catsub],
+                'Duration_scaled': [query_features['Duration_scaled'].iloc[0]],
                 'SDNN_scaled': [query_features['SDNN_scaled'].iloc[0]],
                 'Lorenz_Area_scaled': [query_features['Lorenz_Area_scaled'].iloc[0]],
                 'hour_sin': [query_features['hour_sin'].iloc[0]],
@@ -231,8 +232,8 @@ class ActivityCounterfactualExplainer:
             logger.warning(f"🔧 DiCE: query_dice = {query_dice.to_dict('records')[0]}")
             logger.warning(f"🔧 DiCE: query CatSubのカテゴリコード = {query_dice['CatSub'].cat.codes[0]}")
 
-            # webhooktest.py形式: 生体情報と時間特徴量をcontinuousに指定
-            continuous_features = ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
+            # webhooktest.py形式: 生体情報、継続時間、時間特徴量をcontinuousに指定
+            continuous_features = ['Duration_scaled', 'SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']
             # 曜日列もcontinuousとして扱う（One-Hotエンコード済みのため）
             continuous_features.extend(weekday_cols)
 
@@ -333,13 +334,13 @@ class ActivityCounterfactualExplainer:
 
             logger.info(f"DiCE実行: 現在F値(予測値)={current_frustration:.2f}(scaled={current_frustration_scaled:.3f}), 目標範囲={desired_range} (F値{improvement_low*20:.1f}-{improvement_high*20:.1f}に相当)")
 
-            # 生体情報と時間特徴を固定するためのpermitted_range設定
+            # 生体情報、継続時間、時間特徴を固定するためのpermitted_range設定
             # features_to_varyで指定されていない列は、元の値から変更されないように制約
             permitted_range = {}
-            for col in ['SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']:
+            for col in ['Duration_scaled', 'SDNN_scaled', 'Lorenz_Area_scaled', 'hour_sin', 'hour_cos']:
                 if col in query_dice.columns:
                     val = query_dice[col].iloc[0]
-                    # 生体情報と時間は現在値±0.001の範囲に固定（実質変更不可）
+                    # 継続時間、生体情報、時間は現在値±0.001の範囲に固定（実質変更不可）
                     permitted_range[col] = [val - 0.001, val + 0.001]
 
             # 曜日列も固定
@@ -348,7 +349,7 @@ class ActivityCounterfactualExplainer:
                     val = query_dice[col].iloc[0]
                     permitted_range[col] = [val - 0.001, val + 0.001]
 
-            logger.warning(f"🔧 DiCE: permitted_range設定 = 生体情報、時間、曜日を固定")
+            logger.warning(f"🔧 DiCE: permitted_range設定 = 継続時間、生体情報、時間、曜日を固定")
             logger.warning(f"🔧 DiCE: features_to_vary = ['CatSub'] のみ")
 
             # 🔍 DiCE実行前の最終確認

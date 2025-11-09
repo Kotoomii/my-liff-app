@@ -100,6 +100,14 @@ class FrustrationPredictor:
             # 15分未満の活動を除外
             df = df[df['Duration'] >= 15]
 
+            # Durationのスケーリング (15-480分 → 0-1)
+            # 15分=最小値、480分(8時間)=妥当な最大値
+            duration_min = 15
+            duration_max = 480
+            df['Duration_scaled'] = (df['Duration'] - duration_min) / (duration_max - duration_min)
+            # 範囲外の値をクリップ（0-1に収める）
+            df['Duration_scaled'] = df['Duration_scaled'].clip(0, 1)
+
             # 時間特徴量 (webhooktest.py形式)
             df['hour'] = df['Timestamp'].dt.hour
             df['hour_rad'] = 2 * np.pi * df['hour'] / 24
@@ -282,11 +290,11 @@ class FrustrationPredictor:
                 raise ValueError(f"訓練には最低10個のデータが必要です（現在: {len(df_enhanced)}件）")
 
             # NaN値を含む行を除外
-            required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled']
+            required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled', 'Duration_scaled']
             df_clean = df_enhanced.dropna(subset=required_cols)
 
             if df_clean.empty:
-                raise ValueError("有効なデータがありません。SDNN, Lorenz_Area, NASA_Fがすべて必要です。")
+                raise ValueError("有効なデータがありません。SDNN, Lorenz_Area, NASA_F, Durationがすべて必要です。")
 
             # 活動カテゴリ列を取得
             activity_cols = [col for col in df_clean.columns if col.startswith('activity_')]
@@ -298,8 +306,8 @@ class FrustrationPredictor:
             # 時間特徴量
             time_features = ['hour_sin', 'hour_cos']
 
-            # 特徴量: webhooktest.py形式
-            feature_list = ['SDNN_scaled', 'Lorenz_Area_scaled'] + activity_cols + time_features + weekday_cols
+            # 特徴量: webhooktest.py形式 + Duration
+            feature_list = ['SDNN_scaled', 'Lorenz_Area_scaled', 'Duration_scaled'] + activity_cols + time_features + weekday_cols
             self.feature_columns = feature_list
 
             # 特徴量とターゲットを抽出
@@ -362,11 +370,11 @@ class FrustrationPredictor:
                 raise ValueError(f"Walk Forward Validationには最低10個のデータが必要です（現在: {len(df_enhanced)}件）")
 
             # NaN値を含む行を除外
-            required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled']
+            required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled', 'Duration_scaled']
             df_clean = df_enhanced.dropna(subset=required_cols).copy()
 
             if df_clean.empty:
-                raise ValueError("有効なデータがありません。SDNN, Lorenz_Area, NASA_Fがすべて必要です。")
+                raise ValueError("有効なデータがありません。SDNN, Lorenz_Area, NASA_F, Durationがすべて必要です。")
 
             # 活動カテゴリ列を取得
             activity_cols = [col for col in df_clean.columns if col.startswith('activity_')]
@@ -378,8 +386,8 @@ class FrustrationPredictor:
             # 時間特徴量
             time_features = ['hour_sin', 'hour_cos']
 
-            # 特徴量リスト (webhooktest.py形式)
-            feature_list = ['SDNN_scaled', 'Lorenz_Area_scaled'] + activity_cols + time_features + weekday_cols
+            # 特徴量リスト (webhooktest.py形式 + Duration)
+            feature_list = ['SDNN_scaled', 'Lorenz_Area_scaled', 'Duration_scaled'] + activity_cols + time_features + weekday_cols
             self.feature_columns = feature_list
 
             # Walk Forward Validation: 過去のデータで訓練、現在を予測
@@ -487,6 +495,13 @@ class FrustrationPredictor:
             # 特徴量を構築
             features = {}
 
+            # Durationのスケーリング
+            duration_min = 15
+            duration_max = 480
+            duration_scaled = (duration - duration_min) / (duration_max - duration_min)
+            duration_scaled = np.clip(duration_scaled, 0, 1)
+            features['Duration_scaled'] = duration_scaled
+
             # 時間特徴量
             hour_rad = 2 * np.pi * current_time.hour / 24
             features['hour_sin'] = np.sin(hour_rad)
@@ -557,6 +572,18 @@ class FrustrationPredictor:
 
             # 特徴量を構築（行データから直接取得）
             features = {}
+
+            # Duration（既にスケール済みのはず）
+            if 'Duration_scaled' in row_data.index:
+                features['Duration_scaled'] = row_data['Duration_scaled']
+            else:
+                # スケール済みでない場合は計算
+                duration = row_data.get('Duration', 60)
+                duration_min = 15
+                duration_max = 480
+                duration_scaled = (duration - duration_min) / (duration_max - duration_min)
+                duration_scaled = np.clip(duration_scaled, 0, 1)
+                features['Duration_scaled'] = duration_scaled
 
             # 時間特徴量（既に計算済み）
             if 'hour_sin' in row_data.index and 'hour_cos' in row_data.index:
@@ -676,6 +703,13 @@ class FrustrationPredictor:
 
             # 特徴量を構築
             features = {}
+
+            # Durationのスケーリング
+            duration_min = 15
+            duration_max = 480
+            duration_scaled = (duration - duration_min) / (duration_max - duration_min)
+            duration_scaled = np.clip(duration_scaled, 0, 1)
+            features['Duration_scaled'] = duration_scaled
 
             # 時間特徴量
             hour_rad = 2 * np.pi * current_time.hour / 24
