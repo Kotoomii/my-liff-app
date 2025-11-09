@@ -536,78 +536,101 @@
             margin: 0 8px;
         }
 
-        /* DiCE提案リスト - タブレット最適化 */
+        /* DiCE提案テーブル - タブレット最適化（スクロールなし） */
         .suggestions-container {
             flex: 1;
-            overflow-y: auto;
-            padding-right: 10px;
+            overflow: visible;
+            padding-right: 5px;
             min-height: 0;
         }
 
-        .suggestions-container::-webkit-scrollbar {
-            width: 6px;
+        .suggestions-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            margin-top: 5px;
         }
 
-        .suggestions-container::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
+        .suggestions-table thead {
+            background: rgba(76, 175, 80, 0.2);
+            border-bottom: 2px solid rgba(76, 175, 80, 0.4);
         }
 
-        .suggestions-container::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 3px;
-        }
-
-        .suggestion-item {
-            background: rgba(255, 255, 255, 0.15);
-            padding: 12px;
-            margin: 8px 0;
-            border-radius: 10px;
-            border-left: 4px solid #4CAF50;
-            transition: all 0.3s ease;
-            position: relative;
-        }
-
-        .suggestion-item:hover {
-            transform: translateX(5px);
-            background: rgba(255, 255, 255, 0.25);
-        }
-
-        .suggestion-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 5px;
-        }
-
-        .suggestion-time {
+        .suggestions-table th {
+            padding: 8px 6px;
+            text-align: left;
             font-weight: bold;
             color: #4CAF50;
-            font-size: 15px;
-        }
-
-        .improvement-points {
-            background: rgba(76, 175, 80, 0.3);
-            padding: 4px 8px;
-            border-radius: 12px;
             font-size: 12px;
+            border-bottom: 2px solid rgba(76, 175, 80, 0.3);
+        }
+
+        .suggestions-table th:last-child {
+            text-align: center;
+            width: 70px;
+        }
+
+        .suggestions-table td {
+            padding: 10px 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            vertical-align: middle;
+        }
+
+        .suggestions-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .suggestions-table tbody tr {
+            transition: background 0.2s ease;
+        }
+
+        .suggestions-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .table-time {
             font-weight: bold;
+            color: #4CAF50;
+            font-size: 12px;
+            white-space: nowrap;
+            width: 55px;
         }
 
-        .suggestion-content {
-            margin-bottom: 8px;
+        .table-activity {
+            font-size: 11px;
+            line-height: 1.3;
         }
 
-        .suggestion-from {
-            font-size: 13px;
+        .table-current {
             color: #FF9800;
             margin-bottom: 2px;
         }
 
-        .suggestion-to {
-            font-size: 13px;
+        .table-suggested {
             color: #4CAF50;
             font-weight: bold;
+        }
+
+        .table-improvement {
+            text-align: center;
+            font-weight: bold;
+            color: #4CAF50;
+            font-size: 16px;
+            white-space: nowrap;
+        }
+
+        .no-suggestions-message {
+            text-align: center;
+            padding: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+        }
+
+        .top-n-indicator {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 3px;
+            text-align: center;
         }
 
         /* フィードバックセクション - コンパクト化 */
@@ -954,22 +977,29 @@
                     <div class="dice-status" id="dice-status">分析中...</div>
                 </div>
 
-                <div class="total-improvement" style="margin: 10px 0; font-size: 14px;">
-                    <span>改善:</span>
-                    <span class="improvement-value" style="font-size: 1.8em;" id="total-improvement">--</span>
+                <div class="total-improvement" style="margin: 5px 0; font-size: 13px;">
+                    <span>合計改善:</span>
+                    <span class="improvement-value" style="font-size: 1.6em;" id="total-improvement">--</span>
                     <span>点</span>
                 </div>
 
                 <div class="suggestions-container" id="suggestions-container">
-                    <div class="suggestion-item" style="margin: 5px 0; padding: 8px;">
-                        <div class="suggestion-header">
-                            <div class="suggestion-time" style="font-size: 13px;">分析中...</div>
-                            <div class="improvement-points" style="font-size: 11px;">-- 点</div>
-                        </div>
-                        <div class="suggestion-content">
-                            <div class="suggestion-from" style="font-size: 11px;">準備中...</div>
-                        </div>
-                    </div>
+                    <table class="suggestions-table">
+                        <thead>
+                            <tr>
+                                <th>時刻</th>
+                                <th>活動</th>
+                                <th>改善点</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="3" style="text-align: center; padding: 15px; color: rgba(255,255,255,0.6);">
+                                    分析中...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -1669,50 +1699,75 @@
         }
 
 
-        // DiCE表示更新（縦並び）
+        // DiCE表示更新（表形式・上位3件のみ）
         function updateDiCEDisplay(analysis) {
-            document.getElementById('total-improvement').textContent = 
+            document.getElementById('total-improvement').textContent =
                 (analysis.total_improvement || 0).toFixed(1);
 
             const container = document.getElementById('suggestions-container');
             container.innerHTML = '';
 
             if (analysis.timeline && analysis.timeline.length > 0) {
-                analysis.timeline.forEach(item => {
-                    const suggestionElement = document.createElement('div');
-                    suggestionElement.className = 'suggestion-item';
-                    
+                // 改善点が大きい順にソート
+                const sortedSuggestions = [...analysis.timeline].sort((a, b) =>
+                    (b.frustration_reduction || 0) - (a.frustration_reduction || 0)
+                );
+
+                // 上位3件のみ取得
+                const topSuggestions = sortedSuggestions.slice(0, 3);
+                const totalCount = analysis.timeline.length;
+
+                // テーブルを作成
+                const table = document.createElement('table');
+                table.className = 'suggestions-table';
+
+                // テーブルヘッダー
+                table.innerHTML = `
+                    <thead>
+                        <tr>
+                            <th>時刻</th>
+                            <th>活動</th>
+                            <th>改善点</th>
+                        </tr>
+                    </thead>
+                    <tbody id="suggestions-tbody"></tbody>
+                `;
+
+                container.appendChild(table);
+
+                // テーブル本体にデータを追加
+                const tbody = document.getElementById('suggestions-tbody');
+                topSuggestions.forEach(item => {
                     const time = new Date(item.timestamp).toLocaleTimeString('ja-JP', {
                         hour: '2-digit',
                         minute: '2-digit'
                     });
-                    
-                    suggestionElement.innerHTML = `
-                        <div class="suggestion-header">
-                            <div class="suggestion-time">${time}</div>
-                            <div class="improvement-points">${item.frustration_reduction.toFixed(1)}点改善</div>
-                        </div>
-                        <div class="suggestion-content">
-                            <div class="suggestion-from">現在: ${item.original_activity}</div>
-                            <div class="suggestion-to">提案: ${item.suggested_activity}</div>
-                        </div>
+
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="table-time">${time}</td>
+                        <td class="table-activity">
+                            <div class="table-current">${item.original_activity}</div>
+                            <div class="table-suggested">→ ${item.suggested_activity}</div>
+                        </td>
+                        <td class="table-improvement">+${item.frustration_reduction.toFixed(1)}</td>
                     `;
-                    
-                    container.appendChild(suggestionElement);
+                    tbody.appendChild(row);
                 });
+
+                // 上位N件表示のインジケーター（4件以上ある場合のみ表示）
+                if (totalCount > 3) {
+                    const indicator = document.createElement('div');
+                    indicator.className = 'top-n-indicator';
+                    indicator.textContent = `※ 全${totalCount}件中、改善効果の高い上位3件を表示`;
+                    container.appendChild(indicator);
+                }
+
             } else {
-                const noSuggestionsElement = document.createElement('div');
-                noSuggestionsElement.className = 'suggestion-item';
-                noSuggestionsElement.innerHTML = `
-                    <div class="suggestion-header">
-                        <div class="suggestion-time">分析完了</div>
-                        <div class="improvement-points">0点</div>
-                    </div>
-                    <div class="suggestion-content">
-                        <div class="suggestion-to">現在のパターンは良好です</div>
-                    </div>
-                `;
-                container.appendChild(noSuggestionsElement);
+                const noSuggestionsMessage = document.createElement('div');
+                noSuggestionsMessage.className = 'no-suggestions-message';
+                noSuggestionsMessage.textContent = '現在のパターンは良好です。改善提案はありません。';
+                container.appendChild(noSuggestionsMessage);
             }
 
             // DiCEタイムライン表示も更新
