@@ -33,8 +33,8 @@ class FeedbackType(Enum):
 
 @dataclass
 class FeedbackSchedule:
-    evening_time: str = "07:20"  # 07:20 UTC（日本時間16:20 JST）で当日データのDiCE実行（確認用）
-                                 # 16:15のdata_monitor_loop実行後、5分のバッファを確保（15分間隔で干渉を回避）
+    evening_time: str = "13:10"  # 13:10 UTC（日本時間22:10 JST）で当日データのDiCE実行
+                                 # 22:00のdata_monitor_loop実行後、10分のバッファを確保
     enabled: bool = True
 
 class FeedbackScheduler:
@@ -84,7 +84,7 @@ class FeedbackScheduler:
             )
 
             logger.warning(f"📅 定期フィードバックスケジューラーを開始しました")
-            logger.warning(f"⏰ 夜のフィードバック + DiCE実行: {self.schedule_config.evening_time} UTC（日本時間23:00 JST）")
+            logger.warning(f"⏰ 夜のフィードバック + DiCE実行: {self.schedule_config.evening_time} UTC（日本時間22:10 JST）")
             logger.warning(f"🔄 現在のシステム時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
             self.running = True

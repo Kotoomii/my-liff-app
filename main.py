@@ -1658,7 +1658,7 @@ def get_user_config(user_id: str) -> Dict:
 def data_monitor_loop():
     """
     全ユーザーのデータを監視し、nasa_status='done'の活動を自動的に予測
-    毎時00,15,30,45分に実行
+    9:00-22:00の間、毎時0分と30分に実行
     """
     global data_monitor_running, last_prediction_result
 
@@ -1666,26 +1666,34 @@ def data_monitor_loop():
     users_config = config.get_all_users()
 
     def get_next_run_time():
-        """次の15分刻みの実行時刻を計算（JST）"""
+        """次の実行時刻を計算（JST: 9:00-22:00の間、毎時0分と30分）"""
         from datetime import timedelta
 
         now = datetime.now(JST)
+        current_hour = now.hour
         current_minute = now.minute
 
-        # 次の15分刻みの分を計算（0, 15, 30, 45）
-        next_minute = ((current_minute // 15) + 1) * 15
-
-        if next_minute >= 60:
+        # 次の実行時刻候補を計算
+        if current_minute < 30:
+            # 今の時間の30分
+            next_time = now.replace(minute=30, second=0, microsecond=0)
+        else:
             # 次の時間の00分
             next_time = now + timedelta(hours=1)
             next_time = next_time.replace(minute=0, second=0, microsecond=0)
-        else:
-            # 今の時間の次の15分刻み
-            next_time = now.replace(minute=next_minute, second=0, microsecond=0)
+
+        # 9:00-22:00の範囲外の場合は翌日9:00に設定
+        while next_time.hour < 9 or next_time.hour > 22:
+            if next_time.hour > 22 or next_time.hour < 9:
+                # 翌日9:00
+                next_day = next_time + timedelta(days=1)
+                next_time = next_day.replace(hour=9, minute=0, second=0, microsecond=0)
+            else:
+                break
 
         return next_time
 
-    logger.warning(f"🕐 データ監視ループ開始: 毎時00,15,30,45分に実行")
+    logger.warning(f"🕐 データ監視ループ開始: 9:00-22:00の間、毎時0分と30分に実行")
 
     while data_monitor_running:
         try:
