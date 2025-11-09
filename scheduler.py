@@ -439,10 +439,16 @@ class FeedbackScheduler:
                 'total_improvement_potential': sum([s.get('improvement', 0) or 0 for s in hourly_schedule])
             }
 
-            # LLMで日次フィードバックを生成
+            # 昨日のデータをDaily Summaryから取得（進捗追跡のため）
+            yesterday_date = (datetime.strptime(today_data['date'], '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+            yesterday_summary = self.sheets_connector.get_daily_summary(user_id, yesterday_date)
+            logger.warning(f"📊 昨日のデータ取得: {yesterday_date}, 存在={yesterday_summary is not None}")
+
+            # LLMで日次フィードバックを生成（昨日のデータを含む）
             feedback_result_llm = self.feedback_generator.generate_daily_dice_feedback(
                 dice_result,
-                timeline_data
+                timeline_data,
+                yesterday_summary=yesterday_summary
             )
             logger.warning(f"💬 LLMフィードバック生成完了")
 
@@ -459,7 +465,8 @@ class FeedbackScheduler:
                 'dice_count': feedback_result_llm.get('num_suggestions', 0),
                 'chatgpt_feedback': feedback_result_llm.get('main_feedback', ''),
                 'action_plan': feedback_result_llm.get('action_plan', []),
-                'generated_at': feedback_result_llm.get('generated_at', datetime.now().isoformat())
+                'generated_at': feedback_result_llm.get('generated_at', datetime.now().isoformat()),
+                'total_activities': len(timeline_data)
             }
 
             save_success = self.sheets_connector.save_daily_feedback_summary(user_id, summary_data)

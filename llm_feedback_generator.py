@@ -125,7 +125,8 @@ class LLMFeedbackGenerator:
 
     def generate_daily_dice_feedback(self,
                                     daily_dice_result: Dict,
-                                    timeline_data: List[Dict] = None) -> Dict:
+                                    timeline_data: List[Dict] = None,
+                                    yesterday_summary: Dict = None) -> Dict:
         """
         1日の終わりにDiCE結果に基づいた日次フィードバックを生成
         タイムライン全体を考慮した包括的なアドバイスを提供
@@ -133,6 +134,7 @@ class LLMFeedbackGenerator:
         Args:
             daily_dice_result: 1日分のDiCE分析結果
             timeline_data: 1日のタイムラインデータ（オプション）
+            yesterday_summary: 昨日のDaily Summaryデータ（進捗追跡用、オプション）
 
         Returns:
             日次フィードバック辞書
@@ -149,12 +151,13 @@ class LLMFeedbackGenerator:
             # タイムラインデータから統計情報を計算
             timeline_stats = self._analyze_timeline_data(timeline_data) if timeline_data else {}
 
-            # プロンプトを構築
+            # プロンプトを構築（昨日のデータを含む）
             prompt = self._build_daily_dice_feedback_prompt(
                 hourly_schedule,
                 total_improvement,
                 date,
-                timeline_stats
+                timeline_stats,
+                yesterday_summary
             )
 
             # LLMでフィードバック生成
@@ -235,7 +238,8 @@ class LLMFeedbackGenerator:
                                          hourly_schedule: List[Dict],
                                          total_improvement: float,
                                          date: str,
-                                         timeline_stats: Dict) -> str:
+                                         timeline_stats: Dict,
+                                         yesterday_summary: Dict = None) -> str:
         """
         日次DiCEフィードバック用のプロンプトを構築
         """
@@ -243,7 +247,7 @@ class LLMFeedbackGenerator:
             # 改善提案をテキスト化
             suggestions_text = []
             for suggestion in hourly_schedule[:5]:  # 上位5件
-                time_range = suggestion.get('time_range', '不明')
+                time_range = suggestion.get('time_range', suggestion.get('time', '不明'))
                 original = suggestion.get('original_activity', '不明')
                 suggested = suggestion.get('suggested_activity', '不明')
                 improvement = suggestion.get('improvement', 0)
@@ -257,12 +261,30 @@ class LLMFeedbackGenerator:
             highest_stress = timeline_stats.get('highest_stress_activity', ('不明', 10))
             lowest_stress = timeline_stats.get('lowest_stress_activity', ('不明', 10))
 
+            # 昨日との比較情報を構築
+            comparison_text = ""
+            if yesterday_summary:
+                yesterday_avg = yesterday_summary.get('avg_predicted')
+                yesterday_activities = yesterday_summary.get('total_activities', 0)
+
+                if yesterday_avg is not None and avg_frustration is not None:
+                    diff = avg_frustration - yesterday_avg
+                    diff_direction = "改善" if diff < 0 else "上昇" if diff > 0 else "横ばい"
+                    comparison_text = f"""
+## 昨日との比較（進捗追跡）
+- 昨日の平均フラストレーション値: {yesterday_avg:.1f}点
+- 今日の平均: {avg_frustration:.1f}点（昨日より{abs(diff):.1f}点{diff_direction}）
+- 活動数: 昨日{yesterday_activities}件 → 今日{timeline_stats.get('total_activities', 0)}件
+"""
+            else:
+                comparison_text = "\n## 昨日との比較\n昨日のデータがありません。初日の記録です。\n"
+
             prompt = f"""
 あなたはストレス管理の専門家です。自己決定理論（Self-Determination Theory）に基づき、ユーザーの自律性を尊重し、内発的動機づけを促すフィードバックを生成してください。
 
 ## 今日の日付
 {date}
-
+{comparison_text}
 ## 今日の統計
 - 平均フラストレーション値: {avg_frustration:.1f}点 (1-20スケール)
 - 最大: {timeline_stats.get('max_frustration', 20):.1f}点、最小: {timeline_stats.get('min_frustration', 0):.1f}点
@@ -279,8 +301,11 @@ class LLMFeedbackGenerator:
 
 ## フィードバック生成の指針（自己決定理論に基づく）
 
-### 1. 肯定的フィードバックと小さな成功体験の承認
-- 今日の良かった点を具体的に承認してください（進捗の追跡）
+### 1. 肯定的フィードバックと小さな成功体験の承認（進捗の追跡）
+- **昨日との比較がある場合**: 改善した点を具体的に承認してください
+  - 例: 「昨日と比べて平均ストレス値が2.3点改善していますね」
+  - 数値の変化だけでなく、その背景（良かった活動など）にも言及してください
+- 今日の良かった点を具体的に承認してください
 - ストレス値が低かった活動や時間帯を肯定的に評価してください
 
 ### 2. 具体的で実践的なアドバイス

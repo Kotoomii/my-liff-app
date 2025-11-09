@@ -1373,15 +1373,15 @@ class SheetsConnector:
                 worksheet = self.spreadsheet.add_worksheet(
                     title=sheet_name,
                     rows="1000",
-                    cols="9"
+                    cols="10"
                 )
                 # ヘッダー行を追加
                 headers = [
                     '日付', '日次平均実測', '日次平均予測', '日次MAE',
                     'DiCE改善ポテンシャル', 'DiCE提案数',
-                    'ChatGPTフィードバック', 'アクションプラン', '生成日時'
+                    'ChatGPTフィードバック', 'アクションプラン', '生成日時', '活動数'
                 ]
-                worksheet.update('A1:I1', [headers])
+                worksheet.update('A1:J1', [headers])
                 logger.info(f"Daily Summaryシートを作成しました: {sheet_name}")
 
             # 日次MAEを計算
@@ -1403,7 +1403,8 @@ class SheetsConnector:
                 summary_data.get('dice_count', 0),
                 summary_data.get('chatgpt_feedback', ''),
                 action_plan_str,
-                summary_data.get('generated_at', datetime.now().isoformat())
+                summary_data.get('generated_at', datetime.now().isoformat()),
+                summary_data.get('total_activities', 0)
             ]
 
             # 重複チェック: 同じ日付のデータが既に存在するかチェック
@@ -1479,7 +1480,8 @@ class SheetsConnector:
                         'dice_count': int(row[5]) if len(row) > 5 and row[5] else 0,
                         'chatgpt_feedback': row[6] if len(row) > 6 else '',
                         'action_plan': json.loads(row[7]) if len(row) > 7 and row[7] else [],
-                        'generated_at': row[8] if len(row) > 8 else ''
+                        'generated_at': row[8] if len(row) > 8 else '',
+                        'total_activities': int(row[9]) if len(row) > 9 and row[9] else 0
                     }
                     logger.info(f"Daily Summary取得成功: {user_id}, {date}")
                     return summary_data
