@@ -1249,20 +1249,20 @@
                             confidence: predictionData.confidence || 0
                         });
                     } else {
-                        // 予測に失敗した場合はデフォルト値を使用
+                        // 予測に失敗した場合はnullのまま（表示しない）
                         predictedTimeline.push({
                             ...item,
-                            frustration_value: item.frustration_value || 10,
+                            frustration_value: item.frustration_value || null,
                             is_predicted: false,
                             confidence: 0
                         });
                     }
                 } catch (error) {
                     console.error('活動予測エラー:', error);
-                    // エラーの場合はデフォルト値を使用
+                    // エラーの場合はnullのまま（表示しない）
                     predictedTimeline.push({
                         ...item,
-                        frustration_value: item.frustration_value || 10,
+                        frustration_value: item.frustration_value || null,
                         is_predicted: false,
                         confidence: 0
                     });
@@ -1340,20 +1340,20 @@
                             confidence: predictionData.confidence || 0
                         });
                     } else {
-                        // 予測に失敗した場合はデフォルト値を使用
+                        // 予測に失敗した場合はnullのまま（表示しない）
                         predictedTimeline.push({
                             ...item,
-                            frustration_value: item.frustration_value || 10,
+                            frustration_value: item.frustration_value || null,
                             is_predicted: false,
                             confidence: 0
                         });
                     }
                 } catch (error) {
                     console.error('活動予測エラー:', error);
-                    // エラーの場合はデフォルト値を使用
+                    // エラーの場合はnullのまま（表示しない）
                     predictedTimeline.push({
                         ...item,
-                        frustration_value: item.frustration_value || 10,
+                        frustration_value: item.frustration_value || null,
                         is_predicted: false,
                         confidence: 0
                     });
@@ -1432,29 +1432,39 @@
         // 今日のフラストレーション表示更新
         function updateDailyFrustrationDisplay(timeline) {
             if (!timeline || timeline.length === 0) return;
-            
-            // 今日の統計を計算
-            const frustrationValues = timeline.map(item => item.frustration_value).filter(val => val != null);
-            
-            if (frustrationValues.length === 0) return;
-            
+
+            // 今日の統計を計算（frustration_valueがnullでないものだけ）
+            const frustrationValues = timeline
+                .filter(item => item.frustration_value != null)
+                .map(item => item.frustration_value);
+
+            if (frustrationValues.length === 0) {
+                // 予測値が1つもない場合
+                document.getElementById('daily-frustration-value').textContent = '--';
+                document.getElementById('daily-info').textContent = '予測値なし';
+                document.getElementById('daily-min').textContent = '--';
+                document.getElementById('daily-max').textContent = '--';
+                document.getElementById('daily-activities').textContent = 0;
+                return;
+            }
+
             const average = frustrationValues.reduce((sum, val) => sum + val, 0) / frustrationValues.length;
             const min = Math.min(...frustrationValues);
             const max = Math.max(...frustrationValues);
-            
+
             // 表示更新（1-20スケール対応）
             const valueElement = document.getElementById('daily-frustration-value');
             valueElement.textContent = Math.round(average);
-            valueElement.className = 'frustration-value ' + 
-                (average <= 6 ? 'frustration-low' : 
+            valueElement.className = 'frustration-value ' +
+                (average <= 6 ? 'frustration-low' :
                  average <= 13 ? 'frustration-medium' : 'frustration-high');
-            
-            document.getElementById('daily-info').textContent = 
+
+            document.getElementById('daily-info').textContent =
                 `今日の予測平均値 (${frustrationValues.length}回の活動)`;
-            
-            document.getElementById('daily-min').textContent = min;
-            document.getElementById('daily-max').textContent = max;
-            document.getElementById('daily-activities').textContent = timeline.length;
+
+            document.getElementById('daily-min').textContent = Math.round(min);
+            document.getElementById('daily-max').textContent = Math.round(max);
+            document.getElementById('daily-activities').textContent = frustrationValues.length;
         }
 
         // タイムライン表示更新（時間軸ベース）
@@ -1479,18 +1489,23 @@
         // 活動データを時間軸用に処理
         function processActivitiesForTimeline(timeline) {
             const processed = [];
-            
+
             timeline.forEach(item => {
+                // frustration_valueがnullの場合はスキップ（表示しない）
+                if (item.frustration_value == null) {
+                    return;
+                }
+
                 const startTime = new Date(item.timestamp);
                 const durationMinutes = item.duration || 0;
                 const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
-                
+
                 processed.push({
                     activity: item.activity,
                     startTime: startTime,
                     endTime: endTime,
                     durationMinutes: durationMinutes,
-                    frustration: item.frustration_value || 10,
+                    frustration: item.frustration_value,
                     startHour: startTime.getHours(),
                     startMinute: startTime.getMinutes(),
                     endHour: endTime.getHours(),

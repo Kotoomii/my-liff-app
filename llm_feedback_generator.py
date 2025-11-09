@@ -209,14 +209,34 @@ class LLMFeedbackGenerator:
             if not timeline_data:
                 return {}
 
-            frustration_values = [item.get('frustration_value', 10) for item in timeline_data]
+            # frustration_valueがnullでないものだけをフィルタ
+            frustration_values = [
+                item.get('frustration_value')
+                for item in timeline_data
+                if item.get('frustration_value') is not None
+            ]
             activities = [item.get('activity', '不明') for item in timeline_data]
+
+            # frustration_valueがnullの場合はスキップ
+            if len(frustration_values) == 0:
+                return {
+                    'avg_frustration': None,
+                    'min_frustration': None,
+                    'max_frustration': None,
+                    'total_activities': 0,
+                    'highest_stress_activity': ('不明', None),
+                    'lowest_stress_activity': ('不明', None),
+                    'activity_distribution': {}
+                }
 
             # 活動別の平均フラストレーション値
             activity_frustration = {}
             for item in timeline_data:
                 activity = item.get('activity', '不明')
-                frustration = item.get('frustration_value', 10)
+                frustration = item.get('frustration_value')
+                # nullの場合はスキップ
+                if frustration is None:
+                    continue
                 if activity not in activity_frustration:
                     activity_frustration[activity] = []
                 activity_frustration[activity].append(frustration)
@@ -231,12 +251,12 @@ class LLMFeedbackGenerator:
             sorted_activities = sorted(activity_avg.items(), key=lambda x: x[1], reverse=True)
 
             return {
-                'avg_frustration': sum(frustration_values) / len(frustration_values) if frustration_values else 10,
-                'min_frustration': min(frustration_values) if frustration_values else 0,
-                'max_frustration': max(frustration_values) if frustration_values else 20,
-                'total_activities': len(timeline_data),
-                'highest_stress_activity': sorted_activities[0] if sorted_activities else ('不明', 10),
-                'lowest_stress_activity': sorted_activities[-1] if sorted_activities else ('不明', 10),
+                'avg_frustration': sum(frustration_values) / len(frustration_values) if frustration_values else None,
+                'min_frustration': min(frustration_values) if frustration_values else None,
+                'max_frustration': max(frustration_values) if frustration_values else None,
+                'total_activities': len(frustration_values),  # 予測値があるものだけカウント
+                'highest_stress_activity': sorted_activities[0] if sorted_activities else ('不明', None),
+                'lowest_stress_activity': sorted_activities[-1] if sorted_activities else ('不明', None),
                 'activity_distribution': activity_avg
             }
 
@@ -267,9 +287,13 @@ class LLMFeedbackGenerator:
                 )
 
             # タイムライン統計
-            avg_frustration = timeline_stats.get('avg_frustration', 10)
-            highest_stress = timeline_stats.get('highest_stress_activity', ('不明', 10))
-            lowest_stress = timeline_stats.get('lowest_stress_activity', ('不明', 10))
+            avg_frustration = timeline_stats.get('avg_frustration')
+            highest_stress = timeline_stats.get('highest_stress_activity', ('不明', None))
+            lowest_stress = timeline_stats.get('lowest_stress_activity', ('不明', None))
+
+            # データが全くない場合の早期リターン
+            if avg_frustration is None:
+                return "今日のフラストレーション予測データがありません。Fitbitデータが不足している可能性があります。"
 
             # 昨日との比較情報を構築
             comparison_text = ""
@@ -289,6 +313,12 @@ class LLMFeedbackGenerator:
             else:
                 comparison_text = "\n## 昨日との比較\n昨日のデータがありません。初日の記録です。\n"
 
+            # Noneチェックを追加
+            max_f = timeline_stats.get('max_frustration')
+            min_f = timeline_stats.get('min_frustration')
+            highest_stress_val = highest_stress[1] if highest_stress[1] is not None else 0
+            lowest_stress_val = lowest_stress[1] if lowest_stress[1] is not None else 0
+
             prompt = f"""
 あなたはストレス管理の専門家です。自己決定理論（Self-Determination Theory）に基づき、ユーザーの自律性を尊重し、内発的動機づけを促すフィードバックを生成してください。
 
@@ -297,10 +327,10 @@ class LLMFeedbackGenerator:
 {comparison_text}
 ## 今日の統計
 - 平均フラストレーション値: {avg_frustration:.1f}点 (1-20スケール)
-- 最大: {timeline_stats.get('max_frustration', 20):.1f}点、最小: {timeline_stats.get('min_frustration', 0):.1f}点
+- 最大: {max_f:.1f if max_f is not None else '不明'}点、最小: {min_f:.1f if min_f is not None else '不明'}点
 - 活動数: {timeline_stats.get('total_activities', 0)}件
-- 最もストレスが高かった活動: {highest_stress[0]} ({highest_stress[1]:.1f}点)
-- 最もリラックスできた活動: {lowest_stress[0]} ({lowest_stress[1]:.1f}点)
+- 最もストレスが高かった活動: {highest_stress[0]} ({highest_stress_val:.1f}点)
+- 最もリラックスできた活動: {lowest_stress[0]} ({lowest_stress_val:.1f}点)
 
 ## DiCE分析による改善提案
 総改善ポテンシャル: {total_improvement:.1f}点
