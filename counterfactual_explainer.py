@@ -539,9 +539,13 @@ class ActivityCounterfactualExplainer:
     def generate_hourly_alternatives(self, activities_data: pd.DataFrame,
                                    predictor, target_date: datetime = None, callback=None) -> dict:
         """
-        1日の終わりに時間単位でDiCE改善提案を生成
+        1日の終わりに活動単位でDiCE改善提案を生成
+        記録された各活動（Timestamp + Duration）に対して1つずつDiCE提案を生成する
 
         Args:
+            activities_data: 全期間の活動データ
+            predictor: 学習済みモデル
+            target_date: 対象日（デフォルト: 今日）
             callback: DiCE結果を1件生成するたびに呼び出される関数
         """
         try:
@@ -568,68 +572,68 @@ class ActivityCounterfactualExplainer:
                 logger.error(f"   Timestampカラムの型: {activities_data['Timestamp'].dtype}")
                 return self._get_error_hourly_schedule(f"{target_date}のデータが見つかりません")
 
-            # 時間別の改善提案を生成
+            # 活動単位でDiCE改善提案を生成
             hourly_schedule = []
             total_improvement = 0
 
-            logger.warning(f"🔄 24時間分のDiCE提案を生成開始（対象日に活動がある時間帯のみ処理）")
+            logger.warning(f"🔄 対象日の全活動（{len(day_data)}件）に対してDiCE提案を生成開始")
             activities_processed = 0
 
-            for hour in range(24):
-                hour_start = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=hour)
-                hour_end = hour_start + timedelta(hours=1)
+            # 記録された各活動に対してDiCE提案を生成
+            for idx, original_activity in day_data.iterrows():
+                activities_processed += 1
+                activity_name = original_activity.get('CatSub', '不明')
+                activity_time = original_activity['Timestamp'].strftime('%H:%M')
+                duration = original_activity.get('Duration', 60)  # デフォルト60分
 
-                # この時間帯の活動データを取得
-                hour_activities = day_data[
-                    (day_data['Timestamp'] >= hour_start) &
-                    (day_data['Timestamp'] < hour_end)
-                ]
+                logger.warning(f"  🔍 活動{activities_processed}/{len(day_data)}: {activity_time} {activity_name} ({duration}分), DiCE処理開始...")
 
-                if not hour_activities.empty:
-                    logger.warning(f"  🔍 {hour}時台: 活動あり、DiCE処理開始...")
-                    activities_processed += 1
-                    original_activity = hour_activities.iloc[0]
-                    idx = activities_data.index[activities_data['Timestamp'] == original_activity['Timestamp']]
+                # activities_data全体の中でのインデックスを取得
+                global_idx = activities_data.index[activities_data['Timestamp'] == original_activity['Timestamp']]
 
-                    if len(idx) > 0:
-                        # DiCEを使った代替活動の提案
-                        import time
-                        start_time = time.time()
-                        result = self._generate_dice_counterfactual_simple(
-                            activities_data, idx[0], original_activity, predictor
-                        )
-                        elapsed = time.time() - start_time
+                if len(global_idx) > 0:
+                    # DiCEを使った代替活動の提案
+                    import time
+                    start_time = time.time()
+                    result = self._generate_dice_counterfactual_simple(
+                        activities_data, global_idx[0], original_activity, predictor
+                    )
+                    elapsed = time.time() - start_time
 
-                        if result:
-                            # 【重要】実際のTimestampから時刻を取得（Hourly Logとの一致のため）
-                            actual_time = original_activity['Timestamp'].strftime('%H:%M')
-                            dice_result = {
-                                'hour': hour,
-                                'time': actual_time,  # 実際のTimestamp (例: "14:30")
-                                'time_range': f"{hour:02d}:00-{hour+1:02d}:00",
-                                'original_activity': result['original_activity'],
-                                'suggested_activity': result['suggested_activity'],
-                                'original_frustration': result['original_frustration'],  # 現在のF値（予測値）
-                                'predicted_frustration': result['predicted_frustration'],  # 改善後のF値
-                                'improvement': result['improvement'],
-                                'confidence': result['confidence']
-                            }
-                            hourly_schedule.append(dice_result)
-                            total_improvement += result['improvement']
-                            logger.warning(f"  ✅ {hour}時台: {result['original_activity']} → {result['suggested_activity']} (改善: {result['improvement']:.2f}, 処理時間: {elapsed:.1f}秒)")
+                    if result:
+                        # 実際のTimestampから時刻と時間範囲を取得
+                        actual_time = original_activity['Timestamp'].strftime('%H:%M')
+                        start_hour = original_activity['Timestamp'].hour
+                        end_time = original_activity['Timestamp'] + timedelta(minutes=duration)
+                        time_range = f"{original_activity['Timestamp'].strftime('%H:%M')}-{end_time.strftime('%H:%M')}"
 
-                            # コールバック関数が指定されていれば、即座に呼び出す
-                            if callback:
-                                callback(dice_result)
-                        else:
-                            logger.warning(f"  ⚠️ {hour}時台: DiCE提案なし（処理時間: {elapsed:.1f}秒）")
+                        dice_result = {
+                            'hour': start_hour,
+                            'time': actual_time,  # 実際のTimestamp (例: "14:30")
+                            'time_range': time_range,  # 実際の活動時間範囲（例: "13:00-16:00"）
+                            'original_activity': result['original_activity'],
+                            'suggested_activity': result['suggested_activity'],
+                            'original_frustration': result['original_frustration'],  # 現在のF値（予測値）
+                            'predicted_frustration': result['predicted_frustration'],  # 改善後のF値
+                            'improvement': result['improvement'],
+                            'confidence': result['confidence']
+                        }
+                        hourly_schedule.append(dice_result)
+                        total_improvement += result['improvement']
+                        logger.warning(f"  ✅ {activity_time} ({time_range}): {result['original_activity']} → {result['suggested_activity']} (改善: {result['improvement']:.2f}, 処理時間: {elapsed:.1f}秒)")
 
-            logger.warning(f"🔍 hourly_schedule生成完了: {len(hourly_schedule)}件, total_improvement={total_improvement:.2f}")
+                        # コールバック関数が指定されていれば、即座に呼び出す
+                        if callback:
+                            callback(dice_result)
+                    else:
+                        logger.warning(f"  ⚠️ {activity_time} {activity_name}: DiCE提案なし（処理時間: {elapsed:.1f}秒）")
+
+            logger.warning(f"🔍 DiCE提案生成完了: {len(hourly_schedule)}件（対象活動: {len(day_data)}件）, total_improvement={total_improvement:.2f}")
 
             if total_improvement == 0:
-                logger.error(f"❌ 時間別DiCE提案: 改善提案を生成できませんでした")
+                logger.error(f"❌ DiCE提案: 改善提案を生成できませんでした")
                 logger.error(f"   対象日のデータ件数: {len(day_data)}")
-                logger.error(f"   hourly_scheduleの長さ: {len(hourly_schedule)}")
+                logger.error(f"   生成された提案の数: {len(hourly_schedule)}")
                 return self._get_error_hourly_schedule("改善提案を生成できませんでした")
 
             return {
@@ -637,10 +641,10 @@ class ActivityCounterfactualExplainer:
                 'date': target_date.strftime('%Y-%m-%d'),
                 'hourly_schedule': hourly_schedule,
                 'total_improvement': total_improvement,
-                'average_improvement': total_improvement / 24 if hourly_schedule else 0,
+                'average_improvement': total_improvement / len(day_data) if len(day_data) > 0 else 0,
                 'message': f"今日このような活動をしていたらストレスレベルが{total_improvement:.1f}点下がっていました",
                 'confidence': min(0.9, 0.5 + len(hourly_schedule) * 0.05),
-                'summary': f"24時間中{len(hourly_schedule)}時間で改善の可能性がありました"
+                'summary': f"{len(day_data)}活動中{len(hourly_schedule)}活動で改善の可能性がありました"
             }
 
         except Exception as e:
