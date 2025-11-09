@@ -942,6 +942,92 @@ def trigger_manual_feedback():
             'message': str(e)
         }), 500
 
+# ==========================================
+# Cloud Scheduler用エンドポイント（min_instances=0用）
+# ==========================================
+
+@app.route('/api/scheduler/monitor', methods=['POST'])
+def trigger_cloud_scheduler_monitor():
+    """
+    Cloud Schedulerからデータ監視を起動（1回実行）
+    既存のdata_monitor_loop()を使用する場合は、このエンドポイントは使用しない
+    """
+    try:
+        # 簡易認証: ヘッダーチェック（オプション）
+        # Cloud Schedulerでは OIDC トークンを使用することを推奨
+        auth_header = request.headers.get('X-Scheduler-Auth', '')
+        expected_auth = os.environ.get('SCHEDULER_AUTH_TOKEN', 'default-scheduler-token')
+
+        if auth_header != expected_auth:
+            logger.warning(f"⚠️ Cloud Scheduler認証失敗: ヘッダー={auth_header[:10]}...")
+            return jsonify({
+                'status': 'error',
+                'message': '認証に失敗しました'
+            }), 401
+
+        logger.warning(f"🔍 Cloud Schedulerからデータ監視リクエストを受信: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}")
+
+        # データ監視を1回実行
+        result = run_data_monitor_once()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'データ監視を実行しました',
+            'result': result,
+            'timestamp': datetime.now(JST).isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"Cloud Schedulerデータ監視エラー: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/scheduler/dice', methods=['POST'])
+def trigger_cloud_scheduler_dice():
+    """
+    Cloud SchedulerからDiCE実行を起動（1回実行）
+    既存のscheduler._execute_evening_feedback()と同等の処理
+    """
+    try:
+        # 簡易認証: ヘッダーチェック
+        auth_header = request.headers.get('X-Scheduler-Auth', '')
+        expected_auth = os.environ.get('SCHEDULER_AUTH_TOKEN', 'default-scheduler-token')
+
+        if auth_header != expected_auth:
+            logger.warning(f"⚠️ Cloud Scheduler認証失敗: ヘッダー={auth_header[:10]}...")
+            return jsonify({
+                'status': 'error',
+                'message': '認証に失敗しました'
+            }), 401
+
+        logger.warning(f"🎲 Cloud SchedulerからDiCE実行リクエストを受信: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}")
+
+        # scheduler._execute_evening_feedback()を直接呼び出し
+        scheduler._execute_evening_feedback()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'DiCE実行を完了しました',
+            'timestamp': datetime.now(JST).isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"Cloud Scheduler DiCE実行エラー: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+# ==========================================
+# 既存エンドポイント
+# ==========================================
+
 @app.route('/api/feedback/history', methods=['GET'])
 def get_feedback_history():
     """フィードバック履歴取得"""
@@ -1902,6 +1988,199 @@ def data_monitor_loop():
             logger.error(traceback.format_exc())
             # エラー時も次の実行時刻まで待機
             time.sleep(60)
+
+def run_data_monitor_once():
+    """
+    データ監視を1回だけ実行（Cloud Scheduler用）
+    既存のdata_monitor_loop()のコア処理を1回実行する版
+    """
+    global last_prediction_result
+
+    logger.warning(f"🔍 データ監視開始（1回実行）: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}")
+
+    # 全ユーザーのリストをConfigから取得
+    users_config = config.get_all_users()
+
+    # 全ユーザーをチェック
+    for user_config in users_config:
+        user_id = user_config['user_id']
+        user_name = user_config['name']
+
+        try:
+            # ユーザーごとのpredictorを取得
+            predictor = get_predictor(user_id)
+
+            # データ取得（キャッシュなし）
+            activity_data = sheets_connector.get_activity_data(user_id, use_cache=False)
+            fitbit_data = sheets_connector.get_fitbit_data(user_id, use_cache=False)
+
+            if activity_data.empty:
+                logger.warning(f"活動データなし: {user_name}")
+                continue
+
+            # nasa_status='done'の行のみフィルタリング
+            if 'nasa_status' in activity_data.columns:
+                activity_data_done = activity_data[activity_data['nasa_status'] == 'done'].copy()
+                logger.warning(f"📊 {user_name}: 全活動={len(activity_data)}件, nasa_status='done'={len(activity_data_done)}件")
+            else:
+                activity_data_done = activity_data.copy()
+                logger.warning(f"⚠️ {user_name}: nasa_status列が見つかりません。全活動を処理します")
+
+            if activity_data_done.empty:
+                logger.warning(f"nasa_status='done'の活動なし: {user_name}")
+                continue
+
+            # モデル訓練確認
+            training_result = ensure_model_trained(user_id, force_retrain=False)
+            if training_result['status'] not in ['success', 'already_trained']:
+                logger.warning(f"モデル訓練失敗 ({user_name}): {training_result.get('message')}")
+                continue
+
+            if predictor.model is None:
+                logger.error(f"モデルが初期化されていません ({user_name})")
+                continue
+
+            # データ前処理
+            activity_processed = predictor.preprocess_activity_data(activity_data_done)
+            df_enhanced = predictor.aggregate_fitbit_by_activity(activity_processed, fitbit_data)
+
+            logger.warning(f"🔍 予測チェック開始: {user_name}, 対象活動={len(df_enhanced)}件")
+
+            # 全期間のHourly Logを一度に取得
+            all_dates = df_enhanced['Timestamp'].dt.strftime('%Y-%m-%d').unique()
+            hourly_log_cache = {}
+            for date in all_dates:
+                hourly_log_cache[date] = sheets_connector.get_hourly_log(user_id, date)
+
+            logger.warning(f"📋 Hourly Log取得完了: {len(hourly_log_cache)}日分")
+
+            # 新規活動のみを抽出
+            new_activities = []
+            update_predictions = []
+
+            for idx, row in df_enhanced.iterrows():
+                try:
+                    timestamp = row['Timestamp']
+                    date = timestamp.strftime('%Y-%m-%d')
+                    time_str = timestamp.strftime('%H:%M')
+                    activity = row.get('CatSub', '')
+
+                    if not activity or pd.isna(activity) or activity == 'unknown':
+                        continue
+
+                    actual_frustration = row.get('NASA_F')
+                    has_biodata = check_fitbit_data_availability(row)
+
+                    # Hourly Logに既に存在するかチェック
+                    hourly_log = hourly_log_cache.get(date, pd.DataFrame())
+                    is_existing = False
+                    existing_predicted = None
+
+                    if not hourly_log.empty:
+                        existing = hourly_log[
+                            (hourly_log['時刻'] == time_str) &
+                            (hourly_log['活動名'] == activity)
+                        ]
+                        if not existing.empty:
+                            is_existing = True
+                            existing_row = existing.iloc[0]
+                            existing_predicted = existing_row.get('予測NASA_F')
+
+                    if is_existing:
+                        if (pd.isna(existing_predicted) or existing_predicted == '') and has_biodata:
+                            update_predictions.append({
+                                'row': row,
+                                'date': date,
+                                'time': time_str,
+                                'activity': activity,
+                                'actual_frustration': actual_frustration
+                            })
+                        continue
+
+                    # 新規活動として追加
+                    new_activities.append({
+                        'row': row,
+                        'date': date,
+                        'time': time_str,
+                        'activity': activity,
+                        'actual_frustration': actual_frustration,
+                        'has_biodata': has_biodata
+                    })
+
+                except Exception as parse_error:
+                    logger.error(f"活動データ解析エラー: {parse_error}")
+                    continue
+
+            logger.warning(f"📊 新規活動: {len(new_activities)}件, 予測値更新: {len(update_predictions)}件")
+
+            # 予測値更新処理
+            predictions_count = 0
+            for item in update_predictions:
+                try:
+                    prediction_result = predictor.predict_from_row(item['row'])
+                    if prediction_result and 'predicted_frustration' in prediction_result:
+                        predicted_frustration = prediction_result.get('predicted_frustration')
+                        if predicted_frustration is not None and not (np.isnan(predicted_frustration) or np.isinf(predicted_frustration)):
+                            predicted_frustration = float(predicted_frustration)
+                            sheets_connector.update_hourly_log_prediction(
+                                user_id, item['date'], item['time'], item['activity'], predicted_frustration
+                            )
+                            predictions_count += 1
+                            logger.warning(f"🔄 予測値更新: {item['activity']} @{item['time']}, 予測={predicted_frustration:.2f}")
+                except Exception as update_error:
+                    logger.error(f"予測値更新エラー: {update_error}")
+                    continue
+
+            # 新規活動保存処理
+            for item in new_activities:
+                try:
+                    predicted_frustration = None
+
+                    if item['has_biodata']:
+                        prediction_result = predictor.predict_from_row(item['row'])
+                        if prediction_result and 'predicted_frustration' in prediction_result:
+                            predicted_frustration = prediction_result.get('predicted_frustration')
+                            if predicted_frustration is not None and not (np.isnan(predicted_frustration) or np.isinf(predicted_frustration)):
+                                predicted_frustration = float(predicted_frustration)
+                            else:
+                                predicted_frustration = None
+
+                    hourly_data = {
+                        'date': item['date'],
+                        'time': item['time'],
+                        'activity': item['activity'],
+                        'actual_frustration': item['actual_frustration'],
+                        'predicted_frustration': predicted_frustration
+                    }
+                    sheets_connector.save_hourly_log(user_id, hourly_data)
+                    predictions_count += 1
+
+                    if predicted_frustration:
+                        logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測={predicted_frustration:.2f}")
+                    else:
+                        logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測=なし（生体データ不足）")
+
+                except Exception as save_error:
+                    logger.error(f"新規登録エラー: {save_error}")
+                    continue
+
+            logger.warning(f"🎯 処理完了: {user_name}, {predictions_count}件をHourly Logに登録")
+
+            # last_prediction_resultを更新
+            if predictions_count > 0:
+                last_prediction_result[user_id] = {
+                    'timestamp': datetime.now(JST).isoformat(),
+                    'user_id': user_id,
+                    'user_name': user_name,
+                    'predictions_count': predictions_count
+                }
+
+        except Exception as user_error:
+            logger.error(f"{user_name} の処理エラー: {user_error}")
+            continue
+
+    logger.warning(f"✅ データ監視完了（1回実行）")
+    return {'status': 'success', 'processed_users': len(users_config)}
 
 def initialize_application():
     """アプリケーション初期化（一度だけ実行）"""
