@@ -108,6 +108,13 @@ class FrustrationPredictor:
             # 範囲外の値をクリップ（0-1に収める）
             df['Duration_scaled'] = df['Duration_scaled'].clip(0, 1)
 
+            # Duration_scaledの異常値チェック
+            if df['Duration_scaled'].isna().any():
+                logger.warning(f"⚠️ Duration_scaledにNaN値が検出されました")
+            if np.isinf(df['Duration_scaled']).any():
+                logger.warning(f"⚠️ Duration_scaledに無限大の値が検出されました")
+                df['Duration_scaled'] = df['Duration_scaled'].replace([np.inf, -np.inf], np.nan)
+
             # 時間特徴量 (webhooktest.py形式)
             df['hour'] = df['Timestamp'].dt.hour
             df['hour_rad'] = 2 * np.pi * df['hour'] / 24
@@ -179,6 +186,10 @@ class FrustrationPredictor:
 
             if sdnn_max > 0:
                 fitbit_data['SDNN_scaled'] = fitbit_data['SDNN'] / sdnn_max
+                # 無限大の値をチェック
+                if np.isinf(fitbit_data['SDNN_scaled']).any():
+                    logger.warning(f"⚠️ SDNN_scaledに無限大の値が検出されました。NaNに置換します。")
+                    fitbit_data['SDNN_scaled'] = fitbit_data['SDNN_scaled'].replace([np.inf, -np.inf], np.nan)
                 logger.warning(f"🔍 SDNN_scaled 計算完了: min={fitbit_data['SDNN_scaled'].min():.3f}, max={fitbit_data['SDNN_scaled'].max():.3f}")
             else:
                 fitbit_data['SDNN_scaled'] = np.nan
@@ -186,6 +197,10 @@ class FrustrationPredictor:
 
             if lorenz_max > 0:
                 fitbit_data['Lorenz_Area_scaled'] = fitbit_data['Lorenz_Area'] / lorenz_max
+                # 無限大の値をチェック
+                if np.isinf(fitbit_data['Lorenz_Area_scaled']).any():
+                    logger.warning(f"⚠️ Lorenz_Area_scaledに無限大の値が検出されました。NaNに置換します。")
+                    fitbit_data['Lorenz_Area_scaled'] = fitbit_data['Lorenz_Area_scaled'].replace([np.inf, -np.inf], np.nan)
                 logger.warning(f"🔍 Lorenz_Area_scaled 計算完了: min={fitbit_data['Lorenz_Area_scaled'].min():.3f}, max={fitbit_data['Lorenz_Area_scaled'].max():.3f}")
             else:
                 fitbit_data['Lorenz_Area_scaled'] = np.nan
@@ -314,6 +329,19 @@ class FrustrationPredictor:
             X = df_clean[self.feature_columns]
             y = df_clean['NASA_F_scaled']
 
+            # NaN/inf値のチェックと除去
+            # X, yの両方から無効な値を含む行を除去
+            invalid_mask = X.isna().any(axis=1) | y.isna() | np.isinf(X).any(axis=1) | np.isinf(y)
+            if invalid_mask.sum() > 0:
+                logger.warning(f"⚠️ 無効な値を含む行を除去: {invalid_mask.sum()}件")
+                X = X[~invalid_mask]
+                y = y[~invalid_mask]
+
+            if len(X) < 10:
+                raise ValueError(f"有効なデータが不足しています（{len(X)}件）。最低10件必要です。")
+
+            logger.info(f"✅ クリーニング後のデータ: {len(X)}件")
+
             # 訓練/テストデータに分割
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=self.config.RANDOM_STATE)
 
@@ -389,6 +417,19 @@ class FrustrationPredictor:
             # 特徴量リスト (webhooktest.py形式 + Duration)
             feature_list = ['SDNN_scaled', 'Lorenz_Area_scaled', 'Duration_scaled'] + activity_cols + time_features + weekday_cols
             self.feature_columns = feature_list
+
+            # NaN/inf値のチェックと除去（Walk Forward Validation実行前）
+            X_check = df_clean[self.feature_columns]
+            y_check = df_clean['NASA_F_scaled']
+            invalid_mask = X_check.isna().any(axis=1) | y_check.isna() | np.isinf(X_check).any(axis=1) | np.isinf(y_check)
+            if invalid_mask.sum() > 0:
+                logger.warning(f"⚠️ 無効な値を含む行を除去: {invalid_mask.sum()}件")
+                df_clean = df_clean[~invalid_mask].copy()
+
+            if len(df_clean) < 10:
+                raise ValueError(f"有効なデータが不足しています（{len(df_clean)}件）。最低10件必要です。")
+
+            logger.info(f"✅ クリーニング後のデータ: {len(df_clean)}件")
 
             # Walk Forward Validation: 過去のデータで訓練、現在を予測
             predictions = []
