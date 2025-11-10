@@ -362,10 +362,10 @@ class FeedbackScheduler:
                     original_f = result.get('original_frustration')
                     improved_f = result.get('predicted_frustration')
 
-                    # 改善幅を計算（正の値が改善を表す）
-                    improvement = original_f - improved_f if (original_f and improved_f) else None
+                    # 改善幅を計算（負の値が改善）
+                    improvement = improved_f - original_f if (original_f and improved_f) else None
 
-                    logger.warning(f"  💡 {date} {time} {original_activity} → {suggested_activity} (改善: {improvement:.2f if improvement else 'N/A'})")
+                    logger.warning(f"  💡 {date} {time} {original_activity} → {suggested_activity} (改善: {improvement:.2f})")
 
                     # Hourly Logを更新
                     success = self.sheets_connector.update_hourly_log_with_dice(
@@ -482,22 +482,10 @@ class FeedbackScheduler:
             predicted_values = [item['frustration_value'] for item in timeline_data]
             avg_predicted = sum(predicted_values) / len(predicted_values) if predicted_values else None
 
-            # 日次平均実測を計算（Activity_DataからNASA_F値を取得）
-            avg_actual = None
-            if not target_activity_data.empty and 'NASA_F' in target_activity_data.columns:
-                actual_values = target_activity_data['NASA_F'].dropna()
-                if not actual_values.empty:
-                    avg_actual = float(actual_values.mean())
-                    logger.warning(f"📊 日次平均実測: {avg_actual:.2f}点 (n={len(actual_values)})")
-                else:
-                    logger.warning(f"⚠️ NASA_F値がありません（全てNaN）")
-            else:
-                logger.warning(f"⚠️ Activity_Dataが空、またはNASA_F列がありません")
-
             # Daily Summaryに保存
             summary_data = {
                 'date': today_data['date'],
-                'avg_actual': avg_actual,
+                'avg_actual': None,
                 'avg_predicted': avg_predicted,
                 'dice_improvement': feedback_result_llm.get('total_improvement_potential', 0),
                 'dice_count': feedback_result_llm.get('num_suggestions', 0),
