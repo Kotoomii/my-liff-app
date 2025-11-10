@@ -434,6 +434,20 @@ class FrustrationPredictor:
             # NaN/inf値のチェックと除去（Walk Forward Validation実行前）
             X_check = df_clean[self.feature_columns]
             y_check = df_clean['NASA_F_scaled']
+
+            # 🔍 特徴量の統計情報を詳細にログ出力（Walk Forward Validation）
+            logger.warning(f"🔍 特徴量の統計情報（Walk Forward訓練前）:")
+            logger.warning(f"   データ件数: {len(X_check)}")
+            logger.warning(f"   特徴量数: {len(self.feature_columns)}")
+            for col in self.feature_columns[:10]:  # 最初の10列のみ
+                if col in X_check.columns:
+                    col_min = X_check[col].min()
+                    col_max = X_check[col].max()
+                    col_mean = X_check[col].mean()
+                    col_std = X_check[col].std()
+                    logger.warning(f"   {col}: min={col_min:.6f}, max={col_max:.6f}, mean={col_mean:.6f}, std={col_std:.6f}")
+            logger.warning(f"   y (NASA_F_scaled): min={y_check.min():.6f}, max={y_check.max():.6f}, mean={y_check.mean():.6f}, std={y_check.std():.6f}")
+
             invalid_mask = X_check.isna().any(axis=1) | y_check.isna() | np.isinf(X_check).any(axis=1) | np.isinf(y_check)
             if invalid_mask.sum() > 0:
                 logger.warning(f"⚠️ 無効な値を含む行を除去: {invalid_mask.sum()}件")
