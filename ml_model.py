@@ -340,7 +340,7 @@ class FrustrationPredictor:
             if len(X) < 10:
                 raise ValueError(f"有効なデータが不足しています（{len(X)}件）。最低10件必要です。")
 
-            logger.info(f"✅ クリーニング後のデータ: {len(X)}件")
+            logger.warning(f"✅ データ検証完了: クリーニング後={len(X)}件, 除去={invalid_mask.sum()}件")
 
             # 訓練/テストデータに分割
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=self.config.RANDOM_STATE)
@@ -429,7 +429,7 @@ class FrustrationPredictor:
             if len(df_clean) < 10:
                 raise ValueError(f"有効なデータが不足しています（{len(df_clean)}件）。最低10件必要です。")
 
-            logger.info(f"✅ クリーニング後のデータ: {len(df_clean)}件")
+            logger.warning(f"✅ データ検証完了: クリーニング後={len(df_clean)}件, 除去={invalid_mask.sum()}件")
 
             # Walk Forward Validation: 過去のデータで訓練、現在を予測
             predictions = []
