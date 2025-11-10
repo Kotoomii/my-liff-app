@@ -329,6 +329,19 @@ class FrustrationPredictor:
             X = df_clean[self.feature_columns]
             y = df_clean['NASA_F_scaled']
 
+            # 🔍 特徴量の統計情報を詳細にログ出力
+            logger.warning(f"🔍 特徴量の統計情報（訓練前）:")
+            logger.warning(f"   データ件数: {len(X)}")
+            logger.warning(f"   特徴量数: {len(self.feature_columns)}")
+            for col in self.feature_columns[:10]:  # 最初の10列のみ
+                if col in X.columns:
+                    col_min = X[col].min()
+                    col_max = X[col].max()
+                    col_mean = X[col].mean()
+                    col_std = X[col].std()
+                    logger.warning(f"   {col}: min={col_min:.6f}, max={col_max:.6f}, mean={col_mean:.6f}, std={col_std:.6f}")
+            logger.warning(f"   y (NASA_F_scaled): min={y.min():.6f}, max={y.max():.6f}, mean={y.mean():.6f}, std={y.std():.6f}")
+
             # NaN/inf値のチェックと除去
             # X, yの両方から無効な値を含む行を除去
             invalid_mask = X.isna().any(axis=1) | y.isna() | np.isinf(X).any(axis=1) | np.isinf(y)
