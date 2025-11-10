@@ -441,8 +441,8 @@ class FeedbackScheduler:
                             ]
 
                             if not matching_activities.empty:
-                                # Durationを取得（分単位）
-                                duration_minutes = matching_activities.iloc[0].get('Duration', 60)
+                                # Durationを取得（分単位、numpy.int64をintに変換）
+                                duration_minutes = int(matching_activities.iloc[0].get('Duration', 60))
 
                                 # time_rangeを計算（例: "13:00-16:00"）
                                 from datetime import timedelta

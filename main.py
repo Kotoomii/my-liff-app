@@ -627,7 +627,7 @@ def generate_dice_analysis():
                             (activity_data['CatSub'] == activity)
                         ]
                         if not matching.empty:
-                            duration_minutes = matching.iloc[0].get('Duration', 60)
+                            duration_minutes = int(matching.iloc[0].get('Duration', 60))
                             # time_rangeを計算
                             from datetime import datetime as dt_class, timedelta
                             start_time = dt_class.strptime(f"{date} {time_str}", '%Y-%m-%d %H:%M')
@@ -800,7 +800,7 @@ def get_frustration_timeline():
             frustration_for_timeline = float(predicted_frustration) if predicted_frustration is not None else None
 
             # タイムラインに追加（Hourly Logに登録済みの活動のみ）
-            duration_minutes = row.get('Duration', 60)
+            duration_minutes = int(row.get('Duration', 60))
             timeline_entry = {
                 'timestamp': timestamp.isoformat(),
                 'hour': timestamp.hour if hasattr(timestamp, 'hour') else 0,
