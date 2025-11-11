@@ -1501,16 +1501,31 @@
                 const durationMinutes = item.duration || 0;
                 const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
 
+                // 日をまたぐ活動の処理：その日の00:00以降のみ表示
+                const todayStart = new Date(endTime);
+                todayStart.setHours(0, 0, 0, 0);  // その日の00:00
+
+                let displayStartTime = startTime;
+                let displayDuration = durationMinutes;
+
+                // 開始時刻が前日（00:00より前）の場合、00:00に切り詰める
+                if (startTime < todayStart) {
+                    displayStartTime = new Date(todayStart);
+                    // 継続時間を調整（00:00から終了時刻までの時間）
+                    displayDuration = Math.floor((endTime - todayStart) / 60000);
+                }
+
                 processed.push({
                     activity: item.activity,
-                    startTime: startTime,
+                    startTime: displayStartTime,  // 表示用の開始時刻
                     endTime: endTime,
-                    durationMinutes: durationMinutes,
+                    durationMinutes: displayDuration,  // 表示用の継続時間
                     frustration: item.frustration_value,  // nullの場合もそのまま保持
-                    startHour: startTime.getHours(),
-                    startMinute: startTime.getMinutes(),
+                    startHour: displayStartTime.getHours(),
+                    startMinute: displayStartTime.getMinutes(),
                     endHour: endTime.getHours(),
-                    endMinute: endTime.getMinutes()
+                    endMinute: endTime.getMinutes(),
+                    originalStartTime: startTime  // 元の開始時刻は保持
                 });
             });
 
