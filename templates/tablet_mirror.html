@@ -563,11 +563,11 @@
         }
 
         .suggestions-table th {
-            padding: 8px 6px;
+            padding: 5px 6px;
             text-align: left;
             font-weight: bold;
             color: #4CAF50;
-            font-size: 12px;
+            font-size: 11px;
             border-bottom: 2px solid rgba(76, 175, 80, 0.3);
         }
 
@@ -577,7 +577,7 @@
         }
 
         .suggestions-table td {
-            padding: 10px 6px;
+            padding: 6px 6px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             vertical-align: middle;
         }
@@ -603,13 +603,18 @@
         }
 
         .table-activity {
-            font-size: 11px;
+            font-size: 10px;
             line-height: 1.3;
+            white-space: nowrap;
         }
 
         .table-current {
             color: #FF9800;
-            margin-bottom: 2px;
+        }
+
+        .table-arrow {
+            color: rgba(255, 255, 255, 0.5);
+            margin: 0 3px;
         }
 
         .table-suggested {
@@ -979,14 +984,11 @@
                     <h2 class="section-title">
                         <span class="section-icon">🎯</span>
                         改善提案
+                        <span style="margin-left: 10px; font-size: 14px; font-weight: normal; color: #4CAF50;">
+                            合計: <span id="total-improvement" style="font-size: 1.3em; font-weight: bold;">--</span>点
+                        </span>
                     </h2>
                     <div class="dice-status" id="dice-status">分析中...</div>
-                </div>
-
-                <div class="total-improvement" style="margin: 5px 0; font-size: 13px;">
-                    <span>合計改善:</span>
-                    <span class="improvement-value" style="font-size: 1.6em;" id="total-improvement">--</span>
-                    <span>点</span>
                 </div>
 
                 <div class="suggestions-container" id="suggestions-container">
@@ -1887,8 +1889,7 @@
                     row.innerHTML = `
                         <td class="table-time">${time}</td>
                         <td class="table-activity">
-                            <div class="table-current">${item.original_activity}</div>
-                            <div class="table-suggested">→ ${item.suggested_activity}</div>
+                            <span class="table-current">${item.original_activity}</span><span class="table-arrow">→</span><span class="table-suggested">${item.suggested_activity}</span>
                         </td>
                         <td class="table-improvement">+${item.frustration_reduction.toFixed(1)}</td>
                     `;
