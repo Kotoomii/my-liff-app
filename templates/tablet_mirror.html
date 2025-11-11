@@ -1084,6 +1084,12 @@
     </div>
 
     <script>
+        // 【検証用】表示時間の設定（ここを変更して検証可能）
+        const DISPLAY_TIMES = [
+            { start: 22, end: 25, startMinute: 50 },  // 22:50-25:00（翌1:00）- 検証用
+            { start: 6, end: 9, startMinute: 0 }      // 6:00-9:00
+        ];
+
         // グローバル変数
         let currentUser = 'default';
         let dataUpdateInterval = 300000; // 5分ごとにデータ更新
@@ -1093,6 +1099,55 @@
 
         // 画面スリープ防止用のWake Lock API
         let wakeLock = null;
+
+        // 現在時刻が表示時間内かチェック
+        function isDisplayTime() {
+            const now = new Date();
+            const hour = now.getHours();
+            const minute = now.getMinutes();
+
+            for (const timeRange of DISPLAY_TIMES) {
+                const startHour = timeRange.start;
+                const startMinute = timeRange.startMinute || 0;
+                const endHour = timeRange.end;
+
+                // 25時（翌1時）などの処理
+                if (endHour > 24) {
+                    // 日をまたぐ場合
+                    if (hour >= startHour || hour < (endHour - 24)) {
+                        // 開始時刻の分チェック
+                        if (hour === startHour && minute < startMinute) {
+                            continue;
+                        }
+                        return true;
+                    }
+                } else {
+                    // 通常の時間範囲
+                    if (hour >= startHour && hour < endHour) {
+                        // 開始時刻の分チェック
+                        if (hour === startHour && minute < startMinute) {
+                            continue;
+                        }
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // 待機画面を表示
+        function showWaitingScreen() {
+            const body = document.body;
+            body.style.background = '#000';
+            body.innerHTML = `
+                <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; color: #666; font-size: 24px;">
+                    <div style="margin-bottom: 20px;">⏰</div>
+                    <div>表示時間外です</div>
+                    <div style="font-size: 16px; margin-top: 10px;">次の表示時間: 22:50-1:00, 6:00-9:00</div>
+                </div>
+            `;
+            console.log('⏰ 表示時間外のため待機中...');
+        }
 
         // Wake Lockを取得してスリープ防止
         async function preventScreenSleep() {
@@ -1126,17 +1181,32 @@
 
         // 初期化
         document.addEventListener('DOMContentLoaded', function() {
-            initializeSystem();
-            startAutoUpdate();
-            startDiCEScheduler();
-            preventScreenSleep(); // 画面スリープ防止を開始
+            // 表示時間チェック
+            if (isDisplayTime()) {
+                console.log('✅ 表示時間内 - アプリを起動します');
+                initializeSystem();
+                startAutoUpdate();
+                startDiCEScheduler();
+                preventScreenSleep(); // 画面スリープ防止を開始
 
-            // ドロップダウンを閉じるためのクリックイベント
-            document.addEventListener('click', function(event) {
-                if (!event.target.closest('.user-selector')) {
-                    closeUserDropdown();
-                }
-            });
+                // ドロップダウンを閉じるためのクリックイベント
+                document.addEventListener('click', function(event) {
+                    if (!event.target.closest('.user-selector')) {
+                        closeUserDropdown();
+                    }
+                });
+            } else {
+                console.log('⏰ 表示時間外 - 待機画面を表示します');
+                showWaitingScreen();
+
+                // 1分ごとに時刻をチェック
+                setInterval(() => {
+                    if (isDisplayTime()) {
+                        console.log('✅ 表示時間になりました - リロードします');
+                        location.reload();
+                    }
+                }, 60000); // 60秒ごと
+            }
         });
 
         // システム初期化
