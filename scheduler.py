@@ -196,9 +196,11 @@ class FeedbackScheduler:
             activity_data = self.sheets_connector.get_activity_data()
             fitbit_data = self.sheets_connector.get_fitbit_data()
             
-            # 今日のデータにフィルタリング
+            # 今日のデータにフィルタリング（終了日ベース）
             if not activity_data.empty and 'Timestamp' in activity_data.columns:
-                activity_data['date'] = pd.to_datetime(activity_data['Timestamp']).dt.date
+                # 終了時刻 = 開始時刻 + 継続時間
+                activity_data['end_time'] = pd.to_datetime(activity_data['Timestamp']) + pd.to_timedelta(activity_data['Duration'], unit='m')
+                activity_data['date'] = activity_data['end_time'].dt.date
                 today_activity = activity_data[activity_data['date'] == today.date()]
             else:
                 today_activity = pd.DataFrame()

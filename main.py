@@ -734,10 +734,12 @@ def get_frustration_timeline():
                     }
                 })
         
-        # 指定日のデータをフィルタリング
+        # 指定日のデータをフィルタリング（終了日ベース）
         target_date = datetime.strptime(date, '%Y-%m-%d').date()
         if 'Timestamp' in activity_data.columns:
-            activity_data['date'] = pd.to_datetime(activity_data['Timestamp']).dt.date
+            # 終了時刻 = 開始時刻 + 継続時間
+            activity_data['end_time'] = pd.to_datetime(activity_data['Timestamp']) + pd.to_timedelta(activity_data['Duration'], unit='m')
+            activity_data['date'] = activity_data['end_time'].dt.date
             daily_data = activity_data[activity_data['date'] == target_date]
         else:
             daily_data = pd.DataFrame()

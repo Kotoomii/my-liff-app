@@ -557,12 +557,15 @@ class ActivityCounterfactualExplainer:
                 logger.warning("時間別DiCE提案: 活動データが空です")
                 return self._get_error_hourly_schedule("活動データが空です")
 
-            # 指定日のデータを抽出
+            # 指定日のデータを抽出（終了日ベース）
             logger.warning(f"🔍 対象日 {target_date} のデータを抽出中...")
             logger.warning(f"🔍 全活動データのタイムスタンプ範囲: {activities_data['Timestamp'].min()} - {activities_data['Timestamp'].max()}")
 
+            # 終了時刻 = 開始時刻 + 継続時間
+            activities_data['end_time'] = activities_data['Timestamp'] + pd.to_timedelta(activities_data['Duration'], unit='m')
+
             day_data = activities_data[
-                activities_data['Timestamp'].dt.date == target_date
+                activities_data['end_time'].dt.date == target_date
             ].copy()
 
             logger.warning(f"🔍 抽出結果: {len(day_data)}件のデータが見つかりました")
