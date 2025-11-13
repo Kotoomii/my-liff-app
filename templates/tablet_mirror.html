@@ -1093,7 +1093,7 @@
         ];
 
         // グローバル変数
-        let currentUser = 'default';
+        let currentUser = localStorage.getItem('selectedUser') || 'default'; // localStorageから復元
         let dataUpdateInterval = 300000; // 5分ごとにデータ更新
         let diceUpdateInterval = 3600000; // 1時間ごとにDiCE分析
         let lastDiceUpdate = 0;
@@ -1214,7 +1214,39 @@
         // システム初期化
         function initializeSystem() {
             console.log('🎮 タブレット用システム初期化中...');
+
+            // localStorageから復元したユーザーでUIを更新
+            restoreUserUI();
+
             loadUserData(currentUser);
+        }
+
+        // 保存されたユーザーでUIを復元
+        function restoreUserUI() {
+            // ユーザーマッピング
+            const userMap = {
+                'default': { icon: '👤', name: 'デフォルト' },
+                'user1': { icon: '👨', name: 'ユーザー1' },
+                'user2': { icon: '👩', name: 'ユーザー2' },
+                'user3': { icon: '🧑', name: 'ユーザー3' }
+            };
+
+            const userInfo = userMap[currentUser] || userMap['default'];
+
+            // ヘッダーのUIを更新
+            document.getElementById('current-user-icon').textContent = userInfo.icon;
+            document.getElementById('current-user-name').textContent = userInfo.name;
+
+            // ドロップダウンの選択状態を更新
+            document.querySelectorAll('.user-option').forEach(option => {
+                option.classList.remove('selected');
+            });
+            const selectedOption = document.querySelector(`[data-user-id="${currentUser}"]`);
+            if (selectedOption) {
+                selectedOption.classList.add('selected');
+            }
+
+            console.log(`🔄 ユーザーUI復元: ${currentUser} (${userInfo.name})`);
         }
 
         // ユーザードロップダウン表示切り替え
@@ -1247,10 +1279,12 @@
                 option.classList.remove('selected');
             });
             document.querySelector(`[data-user-id="${userId}"]`).classList.add('selected');
-            
+
             currentUser = userId;
+            localStorage.setItem('selectedUser', userId); // localStorageに保存
+            console.log(`💾 ユーザー選択を保存: ${userId}`);
             closeUserDropdown();
-            
+
             // データ読み込み
             loadUserData(userId);
         }
