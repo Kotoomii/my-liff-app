@@ -2232,15 +2232,21 @@ def initialize_application():
             logger.warning("🔄 既存のモデルをクリアしました。次回アクセス時に新しいKNOWN_ACTIVITIESで再訓練されます。")
             user_predictors.clear()
 
-        # スケジューラー開始
-        scheduler.start_scheduler()
-        logger.warning("✅ 定期フィードバックスケジューラーを開始しました（毎日14:55 UTC = 23:55 JSTにDiCE実行 + フィードバック生成）")
+        # ===== Cloud Scheduler使用時はコメントアウト =====
+        # Cloud Schedulerが /api/scheduler/monitor と /api/scheduler/dice を定期実行するため、
+        # アプリ内部での自動実行は不要（min_instances=0で動作）
 
-        # データ更新監視スレッド開始
-        data_monitor_running = True
-        data_monitor_thread = threading.Thread(target=data_monitor_loop, daemon=True)
-        data_monitor_thread.start()
-        logger.warning("✅ データ更新監視スレッドを開始しました (15分ごとにチェック)")
+        # スケジューラー開始（Cloud Scheduler使用時は不要）
+        # scheduler.start_scheduler()
+        # logger.warning("✅ 定期フィードバックスケジューラーを開始しました（毎日14:55 UTC = 23:55 JSTにDiCE実行 + フィードバック生成）")
+
+        # データ更新監視スレッド開始（Cloud Scheduler使用時は不要）
+        # data_monitor_running = True
+        # data_monitor_thread = threading.Thread(target=data_monitor_loop, daemon=True)
+        # data_monitor_thread.start()
+        # logger.warning("✅ データ更新監視スレッドを開始しました (15分ごとにチェック)")
+
+        logger.warning("📌 Cloud Scheduler使用モード: 定期実行はCloud Schedulerが管理します")
 
         _app_initialized = True
         logger.warning("🎉 アプリケーション初期化完了")
