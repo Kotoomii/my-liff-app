@@ -45,11 +45,59 @@ class Config:
         },
         'user3': {
             'user_id': 'user3',
-            'name': 'ユーザー3', 
+            'name': 'ユーザー3',
             'icon': '🧑',
             'activity_sheet': 'U3456789012cdefgh34567',  # LINEユーザーID例
             'fitbit_sheet': 'jiro_Fitbit-data-secondary',  # username_Fitbit-data-identifier
             'description': 'テストユーザー3（次郎）'
+        },
+        'user4': {
+            'user_id': 'user4',
+            'name': 'ユーザー4',
+            'icon': '👦',
+            'activity_sheet': 'U4567890123defghi45678',  # LINEユーザーID例
+            'fitbit_sheet': 'user4_Fitbit-data-main',
+            'description': 'テストユーザー4'
+        },
+        'user5': {
+            'user_id': 'user5',
+            'name': 'ユーザー5',
+            'icon': '👧',
+            'activity_sheet': 'U5678901234efghij56789',  # LINEユーザーID例
+            'fitbit_sheet': 'user5_Fitbit-data-main',
+            'description': 'テストユーザー5'
+        },
+        'user6': {
+            'user_id': 'user6',
+            'name': 'ユーザー6',
+            'icon': '🧒',
+            'activity_sheet': 'U6789012345fghijk67890',  # LINEユーザーID例
+            'fitbit_sheet': 'user6_Fitbit-data-main',
+            'description': 'テストユーザー6'
+        },
+        'user7': {
+            'user_id': 'user7',
+            'name': 'ユーザー7',
+            'icon': '👨‍🦱',
+            'activity_sheet': 'U7890123456ghijkl78901',  # LINEユーザーID例
+            'fitbit_sheet': 'user7_Fitbit-data-main',
+            'description': 'テストユーザー7'
+        },
+        'user8': {
+            'user_id': 'user8',
+            'name': 'ユーザー8',
+            'icon': '👩‍🦱',
+            'activity_sheet': 'U8901234567hijklm89012',  # LINEユーザーID例
+            'fitbit_sheet': 'user8_Fitbit-data-main',
+            'description': 'テストユーザー8'
+        },
+        'user9': {
+            'user_id': 'user9',
+            'name': 'ユーザー9',
+            'icon': '🧑‍🦱',
+            'activity_sheet': 'U9012345678ijklmn90123',  # LINEユーザーID例
+            'fitbit_sheet': 'user9_Fitbit-data-main',
+            'description': 'テストユーザー9'
         }
     }
     

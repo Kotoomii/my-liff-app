@@ -941,6 +941,30 @@
             <div class="user-icon-small">🧑</div>
             <span>ユーザー3</span>
         </div>
+        <div class="user-option" data-user-id="user4" onclick="selectUser('user4', '👦', 'ユーザー4')">
+            <div class="user-icon-small">👦</div>
+            <span>ユーザー4</span>
+        </div>
+        <div class="user-option" data-user-id="user5" onclick="selectUser('user5', '👧', 'ユーザー5')">
+            <div class="user-icon-small">👧</div>
+            <span>ユーザー5</span>
+        </div>
+        <div class="user-option" data-user-id="user6" onclick="selectUser('user6', '🧒', 'ユーザー6')">
+            <div class="user-icon-small">🧒</div>
+            <span>ユーザー6</span>
+        </div>
+        <div class="user-option" data-user-id="user7" onclick="selectUser('user7', '👨‍🦱', 'ユーザー7')">
+            <div class="user-icon-small">👨‍🦱</div>
+            <span>ユーザー7</span>
+        </div>
+        <div class="user-option" data-user-id="user8" onclick="selectUser('user8', '👩‍🦱', 'ユーザー8')">
+            <div class="user-icon-small">👩‍🦱</div>
+            <span>ユーザー8</span>
+        </div>
+        <div class="user-option" data-user-id="user9" onclick="selectUser('user9', '🧑‍🦱', 'ユーザー9')">
+            <div class="user-icon-small">🧑‍🦱</div>
+            <span>ユーザー9</span>
+        </div>
     </div>
 
     <!-- ローディングインジケータ -->
@@ -1228,7 +1252,13 @@
                 'default': { icon: '👤', name: 'デフォルト' },
                 'user1': { icon: '👨', name: 'ユーザー1' },
                 'user2': { icon: '👩', name: 'ユーザー2' },
-                'user3': { icon: '🧑', name: 'ユーザー3' }
+                'user3': { icon: '🧑', name: 'ユーザー3' },
+                'user4': { icon: '👦', name: 'ユーザー4' },
+                'user5': { icon: '👧', name: 'ユーザー5' },
+                'user6': { icon: '🧒', name: 'ユーザー6' },
+                'user7': { icon: '👨‍🦱', name: 'ユーザー7' },
+                'user8': { icon: '👩‍🦱', name: 'ユーザー8' },
+                'user9': { icon: '🧑‍🦱', name: 'ユーザー9' }
             };
 
             const userInfo = userMap[currentUser] || userMap['default'];
