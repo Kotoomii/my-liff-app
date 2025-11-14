@@ -482,17 +482,18 @@
         .dice-suggestion-bar.narrow-activity .activity-bar-name {
             position: absolute;
             top: -20px;
-            left: 50%;
-            transform: translateX(-50%);
+            left: 0;
+            transform: none;
             background: rgba(0, 0, 0, 0.9);
             padding: 4px 8px;
             border-radius: 4px;
             white-space: nowrap;
             z-index: 25;
             font-size: 11px;
-            max-width: 200px;
+            max-width: 100%;
             overflow: hidden;
             text-overflow: ellipsis;
+            pointer-events: none;
         }
 
         .activity-bar-time {
