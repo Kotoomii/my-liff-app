@@ -267,10 +267,10 @@
         .timeline-container {
             position: relative;
             margin-top: 8px;
-            padding: 25px 10px 8px 10px;
+            padding: 18px 10px 8px 10px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 10px;
-            height: 160px;
+            height: 110px;
             overflow: visible;
             flex-shrink: 0;
         }
@@ -278,11 +278,11 @@
         .dice-timeline-container {
             position: relative;
             margin-top: 8px;
-            padding: 25px 10px 8px 10px;
+            padding: 18px 10px 8px 10px;
             background: rgba(0, 100, 0, 0.1);
             border: 2px solid rgba(76, 175, 80, 0.3);
             border-radius: 10px;
-            height: 160px;
+            height: 110px;
             overflow: visible;
             flex-shrink: 0;
         }
@@ -400,8 +400,8 @@
 
         .timeline-activity-bar {
             position: absolute;
-            top: 25px;
-            height: 125px;
+            top: 18px;
+            height: 85px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -438,8 +438,8 @@
 
         .dice-suggestion-bar {
             position: absolute;
-            top: 25px;
-            height: 125px;
+            top: 18px;
+            height: 85px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -477,20 +477,22 @@
             line-height: 1.2;
         }
 
-        /* 短い活動：活動名を枠の上に表示 */
+        /* 短い活動：活動名を上部スペース（旧数直線エリア）に表示 */
         .timeline-activity-bar.narrow-activity .activity-bar-name,
         .dice-suggestion-bar.narrow-activity .activity-bar-name {
             position: absolute;
-            top: -25px;
+            top: -20px;
             left: 50%;
             transform: translateX(-50%);
             background: rgba(0, 0, 0, 0.85);
-            padding: 4px 8px;
-            border-radius: 6px;
+            padding: 3px 6px;
+            border-radius: 4px;
             white-space: nowrap;
             z-index: 15;
-            font-size: 11px;
-            max-width: 150px;
+            font-size: 10px;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .activity-bar-time {
