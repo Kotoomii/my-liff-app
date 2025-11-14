@@ -477,23 +477,54 @@
             line-height: 1.2;
         }
 
-        /* 短い活動：活動名を上部スペース（旧数直線エリア）に表示 */
+        /* 短い活動：活動名を上部スペース（旧数直線エリア）に2段交互表示 */
         .timeline-activity-bar.narrow-activity .activity-bar-name,
         .dice-suggestion-bar.narrow-activity .activity-bar-name {
             position: absolute;
             top: -20px;
             left: 0;
             transform: none;
-            background: rgba(0, 0, 0, 0.9);
-            padding: 4px 8px;
+            padding: 3px 6px;
             border-radius: 4px;
             white-space: nowrap;
             z-index: 25;
-            font-size: 11px;
-            max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            font-size: 10px;
+            max-width: none;
+            overflow: visible;
             pointer-events: none;
+        }
+
+        /* 2段目表示（偶数番目） */
+        .timeline-activity-bar.narrow-activity.label-row-2 .activity-bar-name,
+        .dice-suggestion-bar.narrow-activity.label-row-2 .activity-bar-name {
+            top: -36px;
+        }
+
+        /* 活動のストレスレベルに応じた背景色 */
+        .timeline-activity-bar.narrow-activity.low-stress .activity-bar-name {
+            background: rgba(76, 175, 80, 0.95);
+            color: white;
+        }
+
+        .timeline-activity-bar.narrow-activity.medium-stress .activity-bar-name {
+            background: rgba(255, 193, 7, 0.95);
+            color: #333;
+        }
+
+        .timeline-activity-bar.narrow-activity.high-stress .activity-bar-name {
+            background: rgba(244, 67, 54, 0.95);
+            color: white;
+        }
+
+        .timeline-activity-bar.narrow-activity.no-data .activity-bar-name {
+            background: rgba(158, 158, 158, 0.95);
+            color: white;
+        }
+
+        /* DiCEは緑色 */
+        .dice-suggestion-bar.narrow-activity .activity-bar-name {
+            background: rgba(76, 175, 80, 0.95);
+            color: white;
         }
 
         .activity-bar-time {
@@ -1770,23 +1801,64 @@
         // 時間軸を作成
         function createTimelineAxis(container, activities) {
             // 活動バーを配置（メモリなし）
+            let narrowIndex = 0;
             activities.forEach(activity => {
-                const activityBar = createActivityBar(activity);
+                const activityBar = createActivityBar(activity, narrowIndex);
                 container.appendChild(activityBar);
+
+                // narrow-activityの場合はインデックスをインクリメント
+                const startHour = activity.startTime.getHours();
+                const startMinute = activity.startTime.getMinutes();
+                const endHour = activity.endTime.getHours();
+                const endMinute = activity.endTime.getMinutes();
+                const startPosition = (startHour * 60 + startMinute) / (24 * 60) * 100;
+                const endPosition = (endHour * 60 + endMinute) / (24 * 60) * 100;
+                const width = endPosition - startPosition;
+
+                if (width < 5) {
+                    narrowIndex++;
+                }
             });
         }
 
         // DiCE提案タイムライン作成
         function createDiCETimelineAxis(container, suggestions) {
             // DiCE提案バーを配置（メモリなし）
+            let narrowIndex = 0;
             suggestions.forEach(suggestion => {
-                const suggestionBar = createDiCESuggestionBar(suggestion);
+                const suggestionBar = createDiCESuggestionBar(suggestion, narrowIndex);
                 container.appendChild(suggestionBar);
+
+                // narrow-activityの場合はインデックスをインクリメント
+                const time = suggestion.timestamp || suggestion.original_timestamp;
+                const timeObj = new Date(time);
+                const hour = timeObj.getHours();
+                const minute = timeObj.getMinutes();
+                const startPosition = (hour * 60 + minute) / (24 * 60) * 100;
+
+                let width;
+                if (suggestion.time_range) {
+                    const [startStr, endStr] = suggestion.time_range.split('-');
+                    if (startStr && endStr) {
+                        const [startHour, startMin] = startStr.split(':').map(Number);
+                        const [endHour, endMin] = endStr.split(':').map(Number);
+                        const durationMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+                        width = durationMinutes / (24 * 60) * 100;
+                    } else {
+                        width = 60 / (24 * 60) * 100;
+                    }
+                } else {
+                    width = 60 / (24 * 60) * 100;
+                }
+
+                if (width < 5) {
+                    narrowIndex++;
+                }
             });
         }
 
         // 活動バーを作成
-        function createActivityBar(activity) {
+        function createActivityBar(activity, narrowIndex) {
             const startHour = activity.startTime.getHours();
             const startMinute = activity.startTime.getMinutes();
             const endHour = activity.endTime.getHours();
@@ -1820,6 +1892,10 @@
             // 短い活動（5%以下：約72分以下）の場合、活動名を上に表示
             if (width < 5) {
                 activityBar.classList.add('narrow-activity');
+                // 偶数番目（0,2,4...）は2段目に表示
+                if (narrowIndex % 2 === 1) {
+                    activityBar.classList.add('label-row-2');
+                }
             }
 
             // 活動情報を表示
@@ -1852,7 +1928,7 @@
         }
 
         // DiCE提案バーを作成
-        function createDiCESuggestionBar(suggestion) {
+        function createDiCESuggestionBar(suggestion, narrowIndex) {
             // 時刻から時間の位置を計算
             const time = suggestion.timestamp || suggestion.original_timestamp;
             const timeObj = new Date(time);
@@ -1901,6 +1977,10 @@
             // 短い活動（5%以下：約72分以下）の場合、活動名を上に表示
             if (width < 5) {
                 suggestionBar.classList.add('narrow-activity');
+                // 偶数番目（0,2,4...）は2段目に表示
+                if (narrowIndex % 2 === 1) {
+                    suggestionBar.classList.add('label-row-2');
+                }
             }
 
             // 提案情報を表示
