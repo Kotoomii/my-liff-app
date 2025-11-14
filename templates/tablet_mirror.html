@@ -645,6 +645,14 @@
         }
 
         /* フィードバックセクション - コンパクト化 */
+        /* フィードバックコンテナ（左右並列） */
+        .feedback-container {
+            display: flex;
+            gap: 15px;
+            flex: 1;
+            min-height: 0;
+        }
+
         .feedback-section {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
@@ -1035,14 +1043,28 @@
                 </div>
             </div>
 
-            <!-- アドバイス -->
-            <div class="feedback-section">
-                <h2 class="section-title">
-                    <span class="section-icon">💬</span>
-                    <span id="feedback-type">今日の</span>アドバイス
-                </h2>
-                <div class="feedback-text" id="feedback-text">
-                    フィードバックを生成中です...
+            <!-- アドバイス（左右並列） -->
+            <div class="feedback-container">
+                <!-- DiCE版アドバイス -->
+                <div class="feedback-section">
+                    <h2 class="section-title">
+                        <span class="section-icon">💬</span>
+                        <span id="feedback-type-dice">DiCE版</span>アドバイス
+                    </h2>
+                    <div class="feedback-text" id="feedback-text-dice">
+                        フィードバックを生成中です...
+                    </div>
+                </div>
+
+                <!-- 推定値のみアドバイス -->
+                <div class="feedback-section">
+                    <h2 class="section-title">
+                        <span class="section-icon">💭</span>
+                        <span id="feedback-type-no-dice">推定値のみ</span>アドバイス
+                    </h2>
+                    <div class="feedback-text" id="feedback-text-no-dice">
+                        フィードバックを生成中です...
+                    </div>
                 </div>
             </div>
         </div>
@@ -1981,18 +2003,33 @@
 
         // フィードバック表示更新
         function updateFeedbackDisplay(feedback, feedbackType) {
-            document.getElementById('feedback-type').textContent = 
-                feedbackType === 'morning' ? '今日の' : '今日の振り返り';
-            
-            let feedbackText = feedback.main_feedback || 'フィードバックを準備中です...';
-            
+            // DiCE版フィードバック
+            document.getElementById('feedback-type-dice').textContent =
+                feedbackType === 'morning' ? '今日の' : 'DiCE版';
+
+            let feedbackTextDice = feedback.main_feedback || 'フィードバックを準備中です...';
+
             // キーワードをハイライト
-            feedbackText = feedbackText.replace(
-                /(改善|向上|効果的|おすすめ|重要|注意)/g, 
+            feedbackTextDice = feedbackTextDice.replace(
+                /(改善|向上|効果的|おすすめ|重要|注意)/g,
                 '<span class="feedback-highlight">$1</span>'
             );
 
-            document.getElementById('feedback-text').innerHTML = feedbackText;
+            document.getElementById('feedback-text-dice').innerHTML = feedbackTextDice;
+
+            // 推定値のみ版フィードバック
+            document.getElementById('feedback-type-no-dice').textContent =
+                feedbackType === 'morning' ? '今日の' : '推定値のみ';
+
+            let feedbackTextNoDice = feedback.main_feedback_no_dice || 'フィードバックを準備中です...';
+
+            // キーワードをハイライト
+            feedbackTextNoDice = feedbackTextNoDice.replace(
+                /(改善|向上|効果的|おすすめ|重要|注意)/g,
+                '<span class="feedback-highlight">$1</span>'
+            );
+
+            document.getElementById('feedback-text-no-dice').innerHTML = feedbackTextNoDice;
         }
 
         // 次回DiCE時刻更新

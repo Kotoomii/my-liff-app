@@ -885,6 +885,7 @@ def generate_feedback():
         # Daily Summaryのデータをフィードバック形式に変換
         feedback_result = {
             'main_feedback': summary.get('chatgpt_feedback', ''),
+            'main_feedback_no_dice': summary.get('chatgpt_feedback_no_dice', ''),
             'action_plan': summary.get('action_plan', []),
             'total_improvement_potential': summary.get('dice_improvement', 0),
             'num_suggestions': summary.get('dice_count', 0),

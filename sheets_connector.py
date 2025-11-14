@@ -1344,7 +1344,7 @@ class SheetsConnector:
 
         シート構成: {user_id}_Daily_Summary
         列: 日付, 日次平均実測, 日次平均予測, 日次MAE, DiCE改善ポテンシャル, DiCE提案数,
-            ChatGPTフィードバック, アクションプラン, 生成日時
+            ChatGPTフィードバック, ChatGPT_Feedback_NoDiCE, アクションプラン, 生成日時, 活動数
 
         Args:
             user_id: ユーザーID
@@ -1354,7 +1354,8 @@ class SheetsConnector:
                 'avg_predicted': 11.8,
                 'dice_improvement': 5.2,
                 'dice_count': 3,
-                'chatgpt_feedback': 'フィードバック文章',
+                'chatgpt_feedback': 'フィードバック文章（DiCE版）',
+                'chatgpt_feedback_no_dice': 'フィードバック文章（推定値のみ版）',
                 'action_plan': ['アクション1', 'アクション2'],
                 'generated_at': '2025-01-15 21:00:00'
             }
@@ -1373,15 +1374,15 @@ class SheetsConnector:
                 worksheet = self.spreadsheet.add_worksheet(
                     title=sheet_name,
                     rows="1000",
-                    cols="10"
+                    cols="11"
                 )
                 # ヘッダー行を追加
                 headers = [
                     '日付', '日次平均実測', '日次平均予測', '日次MAE',
                     'DiCE改善ポテンシャル', 'DiCE提案数',
-                    'ChatGPTフィードバック', 'アクションプラン', '生成日時', '活動数'
+                    'ChatGPTフィードバック', 'ChatGPT_Feedback_NoDiCE', 'アクションプラン', '生成日時', '活動数'
                 ]
-                worksheet.update('A1:J1', [headers])
+                worksheet.update('A1:K1', [headers])
                 logger.info(f"Daily Summaryシートを作成しました: {sheet_name}")
 
             # 日次MAEを計算
@@ -1402,6 +1403,7 @@ class SheetsConnector:
                 round(summary_data.get('dice_improvement', 0), 2),
                 summary_data.get('dice_count', 0),
                 summary_data.get('chatgpt_feedback', ''),
+                summary_data.get('chatgpt_feedback_no_dice', ''),
                 action_plan_str,
                 summary_data.get('generated_at', datetime.now().isoformat()),
                 summary_data.get('total_activities', 0)
@@ -1479,9 +1481,10 @@ class SheetsConnector:
                         'dice_improvement': float(row[4]) if len(row) > 4 and row[4] else 0,
                         'dice_count': int(row[5]) if len(row) > 5 and row[5] else 0,
                         'chatgpt_feedback': row[6] if len(row) > 6 else '',
-                        'action_plan': json.loads(row[7]) if len(row) > 7 and row[7] else [],
-                        'generated_at': row[8] if len(row) > 8 else '',
-                        'total_activities': int(row[9]) if len(row) > 9 and row[9] else 0
+                        'chatgpt_feedback_no_dice': row[7] if len(row) > 7 else '',
+                        'action_plan': json.loads(row[8]) if len(row) > 8 and row[8] else [],
+                        'generated_at': row[9] if len(row) > 9 else '',
+                        'total_activities': int(row[10]) if len(row) > 10 and row[10] else 0
                     }
                     logger.info(f"Daily Summary取得成功: {user_id}, {date}")
                     return summary_data

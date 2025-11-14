@@ -458,3 +458,138 @@ DiCE提案は「もしその時間に別の活動をしていたら、フラス�
             'timeline_stats': {},
             'confidence': 0.3
         }
+
+    def generate_prediction_only_feedback(self,
+                                         user_id: str,
+                                         target_date: str,
+                                         avg_stress: float) -> Dict:
+        """
+        推定値のみに基づいた日次フィードバックを生成（DiCEなし）
+
+        Args:
+            user_id: ユーザーID
+            target_date: 対象日（'YYYY-MM-DD'形式）
+            avg_stress: 日次平均予測値（Daily Summaryから取得）
+
+        Returns:
+            フィードバック辞書
+        """
+        try:
+            if not self.sheets_connector:
+                logger.warning("sheets_connectorが設定されていません")
+                return self._get_fallback_prediction_only_feedback(target_date)
+
+            # 1. Hourly_Logから当日データ取得
+            hourly_log = self.sheets_connector.get_hourly_log(user_id, target_date)
+
+            if hourly_log.empty:
+                logger.warning(f"Hourly_Logにデータがありません: {user_id}, {target_date}")
+                return self._get_fallback_prediction_only_feedback(target_date)
+
+            # 2. 予測NASA_Fで並び替え（NaN除外）
+            hourly_log_clean = hourly_log.dropna(subset=['予測NASA_F'])
+
+            if hourly_log_clean.empty:
+                logger.warning(f"予測NASA_Fのデータがありません: {user_id}, {target_date}")
+                return self._get_fallback_prediction_only_feedback(target_date)
+
+            hourly_log_sorted = hourly_log_clean.sort_values('予測NASA_F', ascending=False)
+
+            # 3. 高ストレス活動（上位3件）と低ストレス活動（下位3件）を抽出
+            high_stress = hourly_log_sorted.head(3)
+            low_stress = hourly_log_sorted.tail(3)
+
+            # 4. プロンプト作成
+            prompt = self._build_prediction_only_feedback_prompt(
+                high_stress,
+                low_stress,
+                avg_stress,
+                target_date
+            )
+
+            # 5. ChatGPTで生成
+            if self.llm_api_key:
+                logger.info("🔑 OpenAI APIキーが設定されています。ChatGPTで推定値のみフィードバックを生成します。")
+                feedback_content = self._generate_with_llm(prompt)
+            else:
+                logger.warning("⚠️ OpenAI APIキーが設定されていません。フォールバックメッセージを使用します。")
+                feedback_content = "今日もお疲れさまでした。ゆっくり休んで、明日も健康的な一日を過ごしてください。"
+
+            return {
+                'type': 'prediction_only_feedback',
+                'date': target_date,
+                'generated_at': datetime.now().isoformat(),
+                'main_feedback': feedback_content,
+                'avg_stress': avg_stress,
+                'confidence': 0.85 if self.llm_api_key else 0.65
+            }
+
+        except Exception as e:
+            logger.error(f"推定値のみフィードバック生成エラー: {e}")
+            return self._get_fallback_prediction_only_feedback(target_date)
+
+    def _build_prediction_only_feedback_prompt(self,
+                                               high_stress: pd.DataFrame,
+                                               low_stress: pd.DataFrame,
+                                               avg_stress: float,
+                                               target_date: str) -> str:
+        """
+        推定値のみフィードバック用プロンプトを構築
+        """
+        # 高ストレス活動リストを作成
+        high_stress_list = []
+        for _, row in high_stress.iterrows():
+            time = row.get('時刻', '--:--')
+            activity = row.get('活動名', '不明')
+            predicted_f = row.get('予測NASA_F', 0)
+            high_stress_list.append(f"- {time} {activity}（{predicted_f:.1f}点）")
+
+        # 低ストレス活動リストを作成
+        low_stress_list = []
+        for _, row in low_stress.iterrows():
+            time = row.get('時刻', '--:--')
+            activity = row.get('活動名', '不明')
+            predicted_f = row.get('予測NASA_F', 0)
+            low_stress_list.append(f"- {time} {activity}（{predicted_f:.1f}点）")
+
+        # プロンプト構築
+        prompt = f"""あなたは優秀なストレス管理コンサルタントです。
+ユーザーの1日のフラストレーション推定値を振り返り、事実に基づいた気づきを提供してください。
+
+重要な制約：
+- 具体的な行動提案は絶対にしないでください
+- 事実の振り返りと気づきの促進のみに徹してください
+- 命令形（「〜しましょう」「〜してください」）は使わないでください
+- 「〜してみるのはいかがでしょうか」のような提案も含めないでください
+- ユーザー自身が考えるきっかけを提供するだけです
+
+【日付】{target_date}
+
+【1日の平均フラストレーション】{avg_stress:.1f}点
+
+【高ストレスだった時間帯】
+{chr(10).join(high_stress_list)}
+
+【低ストレスだった時間帯】
+{chr(10).join(low_stress_list)}
+
+上記のデータをもとに、以下の点を含めて振り返りを提供してください：
+1. 今日のフラストレーション値の全体的な傾向
+2. 高ストレスだった活動の特徴
+3. 低ストレスだった活動の特徴
+4. 気づきを促す問いかけ
+
+フィードバックは200文字以内で、温かく共感的なトーンでお願いします。
+"""
+        return prompt
+
+    def _get_fallback_prediction_only_feedback(self, target_date: str) -> Dict:
+        """フォールバック用推定値のみフィードバック"""
+        return {
+            'type': 'prediction_only_feedback',
+            'date': target_date,
+            'generated_at': datetime.now().isoformat(),
+            'main_feedback': "今日もお疲れさまでした。ゆっくり休んで、明日も健康的な一日を過ごしてください。",
+            'avg_stress': 0,
+            'confidence': 0.3
+        }

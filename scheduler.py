@@ -480,11 +480,29 @@ class FeedbackScheduler:
                 timeline_data,
                 user_id=user_id
             )
-            logger.warning(f"💬 LLMフィードバック生成完了")
+            logger.warning(f"💬 LLMフィードバック生成完了（DiCE版）")
 
             # 日次平均を計算
             predicted_values = [item['frustration_value'] for item in timeline_data]
             avg_predicted = sum(predicted_values) / len(predicted_values) if predicted_values else None
+
+            # 推定値のみ版フィードバックを生成
+            feedback_no_dice = ''
+            if avg_predicted is not None:
+                logger.warning(f"💬 推定値のみフィードバック生成中... (avg={avg_predicted:.2f})")
+                try:
+                    feedback_no_dice_result = self.feedback_generator.generate_prediction_only_feedback(
+                        user_id=user_id,
+                        target_date=today_data['date'],
+                        avg_stress=avg_predicted
+                    )
+                    feedback_no_dice = feedback_no_dice_result.get('main_feedback', '')
+                    logger.warning(f"💬 推定値のみフィードバック生成完了")
+                except Exception as e:
+                    logger.error(f"❌ 推定値のみフィードバック生成エラー: {e}")
+                    feedback_no_dice = ''
+            else:
+                logger.warning(f"⚠️ 日次平均予測値がないため、推定値のみフィードバックをスキップ")
 
             # 日次平均実測を計算（Activity_DataからNASA_F値を取得）
             avg_actual = None
@@ -506,6 +524,7 @@ class FeedbackScheduler:
                 'dice_improvement': feedback_result_llm.get('total_improvement_potential', 0),
                 'dice_count': feedback_result_llm.get('num_suggestions', 0),
                 'chatgpt_feedback': feedback_result_llm.get('main_feedback', ''),
+                'chatgpt_feedback_no_dice': feedback_no_dice,
                 'action_plan': feedback_result_llm.get('action_plan', []),
                 'generated_at': feedback_result_llm.get('generated_at', datetime.now().isoformat()),
                 'total_activities': len(timeline_data)
