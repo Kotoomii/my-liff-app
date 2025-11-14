@@ -267,23 +267,23 @@
         .timeline-container {
             position: relative;
             margin-top: 8px;
-            padding: 18px 10px 8px 10px;
+            padding: 25px 10px 8px 10px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 10px;
-            height: 110px;
-            overflow: hidden;
+            height: 160px;
+            overflow: visible;
             flex-shrink: 0;
         }
 
         .dice-timeline-container {
             position: relative;
             margin-top: 8px;
-            padding: 18px 10px 8px 10px;
+            padding: 25px 10px 8px 10px;
             background: rgba(0, 100, 0, 0.1);
             border: 2px solid rgba(76, 175, 80, 0.3);
             border-radius: 10px;
-            height: 110px;
-            overflow: hidden;
+            height: 160px;
+            overflow: visible;
             flex-shrink: 0;
         }
 
@@ -401,12 +401,12 @@
         .timeline-activity-bar {
             position: absolute;
             top: 25px;
-            height: 85px;
+            height: 125px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
             border: 2px solid transparent;
-            overflow: hidden;
+            overflow: visible;
         }
 
         .timeline-activity-bar:hover {
@@ -439,13 +439,13 @@
         .dice-suggestion-bar {
             position: absolute;
             top: 25px;
-            height: 85px;
+            height: 125px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
             border: 2px dashed rgba(76, 175, 80, 0.6);
             background: linear-gradient(135deg, rgba(76, 175, 80, 0.3), rgba(139, 195, 74, 0.3));
-            overflow: hidden;
+            overflow: visible;
         }
 
         .dice-suggestion-bar:hover {
@@ -475,6 +475,22 @@
             overflow: hidden;
             text-overflow: ellipsis;
             line-height: 1.2;
+        }
+
+        /* 短い活動：活動名を枠の上に表示 */
+        .timeline-activity-bar.narrow-activity .activity-bar-name,
+        .dice-suggestion-bar.narrow-activity .activity-bar-name {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            padding: 4px 8px;
+            border-radius: 6px;
+            white-space: nowrap;
+            z-index: 15;
+            font-size: 11px;
+            max-width: 150px;
         }
 
         .activity-bar-time {
@@ -1798,6 +1814,11 @@
             activityBar.style.left = startPosition + '%';
             activityBar.style.width = Math.max(width, 2) + '%'; // 最小2%の幅
 
+            // 短い活動（3%以下）の場合、活動名を上に表示
+            if (width < 3) {
+                activityBar.classList.add('narrow-activity');
+            }
+
             // 活動情報を表示
             const activityInfo = document.createElement('div');
             activityInfo.className = 'activity-bar-info';
@@ -1873,6 +1894,11 @@
             // 位置とサイズを設定
             suggestionBar.style.left = startPosition + '%';
             suggestionBar.style.width = Math.max(width, 3) + '%'; // 最小3%の幅
+
+            // 短い活動（3%以下）の場合、活動名を上に表示
+            if (width < 3) {
+                suggestionBar.classList.add('narrow-activity');
+            }
 
             // 提案情報を表示
             const suggestionInfo = document.createElement('div');
