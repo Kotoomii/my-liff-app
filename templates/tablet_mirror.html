@@ -484,13 +484,13 @@
             top: -20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.85);
-            padding: 3px 6px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 4px 8px;
             border-radius: 4px;
             white-space: nowrap;
-            z-index: 15;
-            font-size: 10px;
-            max-width: 120px;
+            z-index: 25;
+            font-size: 11px;
+            max-width: 200px;
             overflow: hidden;
             text-overflow: ellipsis;
         }
@@ -1816,8 +1816,8 @@
             activityBar.style.left = startPosition + '%';
             activityBar.style.width = Math.max(width, 2) + '%'; // 最小2%の幅
 
-            // 短い活動（3%以下）の場合、活動名を上に表示
-            if (width < 3) {
+            // 短い活動（5%以下：約72分以下）の場合、活動名を上に表示
+            if (width < 5) {
                 activityBar.classList.add('narrow-activity');
             }
 
@@ -1897,8 +1897,8 @@
             suggestionBar.style.left = startPosition + '%';
             suggestionBar.style.width = Math.max(width, 3) + '%'; // 最小3%の幅
 
-            // 短い活動（3%以下）の場合、活動名を上に表示
-            if (width < 3) {
+            // 短い活動（5%以下：約72分以下）の場合、活動名を上に表示
+            if (width < 5) {
                 suggestionBar.classList.add('narrow-activity');
             }
 
