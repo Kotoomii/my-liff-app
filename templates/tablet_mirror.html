@@ -522,14 +522,6 @@
             margin-bottom: 10px;
         }
 
-        .dice-status {
-            font-size: 12px;
-            padding: 5px 10px;
-            background: rgba(76, 175, 80, 0.3);
-            border-radius: 15px;
-            border: 1px solid #4CAF50;
-        }
-
         .total-improvement {
             text-align: center;
             margin: 15px 0;
@@ -658,7 +650,7 @@
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
             border-radius: 15px;
-            padding: 15px;
+            padding: 12px;
             border: 1px solid rgba(255, 255, 255, 0.2);
             flex: 1;
             position: relative;
@@ -668,10 +660,14 @@
             flex-direction: column;
         }
 
+        .feedback-section .section-title {
+            margin-bottom: 5px;
+        }
+
         .feedback-text {
             font-size: 13px;
             line-height: 1.6;
-            margin-top: 8px;
+            margin-top: 0px;
             padding: 12px;
             background: rgba(255, 255, 255, 0.1);
             border-radius: 10px;
@@ -1013,24 +1009,21 @@
 
             <!-- DiCE改善提案 -->
             <div class="dice-section">
-                <div class="dice-header">
-                    <h2 class="section-title">
-                        <span class="section-icon">🎯</span>
-                        改善提案
-                        <span style="margin-left: 10px; font-size: 14px; font-weight: normal; color: #4CAF50;">
-                            合計: <span id="total-improvement" style="font-size: 1.3em; font-weight: bold;">--</span>点
-                        </span>
-                    </h2>
-                    <div class="dice-status" id="dice-status">分析中...</div>
-                </div>
+                <h2 class="section-title" style="margin-bottom: 10px;">
+                    <span class="section-icon">🎯</span>
+                    改善提案
+                    <span style="margin-left: 10px; font-size: 14px; font-weight: normal; color: #4CAF50;">
+                        合計: <span id="total-improvement" style="font-size: 1.3em; font-weight: bold;">--</span>点
+                    </span>
+                </h2>
 
                 <div class="suggestions-container" id="suggestions-container">
                     <table class="suggestions-table">
                         <thead>
                             <tr>
-                                <th>時刻</th>
-                                <th>活動</th>
-                                <th>改善点</th>
+                                <th style="white-space: nowrap;">時刻</th>
+                                <th style="white-space: nowrap;">活動</th>
+                                <th style="white-space: nowrap;">改善点</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1572,36 +1565,25 @@
         // DiCE分析実行
         async function executeDiCEAnalysis(userId) {
             console.log(`🎲 DiCE分析実行: ${userId}`);
-            
+
             try {
-                document.getElementById('dice-status').textContent = '分析中...';
-                document.getElementById('dice-status').style.background = 'rgba(255, 152, 0, 0.3)';
-                document.getElementById('dice-status').style.borderColor = '#FF9800';
-                
                 const response = await fetch('/api/frustration/dice-analysis', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         user_id: userId,
                         lookback_hours: 24
                     })
                 });
 
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     updateDiCEDisplay(data.dice_analysis);
                     lastDiceUpdate = Date.now();
-                    
-                    document.getElementById('dice-status').textContent = '分析完了';
-                    document.getElementById('dice-status').style.background = 'rgba(76, 175, 80, 0.3)';
-                    document.getElementById('dice-status').style.borderColor = '#4CAF50';
                 }
             } catch (error) {
                 console.error('DiCE分析エラー:', error);
-                document.getElementById('dice-status').textContent = '分析エラー';
-                document.getElementById('dice-status').style.background = 'rgba(244, 67, 54, 0.3)';
-                document.getElementById('dice-status').style.borderColor = '#F44336';
             }
         }
 
