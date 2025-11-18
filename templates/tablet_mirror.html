@@ -1465,18 +1465,21 @@
         // 今日のフラストレーション値読み込み（予測値ベース）
         async function loadDailyFrustration(userId) {
             try {
+                const targetDate = getFeedbackDate();
+                console.log(`📅 フラストレーション予測値取得日付: ${targetDate}`);
+
                 // まず活動データを取得
                 const response = await fetch('/api/frustration/timeline', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         user_id: userId,
-                        date: new Date().toISOString().split('T')[0]
+                        date: targetDate
                     })
                 });
 
                 const data = await response.json();
-                
+
                 if (data.status === 'success' && data.timeline.length > 0) {
                     // 各活動に対してリアルタイム予測を実行
                     await updateDailyFrustrationWithPredictions(data.timeline, userId);
@@ -1540,27 +1543,30 @@
         // タイムライン読み込み（予測値ベース活動表示）
         async function loadTimeline(userId) {
             try {
+                const targetDate = getFeedbackDate();
+                console.log(`📅 タイムライン取得日付: ${targetDate}`);
+
                 const response = await fetch('/api/frustration/timeline', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         user_id: userId,
-                        date: new Date().toISOString().split('T')[0]
+                        date: targetDate
                     })
                 });
 
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     // 予測値でタイムライン表示を更新
                     await updateTimelineWithPredictions(data.timeline, userId);
-                    
+
                     // 活動数をチェック
                     const currentActivityCount = data.timeline.length;
                     if (currentActivityCount > lastActivityCount) {
                         lastActivityCount = currentActivityCount;
                         console.log(`🎯 新しい活動が検出されました: ${currentActivityCount - lastActivityCount}件`);
-                        
+
                         // 新しい活動が報告された場合、DiCE分析を実行
                         setTimeout(() => {
                             executeDiCEAnalysis(userId);
