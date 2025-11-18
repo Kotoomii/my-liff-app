@@ -1658,23 +1658,43 @@
             }
         }
 
+        // フィードバック表示用の日付を取得（9時まで前日のフィードバックを表示）
+        function getFeedbackDate() {
+            const now = new Date();
+            const hour = now.getHours();
+
+            // 0:00 ～ 8:59 の場合は前日の日付を返す
+            if (hour < 9) {
+                const yesterday = new Date(now);
+                yesterday.setDate(yesterday.getDate() - 1);
+                return yesterday.toISOString().split('T')[0];
+            }
+
+            // 9:00 以降は当日の日付を返す
+            return now.toISOString().split('T')[0];
+        }
+
         // フィードバック読み込み
         async function loadFeedback(userId) {
             try {
                 const hour = new Date().getHours();
                 const feedbackType = (hour >= 5 && hour < 12) ? 'morning' : 'evening';
-                
+                const feedbackDate = getFeedbackDate();
+
+                console.log(`📅 フィードバック取得日付: ${feedbackDate} (現在時刻: ${hour}時)`);
+
                 const response = await fetch('/api/feedback/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         user_id: userId,
-                        type: feedbackType
+                        type: feedbackType,
+                        date: feedbackDate
                     })
                 });
 
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     updateFeedbackDisplay(data.feedback, feedbackType);
                 }

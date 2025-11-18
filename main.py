@@ -859,8 +859,14 @@ def generate_feedback():
         user_id = data.get('user_id', 'default')
         feedback_type = data.get('feedback_type', data.get('type', 'daily'))
 
-        # 今日の日付を取得
-        today = datetime.now().strftime('%Y-%m-%d')
+        # 日付を取得（パラメータで指定されていればそれを使用、なければ今日の日付）
+        target_date = data.get('date')
+        if target_date:
+            today = target_date
+            logger.info(f"📅 指定された日付を使用: {today}")
+        else:
+            today = datetime.now().strftime('%Y-%m-%d')
+            logger.info(f"📅 今日の日付を使用: {today}")
 
         logger.info(f"📖 Daily Summaryからフィードバック取得: user_id={user_id}, date={today}")
 
