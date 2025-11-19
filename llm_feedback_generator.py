@@ -87,15 +87,15 @@ class LLMFeedbackGenerator:
                 'messages': [
                     {
                         'role': 'system',
-                        'content': 'あなたは優秀なストレス管理コンサルタントです。温かく、具体的で実践的なアドバイスを提供します。ユーザーの自律性を尊重し、命令形（「〜しましょう」「〜してください」）は絶対に使わず、提案型の表現（「〜してみるのはいかがでしょうか？」など）のみを使用してください。決定権は常にユーザーにあります。'
+                        'content': 'あなたは優秀なストレス管理コンサルタントです。温かく、具体的で実践的なアドバイスを提供します。ユーザーの自律性を尊重し、命令形（「〜しましょう」「〜してください」）は絶対に使わず、提案型の表現（「〜してみるのはいかがでしょうか？」など）のみを使用してください。決定権は常にユーザーにあります。【重要】フィードバックは必ず150文字以内に収めてください。これは厳格な制約です。'
                     },
                     {
                         'role': 'user',
                         'content': prompt
                     }
                 ],
-                'max_tokens': 500,
-                'temperature': 0.7
+                'max_tokens': 200,
+                'temperature': 0.3
             }
 
             response = requests.post(
@@ -108,6 +108,16 @@ class LLMFeedbackGenerator:
             if response.status_code == 200:
                 result = response.json()
                 generated_text = result['choices'][0]['message']['content'].strip()
+
+                # 150文字を超えている場合は切り捨て
+                if len(generated_text) > 150:
+                    logger.warning(f"⚠️ 生成されたフィードバックが150文字を超えています（{len(generated_text)}文字）。150文字に切り捨てます。")
+                    generated_text = generated_text[:150]
+                    # 末尾が中途半端な文にならないよう、句点で終わるように調整
+                    last_period = max(generated_text.rfind('。'), generated_text.rfind('？'), generated_text.rfind('！'))
+                    if last_period > 100:  # 100文字以上残る場合のみ
+                        generated_text = generated_text[:last_period + 1]
+
                 logger.info(f"✅ ChatGPT APIからフィードバックを生成しました (文字数: {len(generated_text)})")
                 logger.info(f"📝 生成されたフィードバック: {generated_text}")
                 return generated_text
@@ -565,7 +575,10 @@ DiCE提案は「活動を完全に変える」のではなく、「元の活動�
 3. 低ストレスだった活動の特徴
 4. 気づきを促す問いかけ
 
-フィードバックは150文字以内で、温かく共感的なトーンでお願いします。
+【重要な制約】
+- フィードバックは必ず150文字以内に収めてください（厳格な制約）
+- 温かく共感的なトーンで
+- 箇条書きは使わず、自然な文章で
 """
         return prompt
 
