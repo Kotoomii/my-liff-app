@@ -1015,24 +1015,13 @@
                 </div>
             </div>
 
-            <!-- アドバイス（DiCE版） -->
+            <!-- アドバイス（実験条件により動的に切り替え） -->
             <div class="feedback-section">
                 <h2 class="section-title">
-                    <span class="section-icon">💬</span>
-                    <span id="feedback-type-dice">DiCE版</span>アドバイス
+                    <span class="section-icon" id="feedback-icon">💬</span>
+                    <span id="feedback-type-label">DiCE版</span>アドバイス
                 </h2>
-                <div class="feedback-text" id="feedback-text-dice">
-                    フィードバックを生成中です...
-                </div>
-            </div>
-
-            <!-- アドバイス（推定値のみ版） -->
-            <div class="feedback-section">
-                <h2 class="section-title">
-                    <span class="section-icon">💭</span>
-                    <span id="feedback-type-no-dice">推定値のみ</span>アドバイス
-                </h2>
-                <div class="feedback-text" id="feedback-text-no-dice">
+                <div class="feedback-text" id="feedback-text">
                     フィードバックを生成中です...
                 </div>
             </div>
@@ -1091,6 +1080,48 @@
     </div>
 
     <script>
+        // ========== 実験設定 ==========
+        const EXPERIMENT_CONFIG = {
+            startDate: '2025-11-19',  // 実験開始日（テスト用に一時変更）
+            groupA: ['default', 'user5', 'user6', 'user7', 'user8'],  // 前半DiCE → 後半推定値のみ
+            groupB: ['user1', 'user2', 'user3', 'user4']   // 前半推定値のみ → 後半DiCE
+        };
+
+        /**
+         * ユーザーと日付からDiCE版を表示すべきか判定
+         */
+        function shouldShowDiCE(userId) {
+            const now = new Date();
+            const startDate = new Date(EXPERIMENT_CONFIG.startDate);
+            const daysSinceStart = Math.floor((now - startDate) / (1000 * 60 * 60 * 24));
+
+            // 実験期間外（0日目より前、または6日目以降）
+            if (daysSinceStart < 0 || daysSinceStart >= 6) {
+                console.log(`📅 実験期間外（${daysSinceStart}日目）: DiCE版を表示`);
+                return true;  // 実験期間外はDiCE版を表示
+            }
+
+            const isFirstHalf = daysSinceStart < 3;  // 0-2日目 = 前半
+
+            // グループA: 前半DiCE → 後半推定値のみ
+            if (EXPERIMENT_CONFIG.groupA.includes(userId)) {
+                const showDice = isFirstHalf;
+                console.log(`📅 ${userId} (グループA), ${daysSinceStart}日目 (${isFirstHalf ? '前半' : '後半'}): ${showDice ? 'DiCE版' : '推定値のみ版'}`);
+                return showDice;
+            }
+
+            // グループB: 前半推定値のみ → 後半DiCE
+            if (EXPERIMENT_CONFIG.groupB.includes(userId)) {
+                const showDice = !isFirstHalf;
+                console.log(`📅 ${userId} (グループB), ${daysSinceStart}日目 (${isFirstHalf ? '前半' : '後半'}): ${showDice ? 'DiCE版' : '推定値のみ版'}`);
+                return showDice;
+            }
+
+            // その他のユーザー（実験対象外）
+            console.log(`📅 ${userId} (実験対象外): DiCE版を表示`);
+            return true;
+        }
+
         // グローバル変数
         let currentUser = localStorage.getItem('selectedUser') || 'default'; // localStorageから復元
         let dataUpdateInterval = 300000; // 5分ごとにデータ更新
@@ -1183,6 +1214,9 @@
             // localStorageから復元したユーザーでUIを更新
             restoreUserUI();
 
+            // 実験条件に基づいて表示を切り替え
+            updateExperimentView(currentUser);
+
             loadUserData(currentUser);
             syncTimelineScroll(); // スクロール同期を設定
         }
@@ -1233,6 +1267,44 @@
             dropdown.classList.remove('active');
         }
 
+        /**
+         * 実験条件に基づいて表示を切り替える
+         */
+        function updateExperimentView(userId) {
+            const showDice = shouldShowDiCE(userId);
+
+            // DiCE改善提案の枠の表示/非表示
+            const diceSection = document.querySelector('.dice-section');
+            if (diceSection) {
+                diceSection.style.display = showDice ? 'block' : 'none';
+            }
+
+            // DiCE改善提案タイムラインの表示/非表示
+            const diceTimeline = document.getElementById('dice-timeline-container');
+            if (diceTimeline) {
+                diceTimeline.style.display = showDice ? 'block' : 'none';
+                // 次の.timeline-legend（DiCEタイムライン用）も非表示
+                const nextLegend = diceTimeline.nextElementSibling;
+                if (nextLegend && nextLegend.classList.contains('timeline-legend')) {
+                    nextLegend.style.display = showDice ? 'flex' : 'none';
+                }
+            }
+
+            // フィードバック枠のラベルとアイコンを更新
+            const feedbackIcon = document.getElementById('feedback-icon');
+            const feedbackLabel = document.getElementById('feedback-type-label');
+
+            if (showDice) {
+                if (feedbackIcon) feedbackIcon.textContent = '💬';
+                if (feedbackLabel) feedbackLabel.textContent = 'DiCE版';
+            } else {
+                if (feedbackIcon) feedbackIcon.textContent = '💭';
+                if (feedbackLabel) feedbackLabel.textContent = '推定値のみ';
+            }
+
+            console.log(`🎨 実験表示更新: ${showDice ? 'DiCE版' : '推定値のみ版'}`);
+        }
+
         // ユーザー選択
         function selectUser(userId, icon, name) {
             if (userId === currentUser) {
@@ -1256,6 +1328,9 @@
             localStorage.setItem('selectedUser', userId); // localStorageに保存
             console.log(`💾 ユーザー選択を保存: ${userId}`);
             closeUserDropdown();
+
+            // 実験条件に基づいて表示を切り替え
+            updateExperimentView(userId);
 
             // データ読み込み
             loadUserData(userId);
@@ -1969,33 +2044,29 @@
 
         // フィードバック表示更新
         function updateFeedbackDisplay(feedback, feedbackType) {
-            // DiCE版フィードバック
-            document.getElementById('feedback-type-dice').textContent =
-                feedbackType === 'morning' ? '今日の' : 'DiCE版';
+            // 実験条件に基づいて表示するフィードバックを選択
+            const showDice = shouldShowDiCE(currentUser);
 
-            let feedbackTextDice = feedback.main_feedback || 'フィードバックを準備中です...';
+            let feedbackText;
+            if (showDice) {
+                feedbackText = feedback.main_feedback || 'フィードバックを準備中です...';
+            } else {
+                feedbackText = feedback.main_feedback_no_dice || 'フィードバックを準備中です...';
+            }
 
             // キーワードをハイライト
-            feedbackTextDice = feedbackTextDice.replace(
+            feedbackText = feedbackText.replace(
                 /(改善|向上|効果的|おすすめ|重要|注意)/g,
                 '<span class="feedback-highlight">$1</span>'
             );
 
-            document.getElementById('feedback-text-dice').innerHTML = feedbackTextDice;
+            // 単一のフィードバック枠に表示
+            const feedbackElement = document.getElementById('feedback-text');
+            if (feedbackElement) {
+                feedbackElement.innerHTML = feedbackText;
+            }
 
-            // 推定値のみ版フィードバック
-            document.getElementById('feedback-type-no-dice').textContent =
-                feedbackType === 'morning' ? '今日の' : '推定値のみ';
-
-            let feedbackTextNoDice = feedback.main_feedback_no_dice || 'フィードバックを準備中です...';
-
-            // キーワードをハイライト
-            feedbackTextNoDice = feedbackTextNoDice.replace(
-                /(改善|向上|効果的|おすすめ|重要|注意)/g,
-                '<span class="feedback-highlight">$1</span>'
-            );
-
-            document.getElementById('feedback-text-no-dice').innerHTML = feedbackTextNoDice;
+            console.log(`💬 フィードバック表示: ${showDice ? 'DiCE版' : '推定値のみ版'}`);
         }
 
         // 次回DiCE時刻更新
