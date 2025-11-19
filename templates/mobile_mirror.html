@@ -267,12 +267,12 @@
         .timeline-container {
             position: relative;
             margin-top: 10px;
-            padding: 20px 10px 10px 10px;
+            padding: 45px 10px 10px 10px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 10px;
-            height: 430px;
+            height: 470px;
             overflow-x: auto;
-            overflow-y: hidden;
+            overflow-y: visible;
             flex-shrink: 0;
             -webkit-overflow-scrolling: touch;
         }
@@ -300,13 +300,13 @@
         .dice-timeline-container {
             position: relative;
             margin-top: 10px;
-            padding: 20px 10px 10px 10px;
+            padding: 45px 10px 10px 10px;
             background: rgba(0, 100, 0, 0.1);
             border: 2px solid rgba(76, 175, 80, 0.3);
             border-radius: 10px;
-            height: 420px;
+            height: 460px;
             overflow-x: auto;
-            overflow-y: hidden;
+            overflow-y: visible;
             flex-shrink: 0;
             -webkit-overflow-scrolling: touch;
         }
@@ -537,6 +537,76 @@
             font-weight: bold;
             margin-top: 2px;
             line-height: 1.2;
+        }
+
+        /* 短い活動：活動名を上部スペースに2段表示 */
+        .timeline-activity-bar.narrow-activity .activity-bar-name,
+        .dice-suggestion-bar.narrow-activity .activity-bar-name {
+            position: absolute;
+            top: -20px;
+            left: 0;
+            transform: none;
+            padding: 3px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+            z-index: 25;
+            font-size: 10px;
+            max-width: none;
+            overflow: visible;
+            pointer-events: none;
+        }
+
+        /* 2段目表示 */
+        .timeline-activity-bar.narrow-activity.label-row-2 .activity-bar-name,
+        .dice-suggestion-bar.narrow-activity.label-row-2 .activity-bar-name {
+            top: -36px;
+        }
+
+        /* 枠とラベルを繋ぐ線 */
+        .timeline-activity-bar.narrow-activity::before,
+        .dice-suggestion-bar.narrow-activity::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: -20px;
+            width: 2px;
+            height: 20px;
+            background: currentColor;
+            opacity: 0.5;
+            z-index: 20;
+        }
+
+        .timeline-activity-bar.narrow-activity.label-row-2::before,
+        .dice-suggestion-bar.narrow-activity.label-row-2::before {
+            top: -36px;
+            height: 36px;
+        }
+
+        /* 活動のストレスレベルに応じた背景色 */
+        .timeline-activity-bar.narrow-activity.low-stress .activity-bar-name {
+            background: rgba(76, 175, 80, 0.95);
+            color: white;
+        }
+
+        .timeline-activity-bar.narrow-activity.medium-stress .activity-bar-name {
+            background: rgba(255, 193, 7, 0.95);
+            color: white;
+        }
+
+        .timeline-activity-bar.narrow-activity.high-stress .activity-bar-name {
+            background: rgba(244, 67, 54, 0.95);
+            color: white;
+        }
+
+        .timeline-activity-bar.narrow-activity.no-data .activity-bar-name {
+            background: rgba(158, 158, 158, 0.95);
+            color: white;
+        }
+
+        /* DiCEは緑色 */
+        .dice-suggestion-bar.narrow-activity .activity-bar-name {
+            background: rgba(76, 175, 80, 0.95);
+            color: white;
         }
 
         .timeline-legend {
@@ -1805,9 +1875,23 @@
             container.appendChild(timeAxis);
 
             // 活動バーを配置
+            let narrowIndex = 0;
             activities.forEach(activity => {
-                const activityBar = createActivityBar(activity);
+                const activityBar = createActivityBar(activity, narrowIndex);
                 container.appendChild(activityBar);
+
+                // narrow-activityの場合はインデックスをインクリメント
+                const startHour = activity.startTime.getHours();
+                const startMinute = activity.startTime.getMinutes();
+                const endHour = activity.endTime.getHours();
+                const endMinute = activity.endTime.getMinutes();
+                const startPosition = (startHour * 60 + startMinute) / (24 * 60) * 100;
+                const endPosition = (endHour * 60 + endMinute) / (24 * 60) * 100;
+                const width = endPosition - startPosition;
+
+                if (width < 5) {
+                    narrowIndex++;
+                }
             });
         }
 
@@ -1831,14 +1915,23 @@
             container.appendChild(timeAxis);
 
             // DiCE提案バーを配置
+            let narrowIndex = 0;
             suggestions.forEach(suggestion => {
-                const suggestionBar = createDiCESuggestionBar(suggestion);
+                const suggestionBar = createDiCESuggestionBar(suggestion, narrowIndex);
                 container.appendChild(suggestionBar);
+
+                // 幅を計算してnarrow判定
+                const duration = suggestion.suggested_duration || 60;
+                const width = (duration / (24 * 60)) * 100;
+
+                if (width < 5) {
+                    narrowIndex++;
+                }
             });
         }
 
         // 活動バーを作成
-        function createActivityBar(activity) {
+        function createActivityBar(activity, narrowIndex) {
             const startHour = activity.startTime.getHours();
             const startMinute = activity.startTime.getMinutes();
             const endHour = activity.endTime.getHours();
@@ -1868,6 +1961,15 @@
             // 位置とサイズを設定
             activityBar.style.left = startPosition + '%';
             activityBar.style.width = Math.max(width, 2) + '%'; // 最小2%の幅
+
+            // 短い活動（5%以下：約72分以下）の場合、活動名を上に表示
+            if (width < 5) {
+                activityBar.classList.add('narrow-activity');
+                // 偶数番目（1,3,5...）は2段目に表示
+                if (narrowIndex % 2 === 1) {
+                    activityBar.classList.add('label-row-2');
+                }
+            }
 
             // 活動情報を表示
             const activityInfo = document.createElement('div');
@@ -1899,7 +2001,7 @@
         }
 
         // DiCE提案バーを作成
-        function createDiCESuggestionBar(suggestion) {
+        function createDiCESuggestionBar(suggestion, narrowIndex) {
             // 時刻から時間の位置を計算
             const time = suggestion.timestamp || suggestion.original_timestamp;
             const timeObj = new Date(time);
@@ -1944,6 +2046,15 @@
             // 位置とサイズを設定
             suggestionBar.style.left = startPosition + '%';
             suggestionBar.style.width = Math.max(width, 3) + '%'; // 最小3%の幅
+
+            // 短い提案（5%以下）の場合、活動名を上に表示
+            if (width < 5) {
+                suggestionBar.classList.add('narrow-activity');
+                // 偶数番目（1,3,5...）は2段目に表示
+                if (narrowIndex % 2 === 1) {
+                    suggestionBar.classList.add('label-row-2');
+                }
+            }
 
             // 提案情報を表示
             const suggestionInfo = document.createElement('div');
