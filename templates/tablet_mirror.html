@@ -274,6 +274,7 @@
             min-height: 0;
             display: flex;
             flex-direction: column;
+            overflow: visible;
         }
 
         .timeline-container {
@@ -502,14 +503,16 @@
             top: -20px;
             left: 0;
             transform: none;
-            padding: 3px 6px;
-            border-radius: 4px;
+            padding: 4px 8px;
+            border-radius: 5px;
             white-space: nowrap;
-            z-index: 25;
-            font-size: 10px;
+            z-index: 100;
+            font-size: 11px;
             max-width: none;
             overflow: visible;
             pointer-events: none;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.2);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
         }
 
         /* 2段目表示 */
@@ -528,8 +531,8 @@
             width: 2px;
             height: 20px;
             background: currentColor;
-            opacity: 0.5;
-            z-index: 20;
+            opacity: 0.7;
+            z-index: 90;
         }
 
         .timeline-activity-bar.narrow-activity.label-row-2::before,
@@ -540,28 +543,28 @@
 
         /* 活動のストレスレベルに応じた背景色 */
         .timeline-activity-bar.narrow-activity.low-stress .activity-bar-name {
-            background: rgba(76, 175, 80, 0.95);
+            background: rgb(76, 175, 80);
             color: white;
         }
 
         .timeline-activity-bar.narrow-activity.medium-stress .activity-bar-name {
-            background: rgba(255, 193, 7, 0.95);
+            background: rgb(255, 193, 7);
             color: white;
         }
 
         .timeline-activity-bar.narrow-activity.high-stress .activity-bar-name {
-            background: rgba(244, 67, 54, 0.95);
+            background: rgb(244, 67, 54);
             color: white;
         }
 
         .timeline-activity-bar.narrow-activity.no-data .activity-bar-name {
-            background: rgba(158, 158, 158, 0.95);
+            background: rgb(158, 158, 158);
             color: white;
         }
 
         /* DiCEは緑色 */
         .dice-suggestion-bar.narrow-activity .activity-bar-name {
-            background: rgba(76, 175, 80, 0.95);
+            background: rgb(76, 175, 80);
             color: white;
         }
 
