@@ -1,223 +1,201 @@
-# Cloud Scheduler セットアップガイド
+# Cloud Scheduler設定ガイド - モデル自動再学習
 
-このドキュメントでは、`min_instances=1` から `min_instances=0 + Cloud Scheduler` への移行手順と、必要に応じてロールバックする方法を説明します。
+## 概要
 
-## コスト削減効果
+毎朝、全ユーザーのMLモデルを自動的に再学習するためのCloud Schedulerの設定手順です。
 
-- **現状 (min_instances=1)**: 約 $65-70/月
-- **Cloud Scheduler使用**: 約 $5-10/月
-- **削減額**: 約 **85%のコスト削減**
+## 前提条件
 
----
+- Google Cloud Projectが作成済み
+- Cloud Runにアプリケーションがデプロイ済み
+- Cloud Scheduler APIが有効化されている
 
-## 📋 前提条件
+## 設定手順
 
-- Google Cloud プロジェクトが作成されている
-- Cloud Run サービスがデプロイ済み
-- `gcloud` コマンドがインストールされている
-
----
-
-## 🚀 移行手順
-
-### ステップ 1: 認証トークンの設定
-
-Cloud Scheduler からのリクエストを認証するため、環境変数にトークンを設定します。
+### 1. Cloud Scheduler APIの有効化
 
 ```bash
-# ランダムな認証トークンを生成
-SCHEDULER_TOKEN=$(openssl rand -hex 32)
-echo "生成されたトークン: $SCHEDULER_TOKEN"
-
-# Cloud Run サービスに環境変数を設定
-gcloud run services update research-matsui \
-  --set-env-vars SCHEDULER_AUTH_TOKEN=$SCHEDULER_TOKEN \
-  --region asia-northeast1
+gcloud services enable cloudscheduler.googleapis.com
 ```
 
-**⚠️ 重要**: 生成されたトークンは安全な場所に保存してください（次のステップで使用します）。
+### 2. Cloud Schedulerジョブの作成
 
----
+#### GCPコンソールから設定する場合
 
-### ステップ 2: Cloud Scheduler ジョブの作成
+1. **GCP Console** を開く
+2. **Cloud Scheduler** にアクセス
+3. **ジョブを作成** をクリック
+4. 以下の情報を入力：
 
-#### 2-1. データ監視ジョブ（9:00-22:00、毎時0分・30分）
+**基本設定:**
+- **名前**: `model-retrain-daily`
+- **リージョン**: `asia-northeast1` (東京)
+- **説明**: `全ユーザーのMLモデルを毎朝再学習`
+- **頻度**: `0 8 * * *` (毎朝8時 JST)
+- **タイムゾーン**: `Asia/Tokyo (JST)`
+
+**実行内容の設定:**
+- **ターゲットタイプ**: `HTTP`
+- **URL**: `https://YOUR-CLOUD-RUN-URL/api/model/retrain-all`
+  - 例: `https://my-liff-app-xxxxx-an.a.run.app/api/model/retrain-all`
+- **HTTPメソッド**: `POST`
+- **本文**: (空でOK)
+
+**認証設定:**
+- **Auth ヘッダー**: `Add OIDC token`
+- **サービスアカウント**: Cloud Run起動元サービスアカウント
+  - デフォルトの場合: `YOUR-PROJECT-ID@appspot.gserviceaccount.com`
+- **Audience**: Cloud RunのURL (上記と同じ)
+
+**再試行設定:**
+- **最大再試行回数**: `3`
+- **最大再試行期間**: `1h`
+- **最小バックオフ**: `5s`
+- **最大バックオフ**: `3600s`
+
+5. **作成** をクリック
+
+#### gcloudコマンドで設定する場合
 
 ```bash
-# サービスURLを取得
-SERVICE_URL=$(gcloud run services describe research-matsui --region asia-northeast1 --format='value(status.url)')
+# サービスアカウントの確認
+gcloud projects describe YOUR-PROJECT-ID --format="value(projectNumber)"
 
-# Cloud Scheduler ジョブを作成（0分実行）
-gcloud scheduler jobs create http data-monitor-00 \
-  --location asia-northeast1 \
-  --schedule "0 0-13 * * *" \
-  --time-zone "Asia/Tokyo" \
-  --uri "${SERVICE_URL}/api/scheduler/monitor" \
-  --http-method POST \
-  --headers "X-Scheduler-Auth=${SCHEDULER_TOKEN}" \
-  --attempt-deadline 600s \
-  --description "データ監視（9:00-22:00、毎時0分）"
-
-# Cloud Scheduler ジョブを作成（30分実行）
-gcloud scheduler jobs create http data-monitor-30 \
-  --location asia-northeast1 \
-  --schedule "30 0-13 * * *" \
-  --time-zone "Asia/Tokyo" \
-  --uri "${SERVICE_URL}/api/scheduler/monitor" \
-  --http-method POST \
-  --headers "X-Scheduler-Auth=${SCHEDULER_TOKEN}" \
-  --attempt-deadline 600s \
-  --description "データ監視（9:00-22:00、毎時30分）"
+# Cloud Schedulerジョブの作成
+gcloud scheduler jobs create http model-retrain-daily \
+  --location=asia-northeast1 \
+  --schedule="0 8 * * *" \
+  --time-zone="Asia/Tokyo" \
+  --uri="https://YOUR-CLOUD-RUN-URL/api/model/retrain-all" \
+  --http-method=POST \
+  --oidc-service-account-email="YOUR-PROJECT-ID@appspot.gserviceaccount.com" \
+  --oidc-token-audience="https://YOUR-CLOUD-RUN-URL" \
+  --max-retry-attempts=3 \
+  --max-retry-duration=1h \
+  --description="全ユーザーのMLモデルを毎朝再学習"
 ```
 
-**スケジュール説明**:
-- `0 0-13 * * *`: 毎日 0:00-13:00（UTC）= 9:00-22:00（JST）の毎時0分
-- `30 0-13 * * *`: 毎日 0:30-13:30（UTC）= 9:30-22:30（JST）の毎時30分
+### 3. 動作確認
 
-#### 2-2. DiCE実行ジョブ（22:10 JST）
+#### 手動でジョブを実行してテスト
 
 ```bash
-# DiCE実行ジョブを作成
-gcloud scheduler jobs create http dice-evening \
-  --location asia-northeast1 \
-  --schedule "10 13 * * *" \
-  --time-zone "Asia/Tokyo" \
-  --uri "${SERVICE_URL}/api/scheduler/dice" \
-  --http-method POST \
-  --headers "X-Scheduler-Auth=${SCHEDULER_TOKEN}" \
-  --attempt-deadline 1800s \
-  --description "DiCE実行 + フィードバック生成（22:10 JST）"
+gcloud scheduler jobs run model-retrain-daily --location=asia-northeast1
 ```
 
-**スケジュール説明**:
-- `10 13 * * *`: 毎日 13:10（UTC）= 22:10（JST）
-
----
-
-### ステップ 3: min_instances を 0 に変更
+#### ログで結果を確認
 
 ```bash
-# Cloud Run サービスの min_instances を 0 に変更
-gcloud run services update research-matsui \
-  --min-instances 0 \
-  --region asia-northeast1
+# Cloud Runのログを確認
+gcloud logging read "resource.type=cloud_run_revision AND textPayload:\"モデル再学習バッチ\"" \
+  --limit=50 \
+  --format=json
 ```
 
-これで、Cloud Scheduler による起動のみが有効になります。
+または、GCP Console > Cloud Run > ログ で確認
 
----
+## スケジュール設定の説明
 
-## ✅ 動作確認
+### Cron形式
 
-### 手動でジョブをトリガー
+`0 8 * * *` = 毎日8:00 JST
+
+- 第1項 (0): 分 (0-59)
+- 第2項 (8): 時 (0-23)
+- 第3項 (*): 日 (1-31)
+- 第4項 (*): 月 (1-12)
+- 第5項 (*): 曜日 (0-6, 0=日曜)
+
+### スケジュール変更例
 
 ```bash
-# データ監視ジョブを手動実行
-gcloud scheduler jobs run data-monitor-00 --location asia-northeast1
+# 毎朝9時に変更
+0 9 * * *
 
-# DiCEジョブを手動実行
-gcloud scheduler jobs run dice-evening --location asia-northeast1
+# 毎日正午に実行
+0 12 * * *
+
+# 毎週月曜日の朝8時
+0 8 * * 1
+
+# 1日2回（朝8時と夜8時）
+0 8,20 * * *
 ```
 
-### ログの確認
+## トラブルシューティング
 
-```bash
-# Cloud Run ログを確認
-gcloud run logs read research-matsui --region asia-northeast1 --limit 50
-```
+### ジョブが実行されない場合
 
----
+1. **Cloud Scheduler APIが有効か確認**
+   ```bash
+   gcloud services list --enabled | grep cloudscheduler
+   ```
 
-## 🔄 ロールバック手順（問題が発生した場合）
+2. **サービスアカウントの権限確認**
+   - Cloud Run起動元の権限が必要
+   - IAM > サービスアカウントで確認
 
-Cloud Scheduler に問題が発生した場合、すぐに元の `min_instances=1` に戻すことができます。
+3. **ジョブの状態確認**
+   ```bash
+   gcloud scheduler jobs describe model-retrain-daily --location=asia-northeast1
+   ```
 
-### ステップ 1: min_instances を 1 に戻す
+### 認証エラーが出る場合
 
-```bash
-# すぐに元に戻す
-gcloud run services update research-matsui \
-  --min-instances 1 \
-  --region asia-northeast1
-```
+- OIDC トークンの設定を確認
+- サービスアカウントがCloud Run Invokerロールを持っているか確認
 
-これで、既存の `data_monitor_loop()` が自動的に起動します。
+### タイムアウトする場合
 
-### ステップ 2: Cloud Scheduler ジョブの一時停止（オプション）
+- Cloud Runのタイムアウト設定を延長（デフォルト300秒）
+- ユーザー数が多い場合は実行時間が長くなる可能性あり
 
-```bash
-# ジョブを一時停止（削除はしない）
-gcloud scheduler jobs pause data-monitor-00 --location asia-northeast1
-gcloud scheduler jobs pause data-monitor-30 --location asia-northeast1
-gcloud scheduler jobs pause dice-evening --location asia-northeast1
-```
+## APIエンドポイントの仕様
 
----
-
-## 📊 スケジュール実行頻度の比較
-
-| 項目 | 現状（min_instances=1） | Cloud Scheduler |
-|------|------------------------|----------------|
-| データ監視 | 9:00-22:00、毎時 0,15,30,45分 (52回/日) | 9:00-22:00、毎時 0,30分 (27回/日) |
-| DiCE実行 | 22:10 JST (1回/日) | 22:10 JST (1回/日) |
-| 合計実行回数 | 53回/日 | 28回/日 |
-| コスト | $65-70/月 | $5-10/月 |
-
-**削減率**: 約 **85%のコスト削減**
-
----
-
-## 🔍 トラブルシューティング
-
-### エラー: 認証失敗
+### リクエスト
 
 ```
-⚠️ Cloud Scheduler認証失敗
+POST /api/model/retrain-all
+Content-Type: application/json
 ```
 
-**解決方法**:
-1. Cloud Run サービスの環境変数 `SCHEDULER_AUTH_TOKEN` を確認
-2. Cloud Scheduler ジョブのヘッダー `X-Scheduler-Auth` を確認
-3. トークンが一致しているか確認
+### レスポンス例
 
-### エラー: タイムアウト
-
+```json
+{
+  "status": "success",
+  "timestamp": "2025-11-19T08:00:15.123456",
+  "total_users": 10,
+  "summary": {
+    "success": 8,
+    "error": 0,
+    "skipped": 2
+  },
+  "users": [
+    {
+      "user_id": "default",
+      "user_name": "デフォルトユーザー",
+      "status": "success",
+      "message": "モデル訓練完了",
+      "data_count": 150,
+      "metrics": {
+        "rmse": 2.3456,
+        "mae": 1.8765,
+        "r2": 0.82
+      }
+    },
+    {
+      "user_id": "user1",
+      "user_name": "小手川",
+      "status": "insufficient_data",
+      "message": "データ不足: 5件 < 10件",
+      "data_count": 5
+    }
+  ]
+}
 ```
-Cloud Scheduler DiCE実行エラー
-```
 
-**解決方法**:
-1. `--attempt-deadline` を増やす（例: 1800s → 3600s）
-2. ログを確認してボトルネックを特定
+## 参考リンク
 
-```bash
-gcloud run logs read research-matsui --region asia-northeast1 --limit 100
-```
-
----
-
-## 📝 注意事項
-
-1. **既存コードはそのまま残しています**
-   - `data_monitor_loop()` と `scheduler._execute_evening_feedback()` は削除していません
-   - `min_instances=1` に戻すだけで、すぐに元の動作に戻ります
-
-2. **新しいエンドポイント**
-   - `/api/scheduler/monitor`: Cloud Scheduler 用データ監視エンドポイント
-   - `/api/scheduler/dice`: Cloud Scheduler 用 DiCE 実行エンドポイント
-
-3. **セキュリティ**
-   - 認証トークンは環境変数で管理
-   - より強固なセキュリティが必要な場合は、Cloud Scheduler の OIDC トークン認証を推奨
-
----
-
-## 📞 サポート
-
-問題が発生した場合は、すぐに `min_instances=1` に戻してください。
-
-```bash
-gcloud run services update research-matsui \
-  --min-instances 1 \
-  --region asia-northeast1
-```
+- [Cloud Scheduler ドキュメント](https://cloud.google.com/scheduler/docs)
+- [Cron形式リファレンス](https://cloud.google.com/scheduler/docs/configuring/cron-job-schedules)

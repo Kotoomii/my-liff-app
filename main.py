@@ -1268,6 +1268,90 @@ def debug_model():
             'message': str(e)
         }), 500
 
+@app.route('/api/model/retrain-all', methods=['POST'])
+def retrain_all_models():
+    """
+    全ユーザーのモデルを再学習するバッチ処理API
+    Cloud Schedulerから定期的に呼び出されることを想定
+    """
+    try:
+        logger.warning("🔄 全ユーザーモデル再学習バッチ開始")
+
+        # 全ユーザーのリストを取得
+        all_users = Config.get_all_users()
+
+        results = {
+            'status': 'success',
+            'timestamp': datetime.now().isoformat(),
+            'total_users': len(all_users),
+            'users': []
+        }
+
+        success_count = 0
+        error_count = 0
+
+        for user_config in all_users:
+            user_id = user_config['user_id']
+            user_name = user_config['name']
+
+            logger.warning(f"📊 ユーザー {user_name} ({user_id}) のモデル再学習開始")
+
+            try:
+                # モデルを強制再学習
+                training_result = ensure_model_trained(user_id, force_retrain=True)
+
+                user_result = {
+                    'user_id': user_id,
+                    'user_name': user_name,
+                    'status': training_result.get('status'),
+                    'message': training_result.get('message'),
+                    'data_count': training_result.get('data_count', 0)
+                }
+
+                # 訓練成功時のみ詳細情報を追加
+                if training_result.get('status') == 'success':
+                    training_results = training_result.get('training_results', {})
+                    user_result['metrics'] = {
+                        'rmse': float(training_results.get('walk_forward_rmse', 0)),
+                        'mae': float(training_results.get('walk_forward_mae', 0)),
+                        'r2': float(training_results.get('walk_forward_r2', 0))
+                    }
+                    success_count += 1
+                    logger.warning(f"✅ {user_name} モデル再学習成功 (RMSE: {user_result['metrics']['rmse']:.4f})")
+                else:
+                    error_count += 1
+                    logger.warning(f"⚠️ {user_name} モデル再学習スキップ/失敗: {training_result.get('message')}")
+
+                results['users'].append(user_result)
+
+            except Exception as e:
+                logger.error(f"❌ {user_name} ({user_id}) モデル再学習エラー: {e}", exc_info=True)
+                results['users'].append({
+                    'user_id': user_id,
+                    'user_name': user_name,
+                    'status': 'error',
+                    'message': str(e)
+                })
+                error_count += 1
+
+        results['summary'] = {
+            'success': success_count,
+            'error': error_count,
+            'skipped': len(all_users) - success_count - error_count
+        }
+
+        logger.warning(f"🎉 全ユーザーモデル再学習バッチ完了: 成功={success_count}, エラー={error_count}")
+
+        return jsonify(results)
+
+    except Exception as e:
+        logger.error(f"モデル再学習バッチエラー: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
 @app.route('/api/data/stats', methods=['GET'])
 def get_data_stats():
     """データ統計情報取得API"""
