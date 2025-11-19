@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timedelta
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVR
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import joblib
@@ -55,6 +56,14 @@ class FrustrationPredictor:
         if self.config.MODEL_TYPE == 'Linear':
             logger.info("LinearRegressionモデルを使用します")
             return LinearRegression(n_jobs=-1)
+        elif self.config.MODEL_TYPE == 'SVR':
+            logger.info("SVR（サポートベクター回帰）モデルを使用します")
+            return SVR(
+                kernel=self.config.SVR_KERNEL,
+                C=self.config.SVR_C,
+                epsilon=self.config.SVR_EPSILON,
+                gamma=self.config.SVR_GAMMA
+            )
         else:  # デフォルトはRandomForest
             logger.info("RandomForestRegressorモデルを使用します")
             return RandomForestRegressor(

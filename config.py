@@ -130,11 +130,19 @@ class Config:
         return list(cls.USER_CONFIGURATIONS.values())
     
     # 機械学習モデル設定
-    # MODEL_TYPE: 'RandomForest' または 'Linear' を指定
-    MODEL_TYPE = 'Linear'  # 'RandomForest' か 'Linear' に変更可能
+    # MODEL_TYPE: 'RandomForest', 'Linear', 'SVR' を指定
+    MODEL_TYPE = 'SVR'  # 'RandomForest', 'Linear', 'SVR' から選択
+
+    # RandomForest用パラメータ
     N_ESTIMATORS = 100
     MAX_DEPTH = 10
     RANDOM_STATE = 42
+
+    # SVR用パラメータ
+    SVR_KERNEL = 'rbf'  # 'linear', 'poly', 'rbf', 'sigmoid'
+    SVR_C = 1.0  # 正則化パラメータ（大きいほど過学習しやすい）
+    SVR_EPSILON = 0.1  # イプシロンチューブの幅
+    SVR_GAMMA = 'scale'  # rbfカーネルの係数（'scale'または'auto'）
     
     # DiCE設定
     COUNTERFACTUAL_COUNT = 3
