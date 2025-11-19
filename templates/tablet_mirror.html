@@ -1795,11 +1795,18 @@
             if (hour < 9) {
                 const yesterday = new Date(now);
                 yesterday.setDate(yesterday.getDate() - 1);
-                return yesterday.toISOString().split('T')[0];
+                // ローカル日付を YYYY-MM-DD 形式で返す
+                const year = yesterday.getFullYear();
+                const month = String(yesterday.getMonth() + 1).padStart(2, '0');
+                const day = String(yesterday.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
             }
 
-            // 9:00 以降は当日の日付を返す
-            return now.toISOString().split('T')[0];
+            // 9:00 以降は当日の日付を返す（ローカル日付）
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         }
 
         // フィードバック読み込み
