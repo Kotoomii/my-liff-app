@@ -1245,7 +1245,14 @@
                 targetDate.setDate(targetDate.getDate() - 1);
             }
 
-            const startDate = new Date(EXPERIMENT_CONFIG.startDate);
+            // ローカル日付として比較するため、時刻を0:00:00にリセット
+            targetDate.setHours(0, 0, 0, 0);
+
+            // 実験開始日をローカル日付として解釈
+            const [year, month, day] = EXPERIMENT_CONFIG.startDate.split('-');
+            const startDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            startDate.setHours(0, 0, 0, 0);
+
             const daysSinceStart = Math.floor((targetDate - startDate) / (1000 * 60 * 60 * 24));
 
             // 実験期間外（0日目より前、または6日目以降）
