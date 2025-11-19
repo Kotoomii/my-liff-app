@@ -280,10 +280,10 @@
         .timeline-container {
             position: relative;
             margin-top: 8px;
-            padding: 45px 10px 8px 10px;
+            padding: 60px 10px 3px 10px;
             background: rgba(50, 50, 50, 0.6);
             border-radius: 10px;
-            height: 110px;
+            height: 130px;
             overflow-x: hidden;
             overflow-y: visible;
             flex-shrink: 0;
@@ -292,11 +292,11 @@
         .dice-timeline-container {
             position: relative;
             margin-top: 8px;
-            padding: 45px 10px 8px 10px;
+            padding: 60px 10px 3px 10px;
             background: rgba(50, 50, 50, 0.6);
             border: 2px solid rgba(0, 255, 209, 0.3);
             border-radius: 10px;
-            height: 110px;
+            height: 130px;
             overflow-x: hidden;
             overflow-y: visible;
             flex-shrink: 0;
@@ -415,8 +415,8 @@
 
         .timeline-activity-bar {
             position: absolute;
-            top: 18px;
-            height: 85px;
+            top: 3px;
+            height: 65px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -453,8 +453,8 @@
 
         .dice-suggestion-bar {
             position: absolute;
-            top: 18px;
-            height: 85px;
+            top: 3px;
+            height: 65px;
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -497,11 +497,11 @@
         }
 
         /* 短い活動：活動名を上部スペースに2段表示 */
-        /* 1段目（下段） */
+        /* 1段目（下段）：コンテナpadding領域内に配置 */
         .timeline-activity-bar.narrow-activity .activity-bar-name,
         .dice-suggestion-bar.narrow-activity .activity-bar-name {
             position: absolute;
-            top: -25px;
+            top: -30px;
             left: 0;
             transform: none;
             padding: 4px 8px;
@@ -516,10 +516,10 @@
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
         }
 
-        /* 2段目（上段） */
+        /* 2段目（上段）：1段目の上に配置 */
         .timeline-activity-bar.narrow-activity.label-row-2 .activity-bar-name,
         .dice-suggestion-bar.narrow-activity.label-row-2 .activity-bar-name {
-            top: -70px;
+            top: -58px;
             z-index: 150;
         }
 
@@ -529,9 +529,9 @@
             content: '';
             position: absolute;
             left: 50%;
-            top: -25px;
+            top: -30px;
             width: 2px;
-            height: 25px;
+            height: 30px;
             background: currentColor;
             opacity: 0.7;
             z-index: 90;
@@ -539,8 +539,8 @@
 
         .timeline-activity-bar.narrow-activity.label-row-2::before,
         .dice-suggestion-bar.narrow-activity.label-row-2::before {
-            top: -70px;
-            height: 70px;
+            top: -58px;
+            height: 58px;
             z-index: 140;
         }
 
