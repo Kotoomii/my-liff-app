@@ -231,11 +231,11 @@
                 0 0 10px rgba(255, 255, 255, 0.9),
                 0 0 20px rgba(255, 255, 255, 0.7),
                 0 0 30px rgba(255, 255, 255, 0.5);
+            -webkit-text-size-adjust: none;
+            text-size-adjust: none;
             transition: all 1s ease;
             display: block;
             line-height: 1.1;
-            -webkit-text-size-adjust: none;
-            text-size-adjust: none;
         }
 
         .frustration-low { color: #4CAF50; }
@@ -291,7 +291,7 @@
             padding: 40px 10px 3px 10px;
             background: rgba(50, 50, 50, 0.6);
             border-radius: 10px;
-            height: 120px;
+            height: 110px;
             overflow-x: hidden;
             overflow-y: visible;
             flex-shrink: 0;
@@ -304,7 +304,7 @@
             background: rgba(50, 50, 50, 0.6);
             border: 2px solid rgba(0, 255, 209, 0.3);
             border-radius: 10px;
-            height: 120px;
+            height: 110px;
             overflow-x: hidden;
             overflow-y: visible;
             flex-shrink: 0;
@@ -883,22 +883,10 @@
                 grid-template-columns: 1fr;
                 gap: 5px;
             }
-            
-            .section-title {
-                font-size: 14px;
-                -webkit-text-size-adjust: none;
-                text-size-adjust: none;
-            }
-
-            .frustration-value {
-                font-size: 2.8em;
-                -webkit-text-size-adjust: none;
-                text-size-adjust: none;
-            }
 
             .timeline-container,
             .dice-timeline-container {
-                height: 120px;
+                height: 110px;
             }
         }
         
