@@ -1314,6 +1314,9 @@
             const hour = now.getHours();
             const minute = now.getMinutes();
 
+            // デバッグ用: 現在時刻を表示
+            console.log(`⏰ 時刻チェック: ${now.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} (ローカル時=${hour}:${minute})`);
+
             for (const timeRange of DISPLAY_TIMES) {
                 const startHour = timeRange.start;
                 const startMinute = timeRange.startMinute || 0;
@@ -1403,11 +1406,19 @@
                         closeUserDropdown();
                     }
                 });
+
+                // 1分ごとに時刻をチェック（表示時間外になったら待機画面へ）
+                setInterval(() => {
+                    if (!isDisplayTime()) {
+                        console.log('⏰ 表示時間外になりました - 待機画面に切り替えます');
+                        location.reload();
+                    }
+                }, 60000); // 60秒ごと
             } else {
                 console.log('⏰ 表示時間外 - 待機画面を表示します');
                 showWaitingScreen();
 
-                // 1分ごとに時刻をチェック
+                // 1分ごとに時刻をチェック（表示時間になったらアプリへ）
                 setInterval(() => {
                     if (isDisplayTime()) {
                         console.log('✅ 表示時間になりました - リロードします');
