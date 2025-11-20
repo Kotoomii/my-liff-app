@@ -1165,9 +1165,9 @@
             const now = new Date();
             const hour = now.getHours();
 
-            // 9時前は前日として扱う（getFeedbackDate()と同じロジック）
+            // 11時前は前日として扱う（getFeedbackDate()と同じロジック）
             let targetDate = new Date(now);
-            if (hour < 9) {
+            if (hour < 11) {
                 targetDate.setDate(targetDate.getDate() - 1);
             }
 
@@ -1686,13 +1686,13 @@
             }
         }
 
-        // フィードバック表示用の日付を取得（9時まで前日のフィードバックを表示）
+        // フィードバック表示用の日付を取得（11時まで前日のフィードバックを表示）
         function getFeedbackDate() {
             const now = new Date();
             const hour = now.getHours();
 
-            // 0:00 ～ 8:59 の場合は前日の日付を返す
-            if (hour < 9) {
+            // 0:00 ～ 10:59 の場合は前日の日付を返す
+            if (hour < 11) {
                 const yesterday = new Date(now);
                 yesterday.setDate(yesterday.getDate() - 1);
                 // ローカル日付を YYYY-MM-DD 形式で返す
@@ -1702,7 +1702,7 @@
                 return `${year}-${month}-${day}`;
             }
 
-            // 9:00 以降は当日の日付を返す（ローカル日付）
+            // 11:00 以降は当日の日付を返す（ローカル日付）
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, '0');
             const day = String(now.getDate()).padStart(2, '0');
