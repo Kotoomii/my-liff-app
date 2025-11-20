@@ -1294,8 +1294,8 @@
 
         // 【検証用】表示時間の設定（ここを変更して検証可能）
         const DISPLAY_TIMES = [
-            { start: 22, end: 25, startMinute: 50 },  // 22:50-25:00（翌1:00）- 検証用
-            { start: 6, end: 9, startMinute: 0 }      // 6:00-9:00
+            { start: 23, end: 25, startMinute: 0 },  // 23:00-25:00（翌1:00）
+            { start: 6, end: 11, startMinute: 0 }    // 6:00-11:00
         ];
 
         // グローバル変数
@@ -1310,10 +1310,6 @@
 
         // 現在時刻が表示時間内かチェック
         function isDisplayTime() {
-            // 【一時的に無効化】常に表示
-            return true;
-
-            /* 元のコード（再有効化する場合はコメント解除）
             const now = new Date();
             const hour = now.getHours();
             const minute = now.getMinutes();
@@ -1345,7 +1341,6 @@
                 }
             }
             return false;
-            */
         }
 
         // 待機画面を表示
@@ -1356,7 +1351,7 @@
                 <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; color: #666; font-size: 24px;">
                     <div style="margin-bottom: 20px;">⏰</div>
                     <div>表示時間外です</div>
-                    <div style="font-size: 16px; margin-top: 10px;">次の表示時間: 22:50-1:00, 6:00-9:00</div>
+                    <div style="font-size: 16px; margin-top: 10px;">次の表示時間: 23:00-1:00, 6:00-11:00</div>
                 </div>
             `;
             console.log('⏰ 表示時間外のため待機中...');
