@@ -1310,6 +1310,9 @@
 
         // 現在時刻が表示時間内かチェック
         function isDisplayTime() {
+            // 【一時的に無効化】常に表示
+            return true;
+
             const now = new Date();
             const hour = now.getHours();
             const minute = now.getMinutes();
