@@ -31,64 +31,64 @@ class Config:
             'user_id': 'user1',
             'name': '小手川',
             'icon': '👨',
-            'activity_sheet': 'U1234567890abcdef12345',  # LINEユーザーID例
-            'fitbit_sheet': 'taro_Fitbit-data-main',  # username_Fitbit-data-identifier
+            'activity_sheet': 'Ubc0ab61c4e95c5653a15b2bfd89208a8',  # LINEユーザーID例
+            'fitbit_sheet': 'kotegawa_Fitbit-data-kotomi',  # username_Fitbit-data-identifier
             'description': '小手川さん'
         },
         'user2': {
             'user_id': 'user2',
             'name': '榎本',
             'icon': '👩',
-            'activity_sheet': 'U2345678901bcdefg23456',  # LINEユーザーID例
-            'fitbit_sheet': 'hanako_Fitbit-data-main',  # username_Fitbit-data-identifier
+            'activity_sheet': 'U248d9890d6f03bf6d7b5cdd3141c021d',  # LINEユーザーID例
+            'fitbit_sheet': 'sachiko_Fitbit-data-kotomi',  # username_Fitbit-data-identifier
             'description': '榎本さん'
         },
         'user3': {
             'user_id': 'user3',
             'name': '長山',
             'icon': '🧑',
-            'activity_sheet': 'U3456789012cdefgh34567',  # LINEユーザーID例
-            'fitbit_sheet': 'jiro_Fitbit-data-secondary',  # username_Fitbit-data-identifier
+            'activity_sheet': 'Ubd54d23dd3c1b3ca166808665376ab1d',  # LINEユーザーID例
+            'fitbit_sheet': 'kazuki_Fitbit-data-kotomi',  # username_Fitbit-data-identifier
             'description': '長山さん'
         },
         'user4': {
             'user_id': 'user4',
             'name': '柴田',
             'icon': '👦',
-            'activity_sheet': 'U4567890123defghi45678',  # LINEユーザーID例
-            'fitbit_sheet': 'user4_Fitbit-data-main',
+            'activity_sheet': 'Ueb2743d60a1682676f10849d6c842ec8',  # LINEユーザーID例
+            'fitbit_sheet': 'shibata_Fitbit-data-kotomi',
             'description': '柴田さん'
         },
         'user5': {
             'user_id': 'user5',
             'name': '竹田',
             'icon': '👧',
-            'activity_sheet': 'U5678901234efghij56789',  # LINEユーザーID例
-            'fitbit_sheet': 'user5_Fitbit-data-main',
+            'activity_sheet': 'U760b10389e56abd98e928b13327fd669',  # LINEユーザーID例
+            'fitbit_sheet': 'takeda_Fitbit-data-kotomi',
             'description': '竹田さん'
         },
         'user6': {
             'user_id': 'user6',
             'name': '新名',
             'icon': '🧒',
-            'activity_sheet': 'U6789012345fghijk67890',  # LINEユーザーID例
-            'fitbit_sheet': 'user6_Fitbit-data-main',
+            'activity_sheet': 'U1552de788615ffbdbbbdb7a7b0ee1747',  # LINEユーザーID例
+            'fitbit_sheet': 'shimmyo_Fitbit-data-kotomi',
             'description': '新名さん'
         },
         'user7': {
             'user_id': 'user7',
             'name': '寺岡',
             'icon': '👨‍🦱',
-            'activity_sheet': 'U7890123456ghijkl78901',  # LINEユーザーID例
-            'fitbit_sheet': 'user7_Fitbit-data-main',
+            'activity_sheet': 'U0a798de069df72a0295870ad365cbffc',  # LINEユーザーID例
+            'fitbit_sheet': 'riku_Fitbit-data-kotomi',
             'description': '寺岡さん'
         },
         'user8': {
             'user_id': 'user8',
             'name': '前地',
             'icon': '👩‍🦱',
-            'activity_sheet': 'U8901234567hijklm89012',  # LINEユーザーID例
-            'fitbit_sheet': 'user8_Fitbit-data-main',
+            'activity_sheet': 'Ue5823f306e83691af96cf1e56d75fcbc',  # LINEユーザーID例
+            'fitbit_sheet': 'nodoka_Fitbit-data-kotomi',
             'description': '前地さん'
         },
         'user9': {
