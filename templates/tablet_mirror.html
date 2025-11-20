@@ -1775,7 +1775,8 @@
 
         // DiCE分析実行
         async function executeDiCEAnalysis(userId) {
-            console.log(`🎲 DiCE分析実行: ${userId}`);
+            const targetDate = getFeedbackDate();
+            console.log(`🎲 DiCE分析実行: ${userId}, 日付: ${targetDate}`);
 
             try {
                 const response = await fetch('/api/frustration/dice-analysis', {
@@ -1783,7 +1784,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         user_id: userId,
-                        lookback_hours: 24
+                        date: targetDate
                     })
                 });
 

@@ -1652,28 +1652,29 @@
 
         // DiCE分析実行
         async function executeDiCEAnalysis(userId) {
-            console.log(`🎲 DiCE分析実行: ${userId}`);
-            
+            const targetDate = getFeedbackDate();
+            console.log(`🎲 DiCE分析実行: ${userId}, 日付: ${targetDate}`);
+
             try {
                 document.getElementById('dice-status').textContent = '分析中...';
                 document.getElementById('dice-status').style.background = 'rgba(255, 152, 0, 0.3)';
                 document.getElementById('dice-status').style.borderColor = '#FF9800';
-                
+
                 const response = await fetch('/api/frustration/dice-analysis', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         user_id: userId,
-                        lookback_hours: 24
+                        date: targetDate
                     })
                 });
 
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     updateDiCEDisplay(data.dice_analysis);
                     lastDiceUpdate = Date.now();
-                    
+
                     document.getElementById('dice-status').textContent = '分析完了';
                     document.getElementById('dice-status').style.background = 'rgba(76, 175, 80, 0.3)';
                     document.getElementById('dice-status').style.borderColor = '#4CAF50';
