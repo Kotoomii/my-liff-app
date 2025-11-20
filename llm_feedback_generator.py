@@ -542,7 +542,7 @@ DiCE提案が複数ある場合: 「授業・学内の活動」→「インタ�
             highest_stress_activity = f"{top_row.get('活動名', '不明')}（{top_row.get('予測NASA_F', 0):.1f}点）"
 
         if not low_stress.empty:
-            bottom_row = low_stress.iloc[0]
+            bottom_row = low_stress.iloc[-1]  # 最後の行 = 最も低いストレス
             lowest_stress_activity = f"{bottom_row.get('活動名', '不明')}（{bottom_row.get('予測NASA_F', 0):.1f}点）"
 
         # プロンプト構築
