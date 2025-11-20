@@ -30,8 +30,8 @@ gcloud services enable cloudscheduler.googleapis.com
 **基本設定:**
 - **名前**: `model-retrain-daily`
 - **リージョン**: `asia-northeast1` (東京)
-- **説明**: `全ユーザーのMLモデルを毎朝再学習`
-- **頻度**: `0 8 * * *` (毎朝8時 JST)
+- **説明**: `全ユーザーのMLモデルを毎日深夜0時に再学習`
+- **頻度**: `0 0 * * *` (毎日深夜0時 JST)
 - **タイムゾーン**: `Asia/Tokyo (JST)`
 
 **実行内容の設定:**
@@ -64,7 +64,7 @@ gcloud projects describe YOUR-PROJECT-ID --format="value(projectNumber)"
 # Cloud Schedulerジョブの作成
 gcloud scheduler jobs create http model-retrain-daily \
   --location=asia-northeast1 \
-  --schedule="0 8 * * *" \
+  --schedule="0 0 * * *" \
   --time-zone="Asia/Tokyo" \
   --uri="https://YOUR-CLOUD-RUN-URL/api/model/retrain-all" \
   --http-method=POST \
@@ -72,7 +72,7 @@ gcloud scheduler jobs create http model-retrain-daily \
   --oidc-token-audience="https://YOUR-CLOUD-RUN-URL" \
   --max-retry-attempts=3 \
   --max-retry-duration=1h \
-  --description="全ユーザーのMLモデルを毎朝再学習"
+  --description="全ユーザーのMLモデルを毎日深夜0時に再学習"
 ```
 
 ### 3. 動作確認
@@ -98,10 +98,10 @@ gcloud logging read "resource.type=cloud_run_revision AND textPayload:\"モデ�
 
 ### Cron形式
 
-`0 8 * * *` = 毎日8:00 JST
+`0 0 * * *` = 毎日0:00 JST（深夜0時）
 
 - 第1項 (0): 分 (0-59)
-- 第2項 (8): 時 (0-23)
+- 第2項 (0): 時 (0-23)
 - 第3項 (*): 日 (1-31)
 - 第4項 (*): 月 (1-12)
 - 第5項 (*): 曜日 (0-6, 0=日曜)
@@ -109,17 +109,17 @@ gcloud logging read "resource.type=cloud_run_revision AND textPayload:\"モデ�
 ### スケジュール変更例
 
 ```bash
-# 毎朝9時に変更
-0 9 * * *
+# 毎朝8時に変更
+0 8 * * *
 
 # 毎日正午に実行
 0 12 * * *
 
-# 毎週月曜日の朝8時
-0 8 * * 1
+# 毎週月曜日の深夜0時
+0 0 * * 1
 
-# 1日2回（朝8時と夜8時）
-0 8,20 * * *
+# 1日2回（深夜0時と正午）
+0 0,12 * * *
 ```
 
 ## トラブルシューティング
