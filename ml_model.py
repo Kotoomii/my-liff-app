@@ -364,29 +364,22 @@ class FrustrationPredictor:
 
             logger.warning(f"✅ データ検証完了: クリーニング後={len(X)}件, 除去={invalid_mask.sum()}件")
 
-            # 訓練/テストデータに分割
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=self.config.RANDOM_STATE)
-
-            # モデルを作成して訓練
+            # 全データでモデル訓練（テストデータ分割なし）
+            # 運用フロー: 毎日、前日までの全データで再訓練 → 当日を予測
             self.model = self._create_model()
-            self.model.fit(X_train, y_train)
+            self.model.fit(X, y)
 
-            # 評価
-            train_pred = self.model.predict(X_train)
-            test_pred = self.model.predict(X_test)
-
-            train_rmse = np.sqrt(mean_squared_error(y_train, train_pred))
-            test_rmse = np.sqrt(mean_squared_error(y_test, test_pred))
-            train_r2 = r2_score(y_train, train_pred)
-            test_r2 = r2_score(y_test, test_pred)
+            # 訓練データに対する評価
+            train_pred = self.model.predict(X)
+            train_rmse = np.sqrt(mean_squared_error(y, train_pred))
+            train_mae = mean_absolute_error(y, train_pred)
+            train_r2 = r2_score(y, train_pred)
 
             results = {
                 'train_rmse': float(train_rmse),
-                'test_rmse': float(test_rmse),
+                'train_mae': float(train_mae),
                 'train_r2': float(train_r2),
-                'test_r2': float(test_r2),
-                'training_samples': len(X_train),
-                'test_samples': len(X_test),
+                'training_samples': len(X),
                 'feature_count': len(self.feature_columns),
                 'data_quality': data_quality,
                 'model_type': self.config.MODEL_TYPE
@@ -400,7 +393,7 @@ class FrustrationPredictor:
                 results['feature_coefficients'] = dict(zip(self.feature_columns, self.model.coef_))
 
             if self.config.LOG_MODEL_TRAINING:
-                logger.info(f"モデル訓練完了 - Train RMSE: {train_rmse:.4f}, Test RMSE: {test_rmse:.4f}, Train R²: {train_r2:.3f}, Test R²: {test_r2:.3f}")
+                logger.info(f"モデル訓練完了 - RMSE: {train_rmse:.4f}, MAE: {train_mae:.4f}, R²: {train_r2:.3f}, サンプル数: {len(X)}")
 
             return results
 
