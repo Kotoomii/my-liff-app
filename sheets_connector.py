@@ -1234,49 +1234,35 @@ class SheetsConnector:
             date = hourly_data.get('date', '')
             time = hourly_data.get('time', '')
 
-            # 重複チェック: 同じ日付・時刻・活動名の行を探す
-            all_values = worksheet.get_all_values()
+            # 重複チェックはmain.py側で実施済み（hourly_log_cacheを使用）
+            # ここでは直接書き込む（API呼び出し削減のため）
 
-            duplicate_found = False
-            for idx, row in enumerate(all_values[1:], start=2):  # ヘッダーをスキップ、行番号は2から
-                # 空白行をスキップ
-                if len(row) < 3 or not row[0] or not row[1] or not row[2]:
-                    continue
+            # 誤差を計算
+            actual = hourly_data.get('actual_frustration')
+            predicted = hourly_data.get('predicted_frustration')
+            mae = abs(actual - predicted) if actual is not None and predicted is not None else None
 
-                # 日付・時刻・活動名の完全一致をチェック
-                if row[0].strip() == date and row[1].strip() == time and row[2].strip() == activity:
-                    duplicate_found = True
-                    logger.warning(f"⚠️ 重複を検出してスキップ: {date} {time} {activity} (行{idx})")
-                    logger.warning(f"   既存データ: 実測={row[3] if len(row) > 3 else ''}, 予測={row[4] if len(row) > 4 else ''}")
-                    return True  # 既に存在する場合は何もしない
+            # DiCE提案データ（オプション）
+            dice_suggestion = hourly_data.get('dice_suggestion', '')
+            improvement = hourly_data.get('improvement')
+            improved_frustration = hourly_data.get('improved_frustration')
 
-            if not duplicate_found:
-                # 誤差を計算
-                actual = hourly_data.get('actual_frustration')
-                predicted = hourly_data.get('predicted_frustration')
-                mae = abs(actual - predicted) if actual is not None and predicted is not None else None
+            # データ行を準備
+            row_data = [
+                date,
+                time,
+                activity,
+                round(actual, 2) if actual is not None else '',
+                round(predicted, 2) if predicted is not None else '',
+                round(mae, 2) if mae is not None else '',
+                dice_suggestion if dice_suggestion else '',
+                round(improvement, 2) if improvement is not None else '',
+                round(improved_frustration, 2) if improved_frustration is not None else ''
+            ]
 
-                # DiCE提案データ（オプション）
-                dice_suggestion = hourly_data.get('dice_suggestion', '')
-                improvement = hourly_data.get('improvement')
-                improved_frustration = hourly_data.get('improved_frustration')
-
-                # データ行を準備
-                row_data = [
-                    date,
-                    time,
-                    activity,
-                    round(actual, 2) if actual is not None else '',
-                    round(predicted, 2) if predicted is not None else '',
-                    round(mae, 2) if mae is not None else '',
-                    dice_suggestion if dice_suggestion else '',
-                    round(improvement, 2) if improvement is not None else '',
-                    round(improved_frustration, 2) if improved_frustration is not None else ''
-                ]
-
-                # 新規行を追加（重複がない場合のみ）
-                worksheet.append_row(row_data)
-                logger.warning(f"✅ Hourly Log新規追加: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}")
+            # 新規行を追加
+            worksheet.append_row(row_data)
+            logger.info(f"✅ Hourly Log新規追加: {user_id}, {date} {time} {activity}, 実測={actual}, 予測={predicted}")
 
             return True
 
