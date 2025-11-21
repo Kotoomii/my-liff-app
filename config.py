@@ -152,13 +152,16 @@ class Config:
     NASA_DIMENSIONS = ['NASA_M', 'NASA_P', 'NASA_T', 'NASA_O', 'NASA_E', 'NASA_F']
     NASA_LABELS = {
         'NASA_M': '精神的要求',
-        'NASA_P': '身体的要求', 
+        'NASA_P': '身体的要求',
         'NASA_T': '時間的切迫感',
         'NASA_O': '達成度',
         'NASA_E': '努力',
         'NASA_F': 'フラストレーション'
     }
-    
+
+    # 実験設定
+    EXPERIMENT_START_DATE = '2025-11-21'  # Hourly Log記録開始日
+
     # ログレベル設定
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'WARNING')  # Cloud Run本番環境ではWARNING推奨
 
