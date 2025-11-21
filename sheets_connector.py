@@ -1196,15 +1196,34 @@ class SheetsConnector:
 
             if not worksheet:
                 # シートが存在しない場合は作成
-                worksheet = self.spreadsheet.add_worksheet(
-                    title=sheet_name,
-                    rows="10000",
-                    cols="9"
-                )
-                # ヘッダー行を追加
-                headers = ['日付', '時刻', '活動名', '実測NASA_F', '予測NASA_F', '誤差(MAE)', 'DiCE提案活動名', '改善幅', '改善後F値']
-                worksheet.update('A1:I1', [headers])
-                logger.info(f"Hourly Logシートを作成しました: {sheet_name}")
+                try:
+                    worksheet = self.spreadsheet.add_worksheet(
+                        title=sheet_name,
+                        rows="10000",
+                        cols="9"
+                    )
+                    # ヘッダー行を追加
+                    headers = ['日付', '時刻', '活動名', '実測NASA_F', '予測NASA_F', '誤差(MAE)', 'DiCE提案活動名', '改善幅', '改善後F値']
+                    worksheet.update('A1:I1', [headers])
+                    logger.info(f"Hourly Logシートを作成しました: {sheet_name}")
+
+                    # シート作成後、ワークシートキャッシュをクリア
+                    self._worksheets_cache = None
+                    self._worksheets_cache_time = None
+
+                except Exception as e:
+                    error_msg = str(e)
+                    # "already exists"エラーの場合、キャッシュをクリアして再取得
+                    if "already exists" in error_msg:
+                        logger.warning(f"シート '{sheet_name}' は既に存在します。キャッシュをクリアして再取得します。")
+                        self._worksheets_cache = None
+                        self._worksheets_cache_time = None
+                        worksheet = self._find_worksheet_by_exact_name(sheet_name)
+                        if not worksheet:
+                            logger.error(f"シート '{sheet_name}' の再取得に失敗しました")
+                            return False
+                    else:
+                        raise
 
             # 活動名のバリデーション
             activity = hourly_data.get('activity', '').strip()
