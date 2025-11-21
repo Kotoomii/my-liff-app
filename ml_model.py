@@ -57,13 +57,28 @@ class FrustrationPredictor:
             logger.info("LinearRegressionモデルを使用します")
             return LinearRegression(n_jobs=-1)
         elif self.config.MODEL_TYPE == 'SVR':
-            logger.info("SVR（サポートベクター回帰）モデルを使用します")
-            return SVR(
-                kernel=self.config.SVR_KERNEL,
-                C=self.config.SVR_C,
-                epsilon=self.config.SVR_EPSILON,
-                gamma=self.config.SVR_GAMMA
+            logger.info("SVR（サポートベクター回帰）モデルを使用します - GridSearchCVで最適化")
+            from sklearn.model_selection import GridSearchCV
+
+            # 探索するパラメータ空間
+            param_grid = {
+                'C': [0.1, 1, 10, 100],
+                'epsilon': [0.01, 0.1, 0.5],
+                'gamma': ['scale', 'auto']
+            }
+
+            # GridSearchCVでパラメータ探索
+            base_svr = SVR(kernel='rbf')
+            grid_search = GridSearchCV(
+                base_svr,
+                param_grid,
+                cv=3,  # 3-fold cross validation
+                scoring='neg_mean_squared_error',  # RMSEを最小化
+                n_jobs=-1,  # 並列処理
+                verbose=1
             )
+
+            return grid_search
         else:  # デフォルトはRandomForest
             logger.info("RandomForestRegressorモデルを使用します")
             return RandomForestRegressor(
@@ -369,6 +384,11 @@ class FrustrationPredictor:
             self.model = self._create_model()
             self.model.fit(X, y)
 
+            # GridSearchCVの場合、最適パラメータをログ出力
+            if hasattr(self.model, 'best_params_'):
+                logger.warning(f"🎯 GridSearchCV最適パラメータ: {self.model.best_params_}")
+                logger.warning(f"🎯 GridSearchCV最良スコア: {-self.model.best_score_:.4f} (RMSE)")
+
             # 訓練データに対する評価
             train_pred = self.model.predict(X)
             train_rmse = np.sqrt(mean_squared_error(y, train_pred))
@@ -496,6 +516,11 @@ class FrustrationPredictor:
 
             self.model = self._create_model()
             self.model.fit(X_all, y_all)
+
+            # GridSearchCVの場合、最適パラメータをログ出力
+            if hasattr(self.model, 'best_params_'):
+                logger.warning(f"🎯 GridSearchCV最適パラメータ（最終モデル）: {self.model.best_params_}")
+                logger.warning(f"🎯 GridSearchCV最良スコア（最終モデル）: {-self.model.best_score_:.4f} (RMSE)")
 
             # 評価メトリクス
             predictions_array = np.array(predictions)
