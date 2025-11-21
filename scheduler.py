@@ -230,12 +230,15 @@ class FeedbackScheduler:
         アクティブなユーザー一覧を取得
         """
         try:
-            # 簡単な実装：設定ファイルまたはデフォルトユーザー
-            return ['default']  # 実際の実装では、データベースやシートから取得
-            
+            # Config.pyから全ユーザーを取得
+            all_users = Config.get_all_users()
+            user_ids = [user['user_id'] for user in all_users]
+            logger.info(f"アクティブユーザー取得: {len(user_ids)}人 - {user_ids}")
+            return user_ids
+
         except Exception as e:
             logger.error(f"アクティブユーザー取得エラー: {e}")
-            return ['default']
+            return ['default']  # エラー時はdefaultのみ
     
     def _generate_user_morning_feedback(self, user_id: str, yesterday_data: Dict) -> Optional[Dict]:
         """
