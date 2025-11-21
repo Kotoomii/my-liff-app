@@ -130,21 +130,21 @@ class FeedbackScheduler:
         """
         try:
             logger.info("朝のフィードバック生成を開始します")
-            
+
             # 昨日のデータを取得・分析
             yesterday_data = self._get_yesterday_data()
-            
+
             # 全ユーザーに対してフィードバックを生成
             users = self._get_active_users()
-            
+
             for user_id in users:
                 morning_feedback = self._generate_user_morning_feedback(user_id, yesterday_data)
-                
+
                 if morning_feedback:
                     # フィードバックを保存・配信
                     self._save_and_deliver_feedback(user_id, morning_feedback, FeedbackType.MORNING)
                     logger.info(f"ユーザー {user_id} の朝のフィードバックを生成しました")
-            
+
             logger.info("朝のフィードバック生成が完了しました")
             
         except Exception as e:
@@ -157,16 +157,17 @@ class FeedbackScheduler:
         try:
             logger.warning(f"🌙 夜のフィードバック生成を開始します（システム時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}）")
 
-            # 今日のデータを取得・分析
-            today_data = self._get_today_data()
-            logger.warning(f"📊 今日のデータ取得完了: {today_data.get('date')}")
-
             # 全ユーザーに対してフィードバックを生成
             users = self._get_active_users()
             logger.warning(f"👥 対象ユーザー数: {len(users)}")
 
             for user_id in users:
                 logger.warning(f"🔄 ユーザー {user_id} の処理を開始...")
+
+                # ユーザー別に今日のデータを取得
+                today_data = self._get_today_data(user_id)
+                logger.warning(f"📊 今日のデータ取得完了: {today_data.get('date')}, 活動={len(today_data.get('activity_data', pd.DataFrame()))}件")
+
                 evening_feedback = self._generate_user_evening_feedback(user_id, today_data)
 
                 if evening_feedback:
@@ -176,6 +177,9 @@ class FeedbackScheduler:
                 else:
                     logger.warning(f"⚠️ ユーザー {user_id} のフィードバック生成に失敗しました")
 
+                # レート制限対策: 各ユーザー処理後に待機
+                time_module.sleep(3)  # 3秒待機してAPIレート制限を回避
+
             logger.warning("🎉 夜のフィードバック生成が完了しました")
 
         except Exception as e:
@@ -183,18 +187,17 @@ class FeedbackScheduler:
             import traceback
             logger.error(traceback.format_exc())
     
-    def _get_today_data(self) -> Dict:
+    def _get_today_data(self, user_id: str = 'default') -> Dict:
         """
         今日のデータを取得（JST基準）
         """
         try:
             today = datetime.now(JST)
             today_str = today.strftime('%Y-%m-%d')
-            logger.warning(f"🗓️ 今日の日付: {today_str}（JST基準: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}）")
-            
-            # 活動データとFitbitデータを取得
-            activity_data = self.sheets_connector.get_activity_data()
-            fitbit_data = self.sheets_connector.get_fitbit_data()
+
+            # ユーザー別の活動データとFitbitデータを取得
+            activity_data = self.sheets_connector.get_activity_data(user_id)
+            fitbit_data = self.sheets_connector.get_fitbit_data(user_id)
             
             # 今日のデータにフィルタリング（終了日ベース）
             if not activity_data.empty and 'Timestamp' in activity_data.columns:
