@@ -2091,13 +2091,15 @@ def data_monitor_loop():
                                 'actual_frustration': item['actual_frustration'],
                                 'predicted_frustration': predicted_frustration
                             }
-                            sheets_connector.save_hourly_log(user_id, hourly_data)
-                            predictions_count += 1
-
-                            if predicted_frustration:
-                                logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 実測={item['actual_frustration']}, 予測={predicted_frustration:.2f}")
+                            saved = sheets_connector.save_hourly_log(user_id, hourly_data)
+                            if saved:
+                                predictions_count += 1
+                                if predicted_frustration:
+                                    logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 実測={item['actual_frustration']}, 予測={predicted_frustration:.2f}")
+                                else:
+                                    logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 実測={item['actual_frustration']}, 予測=なし（生体データ不足）")
                             else:
-                                logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 実測={item['actual_frustration']}, 予測=なし（生体データ不足）")
+                                logger.warning(f"⚠️ Hourly Log保存失敗: {item['activity']} @{item['time']}")
 
                         except Exception as save_error:
                             logger.error(f"新規登録エラー: {save_error}")
@@ -2301,13 +2303,15 @@ def run_data_monitor_once():
                         'actual_frustration': item['actual_frustration'],
                         'predicted_frustration': predicted_frustration
                     }
-                    sheets_connector.save_hourly_log(user_id, hourly_data)
-                    predictions_count += 1
-
-                    if predicted_frustration:
-                        logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測={predicted_frustration:.2f}")
+                    saved = sheets_connector.save_hourly_log(user_id, hourly_data)
+                    if saved:
+                        predictions_count += 1
+                        if predicted_frustration:
+                            logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測={predicted_frustration:.2f}")
+                        else:
+                            logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測=なし（生体データ不足）")
                     else:
-                        logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測=なし（生体データ不足）")
+                        logger.warning(f"⚠️ Hourly Log保存失敗: {item['activity']} @{item['time']}")
 
                 except Exception as save_error:
                     logger.error(f"新規登録エラー: {save_error}")
