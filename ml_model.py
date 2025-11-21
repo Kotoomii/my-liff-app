@@ -57,14 +57,14 @@ class FrustrationPredictor:
             logger.info("LinearRegressionモデルを使用します")
             return LinearRegression(n_jobs=-1)
         elif self.config.MODEL_TYPE == 'SVR':
-            logger.info("SVR（サポートベクター回帰）モデルを使用します - GridSearchCVで最適化")
+            logger.info("SVR（サポートベクター回帰）モデルを使用します - GridSearchCVで最適化（軽量版）")
             from sklearn.model_selection import GridSearchCV
 
-            # 探索するパラメータ空間
+            # 探索するパラメータ空間（データ数50-100件に最適化）
             param_grid = {
-                'C': [0.1, 1, 10, 100],
-                'epsilon': [0.01, 0.1, 0.5],
-                'gamma': ['scale', 'auto']
+                'C': [1, 10],  # 2通り（過学習を防ぐ範囲）
+                'epsilon': [0.1],  # 固定（デフォルト値）
+                'gamma': ['scale']  # 固定（自動スケーリング）
             }
 
             # GridSearchCVでパラメータ探索
@@ -72,7 +72,7 @@ class FrustrationPredictor:
             grid_search = GridSearchCV(
                 base_svr,
                 param_grid,
-                cv=3,  # 3-fold cross validation
+                cv=2,  # 2-fold cross validation（データ少ない場合に最適）
                 scoring='neg_mean_squared_error',  # RMSEを最小化
                 n_jobs=-1,  # 並列処理
                 verbose=1
