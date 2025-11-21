@@ -33,6 +33,11 @@ class SheetsConnector:
         self._cache_expiry = {}
         self._cache_duration_minutes = 5  # デフォルト5分間キャッシュ
         self._last_data_timestamp = {}  # 各シートの最終データタイムスタンプ
+
+        # ワークシートリストのキャッシュ（レート制限対策）
+        self._worksheets_cache = None
+        self._worksheets_cache_time = None
+        self._worksheets_cache_duration = 60  # 60秒間キャッシュ
     
     def _get_cache_key(self, data_type: str, user_id: str) -> str:
         """キャッシュキーを生成"""
@@ -178,19 +183,51 @@ class SheetsConnector:
             return None
     
     def _find_worksheet_by_exact_name(self, sheet_name: str) -> Optional[gspread.Worksheet]:
-        """正確なシート名に一致するワークシートを検索"""
+        """正確なシート名に一致するワークシートを検索（キャッシュ＆リトライ対応）"""
+        import time
+
         try:
             if not self.spreadsheet:
                 return None
-                
-            worksheets = self.spreadsheet.worksheets()
-            for ws in worksheets:
+
+            # ワークシートリストのキャッシュをチェック
+            now = datetime.now()
+            if (self._worksheets_cache is None or
+                self._worksheets_cache_time is None or
+                (now - self._worksheets_cache_time).total_seconds() > self._worksheets_cache_duration):
+
+                # キャッシュが無効なので再取得（リトライロジック付き）
+                max_retries = 3
+                retry_delay = 2  # 2秒待機
+
+                for attempt in range(max_retries):
+                    try:
+                        self._worksheets_cache = self.spreadsheet.worksheets()
+                        self._worksheets_cache_time = now
+                        logger.info(f"ワークシートリストを取得しキャッシュしました（{len(self._worksheets_cache)}件）")
+                        break
+                    except Exception as e:
+                        error_msg = str(e)
+                        # 429エラー（レート制限）の場合
+                        if "'code': 429" in error_msg or "RATE_LIMIT_EXCEEDED" in error_msg or "Quota exceeded" in error_msg:
+                            if attempt < max_retries - 1:
+                                wait_time = retry_delay * (attempt + 1)  # 指数バックオフ
+                                logger.warning(f"レート制限エラー（429）: {wait_time}秒後にリトライします（{attempt + 1}/{max_retries}）")
+                                time.sleep(wait_time)
+                            else:
+                                logger.error(f"ワークシートリスト取得失敗: 最大リトライ回数に達しました")
+                                return None
+                        else:
+                            raise
+
+            # キャッシュから検索
+            for ws in self._worksheets_cache:
                 if ws.title == sheet_name:
                     return ws
-            
+
             logger.warning(f"シート '{sheet_name}' が見つかりません")
             return None
-            
+
         except Exception as e:
             logger.error(f"ワークシート検索エラー: {e}")
             return None

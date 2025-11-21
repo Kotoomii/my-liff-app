@@ -1334,6 +1334,10 @@ def retrain_all_models():
                 })
                 error_count += 1
 
+            # レート制限対策: 各ユーザー処理後に待機
+            import time
+            time.sleep(3)  # 3秒待機してAPIレート制限を回避
+
         results['summary'] = {
             'success': success_count,
             'error': error_count,
@@ -2114,6 +2118,10 @@ def data_monitor_loop():
                     logger.error(f"{user_name} の処理エラー: {user_error}")
                     continue
 
+                # レート制限対策: 各ユーザー処理後に待機
+                import time
+                time.sleep(2)  # 2秒待機してAPIレート制限を回避
+
         except Exception as e:
             logger.error(f"データ監視ループエラー: {e}")
             import traceback
@@ -2319,6 +2327,10 @@ def run_data_monitor_once():
         except Exception as user_error:
             logger.error(f"{user_name} の処理エラー: {user_error}")
             continue
+
+        # レート制限対策: 各ユーザー処理後に待機
+        import time
+        time.sleep(2)  # 2秒待機してAPIレート制限を回避
 
     logger.warning(f"✅ データ監視完了（1回実行）")
     return {'status': 'success', 'processed_users': len(users_config)}
