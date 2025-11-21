@@ -173,6 +173,12 @@ class ActivityCounterfactualExplainer:
             logger.info(f"DiCE: スケール変換（×20）後のF値 = {current_frustration}")
             logger.info(f"DiCE: ===== モデル予測完了 =====")
 
+            # 低ストレス時はDiCE提案をスキップ（1-4点の場合）
+            LOW_STRESS_THRESHOLD = 4.0
+            if current_frustration <= LOW_STRESS_THRESHOLD:
+                logger.info(f"DiCE: ストレスレベルが低い({current_frustration:.2f}点 ≤ {LOW_STRESS_THRESHOLD}点)ため、DiCE提案をスキップします")
+                return None
+
             # 訓練データを準備: NaN値と'CatSub'が欠損している行を除外
             required_cols = ['SDNN_scaled', 'Lorenz_Area_scaled', 'NASA_F_scaled', 'CatSub']
             df_train = df_enhanced.dropna(subset=required_cols).copy()
