@@ -178,7 +178,7 @@ class FeedbackScheduler:
                     logger.warning(f"⚠️ ユーザー {user_id} のフィードバック生成に失敗しました")
 
                 # レート制限対策: 各ユーザー処理後に待機
-                time_module.sleep(3)  # 3秒待機してAPIレート制限を回避
+                time_module.sleep(5)  # 5秒待機してAPIレート制限を回避
 
             logger.warning("🎉 夜のフィードバック生成が完了しました")
 
