@@ -157,9 +157,33 @@ class SheetsConnector:
                         return
             
             self.gc = gspread.authorize(creds)
-            self.spreadsheet = self.gc.open_by_key(self.config.SPREADSHEET_ID)
-            logger.info("Google Sheetsクライアント初期化完了")
-            
+
+            # スプレッドシート取得（リトライロジック付き）
+            import time
+            max_retries = 3
+            retry_delay = 2
+
+            for attempt in range(max_retries):
+                try:
+                    self.spreadsheet = self.gc.open_by_key(self.config.SPREADSHEET_ID)
+                    logger.info("Google Sheetsクライアント初期化完了")
+                    break
+                except Exception as e:
+                    error_msg = str(e)
+                    # 429（レート制限）または500（内部エラー）の場合はリトライ
+                    if ("'code': 429" in error_msg or "RATE_LIMIT_EXCEEDED" in error_msg or
+                        "'code': 500" in error_msg or "INTERNAL" in error_msg):
+                        if attempt < max_retries - 1:
+                            wait_time = retry_delay * (attempt + 1)
+                            logger.warning(f"スプレッドシート取得エラー（{error_msg[:100]}）: {wait_time}秒後にリトライします（{attempt + 1}/{max_retries}）")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"スプレッドシート取得失敗: 最大リトライ回数に達しました - {e}")
+                            self.gc = None
+                            return
+                    else:
+                        raise
+
         except Exception as e:
             logger.error(f"Google Sheetsクライアント初期化エラー: {e}")
             self.gc = None
