@@ -2037,9 +2037,13 @@ def data_monitor_loop():
 
                     logger.warning(f"📊 新規活動: {len(new_activities)}件, 予測値更新: {len(update_predictions)}件")
 
-                    # 予測値更新処理
+                    # 予測値更新処理（実験開始日以降のみ）
                     predictions_count = 0
                     for item in update_predictions:
+                        # 実験開始日以前のデータはスキップ
+                        if item['date'] < Config.EXPERIMENT_START_DATE:
+                            continue
+
                         try:
                             prediction_result = predictor.predict_from_row(item['row'])
                             if prediction_result and 'predicted_frustration' in prediction_result:
@@ -2056,8 +2060,12 @@ def data_monitor_loop():
                             logger.error(f"予測値更新エラー: {update_error}")
                             continue
 
-                    # 新規活動保存処理
+                    # 新規活動保存処理（実験開始日以降のみ）
                     for item in new_activities:
+                        # 実験開始日以前のデータはスキップ
+                        if item['date'] < Config.EXPERIMENT_START_DATE:
+                            continue
+
                         try:
                             predicted_frustration = None
 
@@ -2071,19 +2079,16 @@ def data_monitor_loop():
                                     else:
                                         predicted_frustration = None
 
-                            # Hourly Logに保存（実験開始日以降のみ）
-                            if item['date'] >= Config.EXPERIMENT_START_DATE:
-                                hourly_data = {
-                                    'date': item['date'],
-                                    'time': item['time'],
-                                    'activity': item['activity'],
-                                    'actual_frustration': item['actual_frustration'],
-                                    'predicted_frustration': predicted_frustration
-                                }
-                                sheets_connector.save_hourly_log(user_id, hourly_data)
-                                predictions_count += 1
-                            else:
-                                logger.info(f"実験開始前のデータ({item['date']})をスキップ")
+                            # Hourly Logに保存
+                            hourly_data = {
+                                'date': item['date'],
+                                'time': item['time'],
+                                'activity': item['activity'],
+                                'actual_frustration': item['actual_frustration'],
+                                'predicted_frustration': predicted_frustration
+                            }
+                            sheets_connector.save_hourly_log(user_id, hourly_data)
+                            predictions_count += 1
 
                             if predicted_frustration:
                                 logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 実測={item['actual_frustration']}, 予測={predicted_frustration:.2f}")
@@ -2240,9 +2245,13 @@ def run_data_monitor_once():
 
             logger.warning(f"📊 新規活動: {len(new_activities)}件, 予測値更新: {len(update_predictions)}件")
 
-            # 予測値更新処理
+            # 予測値更新処理（実験開始日以降のみ）
             predictions_count = 0
             for item in update_predictions:
+                # 実験開始日以前のデータはスキップ
+                if item['date'] < Config.EXPERIMENT_START_DATE:
+                    continue
+
                 try:
                     prediction_result = predictor.predict_from_row(item['row'])
                     if prediction_result and 'predicted_frustration' in prediction_result:
@@ -2258,8 +2267,12 @@ def run_data_monitor_once():
                     logger.error(f"予測値更新エラー: {update_error}")
                     continue
 
-            # 新規活動保存処理
+            # 新規活動保存処理（実験開始日以降のみ）
             for item in new_activities:
+                # 実験開始日以前のデータはスキップ
+                if item['date'] < Config.EXPERIMENT_START_DATE:
+                    continue
+
                 try:
                     predicted_frustration = None
 
@@ -2272,24 +2285,21 @@ def run_data_monitor_once():
                             else:
                                 predicted_frustration = None
 
-                    # Hourly Logに保存（実験開始日以降のみ）
-                    if item['date'] >= Config.EXPERIMENT_START_DATE:
-                        hourly_data = {
-                            'date': item['date'],
-                            'time': item['time'],
-                            'activity': item['activity'],
-                            'actual_frustration': item['actual_frustration'],
-                            'predicted_frustration': predicted_frustration
-                        }
-                        sheets_connector.save_hourly_log(user_id, hourly_data)
-                        predictions_count += 1
+                    # Hourly Logに保存
+                    hourly_data = {
+                        'date': item['date'],
+                        'time': item['time'],
+                        'activity': item['activity'],
+                        'actual_frustration': item['actual_frustration'],
+                        'predicted_frustration': predicted_frustration
+                    }
+                    sheets_connector.save_hourly_log(user_id, hourly_data)
+                    predictions_count += 1
 
-                        if predicted_frustration:
-                            logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測={predicted_frustration:.2f}")
-                        else:
-                            logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測=なし（生体データ不足）")
+                    if predicted_frustration:
+                        logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測={predicted_frustration:.2f}")
                     else:
-                        logger.info(f"実験開始前のデータ({item['date']})をスキップ")
+                        logger.warning(f"✅ 新規登録: {item['activity']} @{item['time']}, 予測=なし（生体データ不足）")
 
                 except Exception as save_error:
                     logger.error(f"新規登録エラー: {save_error}")
